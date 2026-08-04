@@ -1,0 +1,20 @@
+{
+  "name": "com.grimoire.plugin-v2",
+  "version": "0.1.0",
+  "displayName": "Grimoire Plugin 2",
+  "description": "Link Unity GameObjects to Grimoire objects by key (code_id), inspect their data in an editor widget, and view or complete attached tasks. Built on the Grimoire Public API v1.",
+  "unity": "2021.3",
+  "documentationUrl": "https://api.usegrimoire.com/api/v1/docs",
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  },
+  "keywords": [
+    "grimoire",
+    "narrative",
+    "game-data",
+    "tasks"
+  ],
+  "author": {
+    "name": "Grimoire"
+  }
+}

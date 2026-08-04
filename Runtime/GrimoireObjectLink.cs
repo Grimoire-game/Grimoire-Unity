@@ -1,0 +1,58 @@
+using UnityEngine;
+
+namespace Grimoire.PluginV2
+{
+    /// <summary>
+    /// Links a GameObject to a Grimoire object through its key (<c>code_id</c>,
+    /// e.g. <c>characters/aragorn</c>).
+    ///
+    /// This component is pure serialized data. Everything that talks to the
+    /// Grimoire API — key resolution, the object widget, task updates — lives in
+    /// the editor assembly, so builds carry nothing but these two strings.
+    /// </summary>
+    [AddComponentMenu("Grimoire/Grimoire Object Link")]
+    [DisallowMultipleComponent]
+    public class GrimoireObjectLink : MonoBehaviour
+    {
+        [SerializeField]
+        [Tooltip("The Grimoire object key (code_id), e.g. 'characters/aragorn'.")]
+        private string _objectKey = "";
+
+        [SerializeField]
+        [HideInInspector]
+        private string _cachedObjectId = "";
+
+        /// <summary>The Grimoire object key (<c>code_id</c>) this GameObject is linked to.</summary>
+        public string ObjectKey
+        {
+            get => _objectKey;
+            set
+            {
+                var trimmed = value?.Trim() ?? "";
+                if (trimmed == _objectKey)
+                {
+                    return;
+                }
+
+                _objectKey = trimmed;
+                // The cached UUID belongs to the previous key; a stale id would
+                // silently show the wrong object in the widget.
+                _cachedObjectId = "";
+            }
+        }
+
+        /// <summary>
+        /// The resolved Grimoire object UUID for <see cref="ObjectKey"/>. Cached
+        /// so the widget can skip the key-resolution listing call. Cleared
+        /// whenever the key changes; the editor re-resolves when it is empty or
+        /// no longer matches.
+        /// </summary>
+        public string CachedObjectId
+        {
+            get => _cachedObjectId;
+            set => _cachedObjectId = value ?? "";
+        }
+
+        public bool HasKey => !string.IsNullOrWhiteSpace(_objectKey);
+    }
+}
