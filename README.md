@@ -33,10 +33,13 @@ Add the package to your project via the Package Manager:
 1. Open `Window > Grimoire > Object Widget 2`.
 2. **Sign in** with your Grimoire account (2FA is supported).
 3. **Select a game** from the list of games you have access to.
+4. Open **Settings** and enter your company **API key** and **secret**
+   (Grimoire → Settings → API Keys). The key needs `tasks:read` scope so
+   the plugin can load workflow statuses for the task dropdown.
 
-The selected game is stored per Unity project. Settings (API base URL, locale)
-are stored per-user in `EditorPrefs`; nothing is written to files that could
-be committed.
+The selected game is stored per Unity project. Settings (API base URL, API
+credentials, locale) are stored per-user in `EditorPrefs`; nothing is written
+to files that could be committed.
 
 ## Usage
 

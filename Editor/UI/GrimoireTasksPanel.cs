@@ -23,6 +23,20 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>EnsureStatuses runs from OnGUI; without a cooldown a failing fetch would retry every repaint.</summary>
         private const double StatusRetryCooldownSeconds = 30;
 
+        public static void InvalidateStatusCache()
+        {
+            StatusCache.Clear();
+        }
+
+        /// <summary>Clears cached statuses so a settings change can refetch immediately.</summary>
+        public void ResetStatusFetchState()
+        {
+            InvalidateStatusCache();
+            _statusFetchFailedAt.Clear();
+            _statusesLoading = false;
+            _error = null;
+        }
+
         private readonly HashSet<string> _pendingTasks = new HashSet<string>();
         private readonly Dictionary<string, double> _statusFetchFailedAt = new Dictionary<string, double>();
         private string _statusesGameId;
@@ -55,7 +69,13 @@ namespace Grimoire.PluginV2.Editor
 
             EnsureStatuses(gameId);
 
-            if (!GrimoireAuthSession.IsSignedIn)
+            if (!GrimoireSettings.HasApiCredentials)
+            {
+                EditorGUILayout.HelpBox(
+                    "Add an API key and secret in Settings to load task workflow statuses.",
+                    MessageType.Info);
+            }
+            else if (!GrimoireAuthSession.IsSignedIn)
             {
                 EditorGUILayout.HelpBox("Sign in with your Grimoire account to update task statuses.", MessageType.Info);
             }
@@ -256,7 +276,8 @@ namespace Grimoire.PluginV2.Editor
 
         private async void EnsureStatuses(string gameId)
         {
-            if (string.IsNullOrEmpty(gameId) || StatusCache.ContainsKey(gameId) ||
+            if (string.IsNullOrEmpty(gameId) || !GrimoireSettings.HasApiCredentials ||
+                StatusCache.ContainsKey(gameId) ||
                 (_statusesLoading && _statusesGameId == gameId))
             {
                 return;

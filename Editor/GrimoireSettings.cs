@@ -43,12 +43,35 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
+        public static string ApiKey
+        {
+            get => EditorPrefs.GetString(Key("ApiKey"), "");
+            set
+            {
+                EditorPrefs.SetString(Key("ApiKey"), value?.Trim() ?? "");
+                Changed?.Invoke();
+            }
+        }
+
+        public static string ApiSecret
+        {
+            get => EditorPrefs.GetString(Key("ApiSecret"), "");
+            set
+            {
+                EditorPrefs.SetString(Key("ApiSecret"), value?.Trim() ?? "");
+                Changed?.Invoke();
+            }
+        }
+
         /// <summary>Locale for translatable fields; empty shows source text.</summary>
         public static string Locale
         {
             get => EditorPrefs.GetString(Key("Locale"), "");
             set => EditorPrefs.SetString(Key("Locale"), value?.Trim() ?? "");
         }
+
+        public static bool HasApiCredentials =>
+            !string.IsNullOrEmpty(ApiKey) && !string.IsNullOrEmpty(ApiSecret);
 
         public static bool HasGameId => !string.IsNullOrEmpty(GameId);
 

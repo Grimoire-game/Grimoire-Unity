@@ -5,9 +5,10 @@ using System.Text.RegularExpressions;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// The signed-in Grimoire user session (bearer JWT). Used for all API
-    /// calls in the plugin — reads, game discovery, and task updates. Token
-    /// and identity are stored via <see cref="GrimoireSettings"/> (EditorPrefs).
+    /// The signed-in Grimoire user session (bearer JWT). Used for game
+    /// discovery, object reads, and task status updates. Endpoints that only
+    /// accept API keys (e.g. workflow statuses) use
+    /// <see cref="GrimoireSettings.ApiKey"/> instead.
     /// </summary>
     public static class GrimoireAuthSession
     {
