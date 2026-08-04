@@ -68,6 +68,8 @@ namespace Grimoire.PluginV2.Editor
 
         private void OnAuthChanged()
         {
+            _tasksPanel.ResetStatusFetchState();
+
             if (!GrimoireAuthSession.IsSignedIn)
             {
                 _setupPanel.OnSignedOut();
@@ -368,12 +370,6 @@ namespace Grimoire.PluginV2.Editor
             var apiBaseUrl = EditorGUILayout.TextField(
                 new GUIContent("API base URL", "Default: " + GrimoireSettings.DefaultApiBaseUrl),
                 GrimoireSettings.ApiBaseUrl);
-            var apiKey = EditorGUILayout.TextField(
-                new GUIContent("API key", "Company API key from Grimoire (Settings → API Keys). Required for task workflow statuses."),
-                GrimoireSettings.ApiKey);
-            var apiSecret = EditorGUILayout.PasswordField(
-                new GUIContent("API secret", "Secret shown once when the API key was created."),
-                GrimoireSettings.ApiSecret);
             var locale = EditorGUILayout.TextField(
                 new GUIContent("Locale", "Language code for translatable fields; empty shows source text"),
                 GrimoireSettings.Locale);
@@ -381,8 +377,6 @@ namespace Grimoire.PluginV2.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 GrimoireSettings.ApiBaseUrl = apiBaseUrl;
-                GrimoireSettings.ApiKey = apiKey;
-                GrimoireSettings.ApiSecret = apiSecret;
                 GrimoireSettings.Locale = locale;
                 GrimoireObjectKeyResolver.InvalidateCache();
             }

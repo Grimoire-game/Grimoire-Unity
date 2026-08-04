@@ -43,9 +43,6 @@ namespace Grimoire.PluginV2.Editor
         private bool _statusesLoading;
         private string _error;
 
-        private string _apiKeyDraft = "";
-        private string _apiSecretDraft = "";
-
         /// <summary>Raised after a successful status update with the new status key.</summary>
         public event Action<string, string> TaskStatusChanged;
 
@@ -72,11 +69,7 @@ namespace Grimoire.PluginV2.Editor
 
             EnsureStatuses(gameId);
 
-            if (!GrimoireSettings.HasApiCredentials)
-            {
-                DrawApiKeySetup();
-            }
-            else if (!GrimoireAuthSession.IsSignedIn)
+            if (!GrimoireAuthSession.IsSignedIn)
             {
                 EditorGUILayout.HelpBox("Sign in with your Grimoire account to update task statuses.", MessageType.Info);
             }
@@ -166,42 +159,11 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndVertical();
         }
 
-        private void DrawApiKeySetup()
-        {
-            EditorGUILayout.HelpBox(
-                "Task status controls need a company API key with tasks:read scope. " +
-                "Create one in Grimoire under Settings → API Keys.",
-                MessageType.Info);
-
-            _apiKeyDraft = string.IsNullOrEmpty(_apiKeyDraft)
-                ? GrimoireSettings.ApiKey
-                : _apiKeyDraft;
-            _apiSecretDraft = string.IsNullOrEmpty(_apiSecretDraft)
-                ? GrimoireSettings.ApiSecret
-                : _apiSecretDraft;
-
-            _apiKeyDraft = EditorGUILayout.TextField("API key", _apiKeyDraft);
-            _apiSecretDraft = EditorGUILayout.PasswordField("API secret", _apiSecretDraft);
-
-            using (new EditorGUI.DisabledScope(
-                       string.IsNullOrWhiteSpace(_apiKeyDraft) || string.IsNullOrEmpty(_apiSecretDraft)))
-            {
-                if (GUILayout.Button("Save API credentials"))
-                {
-                    GrimoireSettings.ApiKey = _apiKeyDraft.Trim();
-                    GrimoireSettings.ApiSecret = _apiSecretDraft;
-                    ResetStatusFetchState();
-                    RepaintNeeded?.Invoke();
-                }
-            }
-        }
-
         private void DrawTaskActions(string gameId, GrimoireTask task)
         {
             var statuses = GetStatuses(gameId);
             var pending = _pendingTasks.Contains(task.id);
             var canUpdate = GrimoireAuthSession.IsSignedIn &&
-                            GrimoireSettings.HasApiCredentials &&
                             statuses != null &&
                             statuses.Length > 0;
 
@@ -331,7 +293,7 @@ namespace Grimoire.PluginV2.Editor
 
         private async void EnsureStatuses(string gameId)
         {
-            if (string.IsNullOrEmpty(gameId) || !GrimoireSettings.HasApiCredentials ||
+            if (string.IsNullOrEmpty(gameId) || !GrimoireAuthSession.IsSignedIn ||
                 StatusCache.ContainsKey(gameId) ||
                 (_statusesLoading && _statusesGameId == gameId))
             {
@@ -346,6 +308,15 @@ namespace Grimoire.PluginV2.Editor
 
             _statusesLoading = true;
             _statusesGameId = gameId;
+
+            var hasSession = await GrimoireAuthSession.EnsureFreshTokenAsync();
+            if (!hasSession)
+            {
+                _statusesLoading = false;
+                _error = "Your Grimoire session has expired. Sign in again to load task statuses.";
+                RepaintNeeded?.Invoke();
+                return;
+            }
 
             var result = await GrimoireApiClient.GetTaskStatusesAsync(gameId);
             _statusesLoading = false;

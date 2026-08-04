@@ -43,26 +43,6 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
-        public static string ApiKey
-        {
-            get => EditorPrefs.GetString(Key("ApiKey"), "");
-            set
-            {
-                EditorPrefs.SetString(Key("ApiKey"), value?.Trim() ?? "");
-                Changed?.Invoke();
-            }
-        }
-
-        public static string ApiSecret
-        {
-            get => EditorPrefs.GetString(Key("ApiSecret"), "");
-            set
-            {
-                EditorPrefs.SetString(Key("ApiSecret"), value?.Trim() ?? "");
-                Changed?.Invoke();
-            }
-        }
-
         /// <summary>Locale for translatable fields; empty shows source text.</summary>
         public static string Locale
         {
@@ -70,13 +50,10 @@ namespace Grimoire.PluginV2.Editor
             set => EditorPrefs.SetString(Key("Locale"), value?.Trim() ?? "");
         }
 
-        public static bool HasApiCredentials =>
-            !string.IsNullOrEmpty(ApiKey) && !string.IsNullOrEmpty(ApiSecret);
-
         public static bool HasGameId => !string.IsNullOrEmpty(GameId);
 
         public static bool CanUpdateTaskStatuses =>
-            GrimoireAuthSession.IsSignedIn && HasApiCredentials && HasGameId;
+            GrimoireAuthSession.IsSignedIn && HasGameId;
 
         /// <summary>Signed in and a game is selected for this Unity project.</summary>
         public static bool IsConfigured =>

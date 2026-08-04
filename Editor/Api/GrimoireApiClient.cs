@@ -9,9 +9,6 @@ namespace Grimoire.PluginV2.Editor
 {
     public enum ApiAuth
     {
-        /// <summary>X-API-Key / X-API-Secret headers (company API key).</summary>
-        ApiKey,
-
         /// <summary>Authorization: Bearer (signed-in user JWT).</summary>
         Bearer,
 
@@ -98,7 +95,7 @@ namespace Grimoire.PluginV2.Editor
                 ["domain"] = "tasks",
             });
 
-            var result = await SendAsync<SingleEnvelope<WorkflowStatusData>>("GET", url, null, ApiAuth.ApiKey);
+            var result = await SendAsync<SingleEnvelope<WorkflowStatusData>>("GET", url, null, ApiAuth.Bearer);
             return result.Success
                 ? ApiResult<WorkflowStatusEntry[]>.Ok(result.Data.data?.statuses ?? Array.Empty<WorkflowStatusEntry>())
                 : ApiResult<WorkflowStatusEntry[]>.Fail(result.Error, result.Code, result.HttpStatus);
@@ -225,31 +222,17 @@ namespace Grimoire.PluginV2.Editor
                     request.SetRequestHeader("Content-Type", "application/json");
                 }
 
-                switch (auth)
+                if (auth == ApiAuth.Bearer)
                 {
-                    case ApiAuth.ApiKey:
-                        if (!GrimoireSettings.HasApiCredentials)
-                        {
-                            return ApiResult<T>.Fail(
-                                "No API credentials configured. Enter an API key and secret in the widget settings.",
-                                "missing_credentials");
-                        }
+                    var token = GrimoireSettings.SessionToken;
+                    if (string.IsNullOrEmpty(token))
+                    {
+                        return ApiResult<T>.Fail(
+                            "Not signed in. Sign in with your Grimoire account first.",
+                            "missing_credentials");
+                    }
 
-                        request.SetRequestHeader("X-API-Key", GrimoireSettings.ApiKey);
-                        request.SetRequestHeader("X-API-Secret", GrimoireSettings.ApiSecret);
-                        break;
-
-                    case ApiAuth.Bearer:
-                        var token = GrimoireSettings.SessionToken;
-                        if (string.IsNullOrEmpty(token))
-                        {
-                            return ApiResult<T>.Fail(
-                                "Not signed in. Sign in with your Grimoire account first.",
-                                "missing_credentials");
-                        }
-
-                        request.SetRequestHeader("Authorization", $"Bearer {token}");
-                        break;
+                    request.SetRequestHeader("Authorization", $"Bearer {token}");
                 }
 
                 await AwaitRequest(request);
@@ -368,14 +351,13 @@ namespace Grimoire.PluginV2.Editor
                         case "missing_credentials":
                             return $"{envelope.error} Sign in with your Grimoire account in the Object Widget.";
                         case "insufficient_scope":
-                            return $"{envelope.error} Add the required scope to this API key in Grimoire.";
+                            return $"{envelope.error} Your account may not have access to this action in Grimoire.";
                         case "rate_limited":
                             return $"{envelope.error} Wait a moment and try again.";
                         case "jwt_not_accepted":
-                            return $"{envelope.error} Add your company API key in the widget settings.";
                         case "api_key_not_accepted":
                         case "user_session_required":
-                            return $"{envelope.error} Sign in with your Grimoire account to update tasks.";
+                            return $"{envelope.error} Sign in with your Grimoire account in the Object Widget.";
                         default:
                             return envelope.error;
                     }
