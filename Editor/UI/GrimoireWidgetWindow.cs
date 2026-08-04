@@ -44,7 +44,7 @@ namespace Grimoire.PluginV2.Editor
         {
             _tasksPanel = new GrimoireTasksPanel();
             _tasksPanel.RepaintNeeded += Repaint;
-            _tasksPanel.TaskUpdated += ReloadCurrent;
+            _tasksPanel.TaskStatusChanged += OnTaskStatusChanged;
 
             _setupPanel = new GrimoireSetupPanel();
             _setupPanel.RepaintNeeded += Repaint;
@@ -106,6 +106,24 @@ namespace Grimoire.PluginV2.Editor
             }
 
             LoadLink(link);
+        }
+
+        private void OnTaskStatusChanged(string taskId, string statusKey)
+        {
+            if (_document?.tasks != null)
+            {
+                foreach (var task in _document.tasks)
+                {
+                    if (task.id == taskId)
+                    {
+                        task.status = statusKey;
+                        break;
+                    }
+                }
+            }
+
+            Repaint();
+            ReloadCurrent();
         }
 
         private void ReloadCurrent()

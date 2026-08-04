@@ -75,6 +75,9 @@ namespace Grimoire.PluginV2.Editor
 
         public static bool HasGameId => !string.IsNullOrEmpty(GameId);
 
+        public static bool CanUpdateTaskStatuses =>
+            GrimoireAuthSession.IsSignedIn && HasApiCredentials && HasGameId;
+
         /// <summary>Signed in and a game is selected for this Unity project.</summary>
         public static bool IsConfigured =>
             GrimoireAuthSession.IsSignedIn && HasGameId;

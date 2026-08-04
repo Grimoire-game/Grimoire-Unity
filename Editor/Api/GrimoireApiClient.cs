@@ -210,14 +210,18 @@ namespace Grimoire.PluginV2.Editor
         private static async Task<ApiResult<T>> SendAsync<T>(
             string method, string url, string jsonBody, ApiAuth auth) where T : ApiEnvelope
         {
-            using (var request = new UnityWebRequest(url, method))
+            byte[] bodyBytes = null;
+            if (jsonBody != null)
+            {
+                bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+            }
+
+            using (var request = CreateRequest(method, url, bodyBytes))
             {
                 request.timeout = RequestTimeoutSeconds;
-                request.downloadHandler = new DownloadHandlerBuffer();
 
-                if (jsonBody != null)
+                if (bodyBytes != null)
                 {
-                    request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(jsonBody));
                     request.SetRequestHeader("Content-Type", "application/json");
                 }
 
@@ -284,6 +288,47 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>
+        /// UnityWebRequest does not construct PATCH/PUT with bodies reliably on
+        /// every platform; PUT + method override is the common editor workaround.
+        /// </summary>
+        private static UnityWebRequest CreateRequest(string method, string url, byte[] bodyBytes)
+        {
+            UnityWebRequest request;
+
+            if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
+            {
+                request = UnityWebRequest.Get(url);
+            }
+            else if (string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase))
+            {
+                request = UnityWebRequest.Delete(url);
+            }
+            else if (bodyBytes != null &&
+                     (string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase) ||
+                      string.Equals(method, "PUT", StringComparison.OrdinalIgnoreCase) ||
+                      string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)))
+            {
+                request = UnityWebRequest.Put(url, bodyBytes);
+                request.method = method.ToUpperInvariant();
+            }
+            else
+            {
+                request = new UnityWebRequest(url, method);
+                if (bodyBytes != null)
+                {
+                    request.uploadHandler = new UploadHandlerRaw(bodyBytes);
+                }
+            }
+
+            if (request.downloadHandler == null)
+            {
+                request.downloadHandler = new DownloadHandlerBuffer();
+            }
+
+            return request;
+        }
+
+        /// <summary>
         /// `operation.completed` is invoked on the editor main thread, so
         /// everything after the await stays on it.
         /// </summary>
@@ -328,6 +373,9 @@ namespace Grimoire.PluginV2.Editor
                             return $"{envelope.error} Wait a moment and try again.";
                         case "jwt_not_accepted":
                             return $"{envelope.error} Add your company API key in the widget settings.";
+                        case "api_key_not_accepted":
+                        case "user_session_required":
+                            return $"{envelope.error} Sign in with your Grimoire account to update tasks.";
                         default:
                             return envelope.error;
                     }

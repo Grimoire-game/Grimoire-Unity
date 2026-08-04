@@ -43,8 +43,11 @@ namespace Grimoire.PluginV2.Editor
         private bool _statusesLoading;
         private string _error;
 
-        /// <summary>Raised after a successful status update so the owner can refetch the object.</summary>
-        public event Action TaskUpdated;
+        private string _apiKeyDraft = "";
+        private string _apiSecretDraft = "";
+
+        /// <summary>Raised after a successful status update with the new status key.</summary>
+        public event Action<string, string> TaskStatusChanged;
 
         /// <summary>Raised when async work finished and the window should repaint.</summary>
         public event Action RepaintNeeded;
@@ -71,13 +74,15 @@ namespace Grimoire.PluginV2.Editor
 
             if (!GrimoireSettings.HasApiCredentials)
             {
-                EditorGUILayout.HelpBox(
-                    "Add an API key and secret in Settings to load task workflow statuses.",
-                    MessageType.Info);
+                DrawApiKeySetup();
             }
             else if (!GrimoireAuthSession.IsSignedIn)
             {
                 EditorGUILayout.HelpBox("Sign in with your Grimoire account to update task statuses.", MessageType.Info);
+            }
+            else if (_statusesLoading)
+            {
+                EditorGUILayout.LabelField("Loading task statuses...", EditorStyles.miniLabel);
             }
 
             if (!string.IsNullOrEmpty(_error))
@@ -161,21 +166,67 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndVertical();
         }
 
+        private void DrawApiKeySetup()
+        {
+            EditorGUILayout.HelpBox(
+                "Task status controls need a company API key with tasks:read scope. " +
+                "Create one in Grimoire under Settings → API Keys.",
+                MessageType.Info);
+
+            _apiKeyDraft = string.IsNullOrEmpty(_apiKeyDraft)
+                ? GrimoireSettings.ApiKey
+                : _apiKeyDraft;
+            _apiSecretDraft = string.IsNullOrEmpty(_apiSecretDraft)
+                ? GrimoireSettings.ApiSecret
+                : _apiSecretDraft;
+
+            _apiKeyDraft = EditorGUILayout.TextField("API key", _apiKeyDraft);
+            _apiSecretDraft = EditorGUILayout.PasswordField("API secret", _apiSecretDraft);
+
+            using (new EditorGUI.DisabledScope(
+                       string.IsNullOrWhiteSpace(_apiKeyDraft) || string.IsNullOrEmpty(_apiSecretDraft)))
+            {
+                if (GUILayout.Button("Save API credentials"))
+                {
+                    GrimoireSettings.ApiKey = _apiKeyDraft.Trim();
+                    GrimoireSettings.ApiSecret = _apiSecretDraft;
+                    ResetStatusFetchState();
+                    RepaintNeeded?.Invoke();
+                }
+            }
+        }
+
         private void DrawTaskActions(string gameId, GrimoireTask task)
         {
             var statuses = GetStatuses(gameId);
             var pending = _pendingTasks.Contains(task.id);
+            var canUpdate = GrimoireAuthSession.IsSignedIn &&
+                            GrimoireSettings.HasApiCredentials &&
+                            statuses != null &&
+                            statuses.Length > 0;
 
-            using (new EditorGUI.DisabledScope(!GrimoireAuthSession.IsSignedIn || pending || statuses == null || statuses.Length == 0))
+            using (new EditorGUI.DisabledScope(!canUpdate || pending))
             {
                 if (statuses != null && statuses.Length > 0)
                 {
                     var keys = statuses.Select(status => status.key).ToArray();
                     var labels = statuses.Select(status => status.label ?? status.key).ToArray();
-                    var currentIndex = Array.IndexOf(keys, task.status);
+                    var currentIndex = Array.FindIndex(keys, key => key == task.status);
+
+                    // Keep the current status visible even if it is not in the workflow list.
+                    if (currentIndex < 0 && !string.IsNullOrEmpty(task.status))
+                    {
+                        keys = new[] { task.status }.Concat(keys).ToArray();
+                        labels = new[] { task.status }.Concat(labels).ToArray();
+                        currentIndex = 0;
+                    }
+                    else if (currentIndex < 0)
+                    {
+                        currentIndex = 0;
+                    }
 
                     var pickedIndex = EditorGUILayout.Popup(currentIndex, labels, GUILayout.Width(110));
-                    if (pickedIndex != currentIndex && pickedIndex >= 0)
+                    if (pickedIndex != currentIndex && pickedIndex >= 0 && pickedIndex < keys.Length)
                     {
                         UpdateStatus(gameId, task, keys[pickedIndex]);
                     }
@@ -217,12 +268,15 @@ namespace Grimoire.PluginV2.Editor
 
         private async void UpdateStatus(string gameId, GrimoireTask task, string statusKey)
         {
+            if (_pendingTasks.Contains(task.id) || task.status == statusKey)
+            {
+                return;
+            }
+
             _pendingTasks.Add(task.id);
             _error = null;
             RepaintNeeded?.Invoke();
 
-            // Refresh proactively: the PATCH is the only bearer call in the
-            // plugin and a stale JWT would fail it with a confusing 401.
             var hasSession = await GrimoireAuthSession.EnsureFreshTokenAsync();
             if (!hasSession)
             {
@@ -242,7 +296,8 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            TaskUpdated?.Invoke();
+            task.status = statusKey;
+            TaskStatusChanged?.Invoke(task.id, statusKey);
         }
 
         /// <summary>
