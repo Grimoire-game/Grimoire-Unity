@@ -4,13 +4,15 @@ namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
     /// Plugin configuration, stored in EditorPrefs: per-user and per-machine,
-    /// so the API secret can never end up in version control. Keys are scoped
-    /// by project GUID because the game id (and possibly the server) differ
+    /// so session tokens never end up in version control. Keys are scoped by
+    /// project GUID because the selected game (and possibly the server) differ
     /// between projects sharing the same machine.
     /// </summary>
     public static class GrimoireSettings
     {
         public const string DefaultApiBaseUrl = "https://api.usegrimoire.com";
+
+        public static event System.Action Changed;
 
         private static string Key(string name) =>
             $"GrimoireV2_{PlayerSettings.productGUID}_{name}";
@@ -24,19 +26,21 @@ namespace Grimoire.PluginV2.Editor
         public static string GameId
         {
             get => EditorPrefs.GetString(Key("GameId"), "");
-            set => EditorPrefs.SetString(Key("GameId"), value?.Trim() ?? "");
+            set
+            {
+                EditorPrefs.SetString(Key("GameId"), value?.Trim() ?? "");
+                Changed?.Invoke();
+            }
         }
 
-        public static string ApiKey
+        public static string GameName
         {
-            get => EditorPrefs.GetString(Key("ApiKey"), "");
-            set => EditorPrefs.SetString(Key("ApiKey"), value?.Trim() ?? "");
-        }
-
-        public static string ApiSecret
-        {
-            get => EditorPrefs.GetString(Key("ApiSecret"), "");
-            set => EditorPrefs.SetString(Key("ApiSecret"), value?.Trim() ?? "");
+            get => EditorPrefs.GetString(Key("GameName"), "");
+            set
+            {
+                EditorPrefs.SetString(Key("GameName"), value?.Trim() ?? "");
+                Changed?.Invoke();
+            }
         }
 
         /// <summary>Locale for translatable fields; empty shows source text.</summary>
@@ -46,12 +50,23 @@ namespace Grimoire.PluginV2.Editor
             set => EditorPrefs.SetString(Key("Locale"), value?.Trim() ?? "");
         }
 
-        public static bool HasApiCredentials =>
-            !string.IsNullOrEmpty(ApiKey) && !string.IsNullOrEmpty(ApiSecret);
-
         public static bool HasGameId => !string.IsNullOrEmpty(GameId);
 
-        public static bool IsConfigured => HasApiCredentials && HasGameId;
+        /// <summary>Signed in and a game is selected for this Unity project.</summary>
+        public static bool IsConfigured =>
+            GrimoireAuthSession.IsSignedIn && HasGameId;
+
+        public static void SelectGame(string gameId, string gameName)
+        {
+            GameId = gameId;
+            GameName = gameName ?? "";
+        }
+
+        public static void ClearGame()
+        {
+            GameId = "";
+            GameName = "";
+        }
 
         // Auth session storage lives here too so every consumer agrees on the keys.
 

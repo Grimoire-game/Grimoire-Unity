@@ -6,8 +6,8 @@ Editor-only Unity plugin built on the **Grimoire Public API v1**.
   `GrimoireObjectLink` component.
 - Select a linked GameObject and the **Grimoire Object Widget** shows the full,
   render-ready object data (sections, fields, references, media, ...).
-- Tasks and notes attached to the object are listed in the widget. Sign in with
-  your Grimoire account to complete tasks or change their workflow status.
+- Tasks and notes attached to the object are listed in the widget. Update task
+  workflow statuses directly from Unity.
 
 Nothing in this package ships in player builds: the runtime assembly contains
 only the serialized link component; all networking and UI live in the editor
@@ -17,10 +17,7 @@ assembly.
 
 - Unity **2021.3** or newer
 - `com.unity.nuget.newtonsoft-json` (installed automatically as a dependency)
-- A Grimoire **company API key** with at least the `objects:read` and
-  `tasks:read` scopes (Grimoire platform → Settings → API Keys)
-- To update task statuses: a Grimoire user account (`tasks:write` scope on the
-  key is not enough — the API requires a signed-in user)
+- A Grimoire user account with access to at least one game
 
 ## Installation
 
@@ -34,15 +31,12 @@ Add the package to your project via the Package Manager:
 ## Setup
 
 1. Open `Window > Grimoire > Object Widget 2`.
-2. Open the **Settings** foldout and fill in:
-   - **API base URL** — default `https://api.usegrimoire.com`
-   - **Game ID** — the UUID of your game
-   - **API key / secret** — company API key credentials
-3. (Optional) Click **Sign in...** and log in with your Grimoire account to be
-   able to complete tasks. 2FA is supported.
+2. **Sign in** with your Grimoire account (2FA is supported).
+3. **Select a game** from the list of games you have access to.
 
-Settings are stored per-user and per-project in `EditorPrefs`; nothing is
-written to files that could be committed.
+The selected game is stored per Unity project. Settings (API base URL, locale)
+are stored per-user in `EditorPrefs`; nothing is written to files that could
+be committed.
 
 ## Usage
 
@@ -62,15 +56,19 @@ With the widget window open, click a linked GameObject in the Hierarchy. The
 widget fetches the object's view document and draws it, followed by every task
 and note attached to the object.
 
-When signed in, each open task gets a **Complete** button (moves it to the
-game's done status) and a status dropdown for other workflow moves.
+Each open task gets a **Complete** button (moves it to the game's done status)
+and a status dropdown for other workflow moves.
+
+Use **Change game** in the toolbar to switch which Grimoire game this Unity
+project connects to.
 
 ## API endpoints used
 
 | Endpoint | Purpose |
 | --- | --- |
+| `POST /api/v1/auth/login` / `verify-2fa` / `refresh` | User sign-in |
+| `GET /api/v1/games` | List games the signed-in user can access |
 | `GET /api/v1/objects` | Object picker + key (`code_id`) resolution |
 | `GET /api/v1/objects/{id}` | Object View Document incl. attached tasks |
 | `GET /api/v1/statuses?domain=tasks` | Valid task workflow statuses |
-| `PATCH /api/v1/tasks/{id}` | Update a task's status (signed-in user) |
-| `POST /api/v1/auth/login` / `verify-2fa` / `refresh` | User sign-in |
+| `PATCH /api/v1/tasks/{id}` | Update a task's status |

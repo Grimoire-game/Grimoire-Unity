@@ -45,7 +45,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 if (!GrimoireSettings.IsConfigured)
                 {
-                    _validationMessage = "Configure the game id and API key first (Window > Grimoire > Object Widget 2 > Settings).";
+                    _validationMessage = "Sign in and select a game first (Window > Grimoire > Object Widget 2).";
                     _validationType = MessageType.Warning;
                 }
                 else
@@ -104,7 +104,7 @@ namespace Grimoire.PluginV2.Editor
         {
             if (!GrimoireSettings.IsConfigured)
             {
-                _validationMessage = "Configure the game id and API key first (Window > Grimoire > Object Widget 2 > Settings).";
+                _validationMessage = "Sign in and select a game first (Window > Grimoire > Object Widget 2).";
                 _validationType = MessageType.Warning;
                 return;
             }
@@ -241,9 +241,18 @@ namespace Grimoire.PluginV2.Editor
 
         private async void Fetch(string search)
         {
+            if (!GrimoireSettings.IsConfigured)
+            {
+                _error = "Sign in and select a game first (Window > Grimoire > Object Widget 2).";
+                Repaint();
+                return;
+            }
+
             _loading = true;
             _error = null;
             Repaint();
+
+            await GrimoireAuthSession.EnsureFreshTokenAsync();
 
             var result = await GrimoireApiClient.ListObjectsAsync(GrimoireSettings.GameId, search, PageSize);
 

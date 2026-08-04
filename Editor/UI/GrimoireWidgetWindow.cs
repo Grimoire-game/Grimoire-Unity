@@ -8,9 +8,7 @@ namespace Grimoire.PluginV2.Editor
     /// <see cref="GrimoireObjectLink"/> and this window shows the linked
     /// object's data (Object View Document) plus its attached tasks.
     ///
-    /// Loading pipeline per selection: resolve the link's key to a UUID
-    /// (component cache first, then <see cref="GrimoireObjectKeyResolver"/>),
-    /// then fetch GET /api/v1/objects/{id}, which carries the tasks too.
+    /// Setup follows the Grimoire platform: sign in, pick a game, then work.
     /// </summary>
     public class GrimoireWidgetWindow : EditorWindow
     {
@@ -22,12 +20,10 @@ namespace Grimoire.PluginV2.Editor
         private bool _settingsOpen;
         private Vector2 _scroll;
 
-        // Selection can change while a fetch is in flight; responses tagged
-        // with an old generation are dropped instead of overwriting the newer
-        // object.
         private int _loadGeneration;
 
         private GrimoireTasksPanel _tasksPanel;
+        private GrimoireSetupPanel _setupPanel;
 
         [MenuItem("Window/Grimoire/Object Widget 2")]
         public static void Open()
@@ -37,7 +33,6 @@ namespace Grimoire.PluginV2.Editor
             window.Show();
         }
 
-        /// <summary>Opens the window focused on one specific link (used by the inspector).</summary>
         public static void ShowAndLoad(GrimoireObjectLink link)
         {
             Open();
@@ -51,11 +46,14 @@ namespace Grimoire.PluginV2.Editor
             _tasksPanel.RepaintNeeded += Repaint;
             _tasksPanel.TaskUpdated += ReloadCurrent;
 
-            Selection.selectionChanged += OnSelectionChanged;
-            GrimoireAuthSession.Changed += Repaint;
-            GrimoireObjectViewRenderer.RepaintNeeded += Repaint;
+            _setupPanel = new GrimoireSetupPanel();
+            _setupPanel.RepaintNeeded += Repaint;
+            _setupPanel.SetupCompleted += OnSetupCompleted;
 
-            _settingsOpen = !GrimoireSettings.IsConfigured;
+            Selection.selectionChanged += OnSelectionChanged;
+            GrimoireAuthSession.Changed += OnAuthChanged;
+            GrimoireSettings.Changed += OnSettingsChanged;
+            GrimoireObjectViewRenderer.RepaintNeeded += Repaint;
 
             OnSelectionChanged();
         }
@@ -63,8 +61,31 @@ namespace Grimoire.PluginV2.Editor
         private void OnDisable()
         {
             Selection.selectionChanged -= OnSelectionChanged;
-            GrimoireAuthSession.Changed -= Repaint;
+            GrimoireAuthSession.Changed -= OnAuthChanged;
+            GrimoireSettings.Changed -= OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded -= Repaint;
+        }
+
+        private void OnAuthChanged()
+        {
+            if (!GrimoireAuthSession.IsSignedIn)
+            {
+                _setupPanel.OnSignedOut();
+                _document = null;
+            }
+
+            Repaint();
+        }
+
+        private void OnSettingsChanged()
+        {
+            Repaint();
+        }
+
+        private void OnSetupCompleted()
+        {
+            _error = null;
+            ReloadCurrent();
         }
 
         private void OnSelectionChanged()
@@ -74,9 +95,6 @@ namespace Grimoire.PluginV2.Editor
 
             if (link == null)
             {
-                // Keep showing the last object rather than blanking: designers
-                // click around the hierarchy constantly and losing the widget
-                // content on every unlinked click would make it useless.
                 Repaint();
                 return;
             }
@@ -105,8 +123,6 @@ namespace Grimoire.PluginV2.Editor
 
             if (!GrimoireSettings.IsConfigured)
             {
-                _error = "Configure the API base URL, game id and API key in Settings first.";
-                _settingsOpen = true;
                 Repaint();
                 return;
             }
@@ -124,6 +140,18 @@ namespace Grimoire.PluginV2.Editor
             _loading = true;
             _statusMessage = $"Resolving '{link.ObjectKey}'...";
             Repaint();
+
+            var hasSession = await GrimoireAuthSession.EnsureFreshTokenAsync();
+            if (generation != _loadGeneration)
+            {
+                return;
+            }
+
+            if (!hasSession)
+            {
+                FinishWithError("Your Grimoire session has expired. Sign in again.");
+                return;
+            }
 
             var objectId = link.CachedObjectId;
             var resolvedFromCache = !string.IsNullOrEmpty(objectId);
@@ -155,9 +183,6 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            // A cached UUID can go stale when the object was deleted and the
-            // key was reused, or the cache simply predates a migration. One
-            // re-resolve pass covers both.
             if (!view.Success && resolvedFromCache && view.HttpStatus == 404)
             {
                 link.CachedObjectId = "";
@@ -214,13 +239,15 @@ namespace Grimoire.PluginV2.Editor
             EditorUtility.SetDirty(link);
         }
 
-        // -----------------------------------------------------------------
-        // GUI
-        // -----------------------------------------------------------------
-
         private void OnGUI()
         {
             DrawToolbar();
+
+            if (_setupPanel.NeedsSetup)
+            {
+                _setupPanel.Draw();
+                return;
+            }
 
             if (_settingsOpen)
             {
@@ -261,32 +288,49 @@ namespace Grimoire.PluginV2.Editor
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-            var title = _document?.@object?.name
-                        ?? (_link != null && _link.HasKey ? _link.ObjectKey : "No object");
-            GUILayout.Label(title, EditorStyles.boldLabel);
+            if (GrimoireSettings.IsConfigured)
+            {
+                var gameLabel = string.IsNullOrEmpty(GrimoireSettings.GameName)
+                    ? "Game"
+                    : GrimoireSettings.GameName;
+                GUILayout.Label(gameLabel, EditorStyles.boldLabel);
+                GUILayout.Label("·", EditorStyles.miniLabel);
+
+                var title = _document?.@object?.name
+                            ?? (_link != null && _link.HasKey ? _link.ObjectKey : "No object");
+                GUILayout.Label(title, EditorStyles.label);
+            }
+            else
+            {
+                GUILayout.Label("Grimoire", EditorStyles.boldLabel);
+            }
 
             GUILayout.FlexibleSpace();
 
-            using (new EditorGUI.DisabledScope(_link == null || _loading))
+            if (GrimoireSettings.IsConfigured)
             {
-                if (GUILayout.Button(new GUIContent("Refresh", "Re-fetch this object from Grimoire"), EditorStyles.toolbarButton))
+                using (new EditorGUI.DisabledScope(_link == null || _loading))
                 {
-                    GrimoireObjectKeyResolver.InvalidateCache(GrimoireSettings.GameId);
-                    ReloadCurrent();
+                    if (GUILayout.Button(new GUIContent("Refresh", "Re-fetch this object from Grimoire"), EditorStyles.toolbarButton))
+                    {
+                        GrimoireObjectKeyResolver.InvalidateCache(GrimoireSettings.GameId);
+                        ReloadCurrent();
+                    }
                 }
-            }
 
-            if (GrimoireAuthSession.IsSignedIn)
-            {
-                GUILayout.Label(GrimoireAuthSession.UserName, EditorStyles.miniLabel);
-                if (GUILayout.Button("Sign out", EditorStyles.toolbarButton))
+                if (GrimoireAuthSession.IsSignedIn)
                 {
-                    GrimoireAuthSession.SignOut();
+                    GUILayout.Label(GrimoireAuthSession.UserName, EditorStyles.miniLabel);
+                    if (GUILayout.Button("Change game", EditorStyles.toolbarButton))
+                    {
+                        _setupPanel.BeginGameSelection();
+                    }
+
+                    if (GUILayout.Button("Sign out", EditorStyles.toolbarButton))
+                    {
+                        GrimoireAuthSession.SignOut();
+                    }
                 }
-            }
-            else if (GUILayout.Button("Sign in...", EditorStyles.toolbarButton))
-            {
-                GrimoireLoginWindow.Open();
             }
 
             _settingsOpen = GUILayout.Toggle(_settingsOpen, "Settings", EditorStyles.toolbarButton);
@@ -297,20 +341,13 @@ namespace Grimoire.PluginV2.Editor
         private void DrawSettings()
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Grimoire API", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Settings", EditorStyles.boldLabel);
 
             EditorGUI.BeginChangeCheck();
 
             var apiBaseUrl = EditorGUILayout.TextField(
                 new GUIContent("API base URL", "Default: " + GrimoireSettings.DefaultApiBaseUrl),
                 GrimoireSettings.ApiBaseUrl);
-            var gameId = EditorGUILayout.TextField(new GUIContent("Game ID", "UUID of the game"), GrimoireSettings.GameId);
-            var apiKey = EditorGUILayout.TextField(
-                new GUIContent("API key", "Company API key (loca_key_...) with objects:read and tasks:read scopes"),
-                GrimoireSettings.ApiKey);
-            var apiSecret = EditorGUILayout.PasswordField(
-                new GUIContent("API secret", "Shown once when the key is created"),
-                GrimoireSettings.ApiSecret);
             var locale = EditorGUILayout.TextField(
                 new GUIContent("Locale", "Language code for translatable fields; empty shows source text"),
                 GrimoireSettings.Locale);
@@ -318,18 +355,14 @@ namespace Grimoire.PluginV2.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 GrimoireSettings.ApiBaseUrl = apiBaseUrl;
-                GrimoireSettings.GameId = gameId;
-                GrimoireSettings.ApiKey = apiKey;
-                GrimoireSettings.ApiSecret = apiSecret;
                 GrimoireSettings.Locale = locale;
                 GrimoireObjectKeyResolver.InvalidateCache();
             }
 
-            if (!GrimoireSettings.IsConfigured)
+            if (GrimoireSettings.HasGameId)
             {
-                EditorGUILayout.HelpBox(
-                    "Enter the game id plus an API key and secret. Keys are managed in the Grimoire platform under Settings > API Keys.",
-                    MessageType.Info);
+                EditorGUILayout.LabelField("Game", GrimoireSettings.GameName, EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("Game ID", GrimoireSettings.GameId, EditorStyles.miniLabel);
             }
 
             EditorGUILayout.EndVertical();

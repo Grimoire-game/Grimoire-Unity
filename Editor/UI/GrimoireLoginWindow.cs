@@ -171,6 +171,13 @@ namespace Grimoire.PluginV2.Editor
             GrimoireAuthSession.ApplySession(session);
             _password = "";
             Close();
+
+            if (!GrimoireSettings.HasGameId)
+            {
+                GrimoireWidgetWindow.Open();
+                var widget = EditorWindow.GetWindow<GrimoireWidgetWindow>();
+                widget.Repaint();
+            }
         }
     }
 }
