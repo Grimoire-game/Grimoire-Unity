@@ -210,7 +210,8 @@ namespace Grimoire.PluginV2.Editor
 
             if (!view.Success)
             {
-                FinishWithError(view.Error);
+                var detail = view.HttpStatus > 0 ? $"{view.Error} (HTTP {view.HttpStatus})" : view.Error;
+                FinishWithError(detail);
                 return;
             }
 
