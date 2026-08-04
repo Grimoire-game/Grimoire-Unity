@@ -1,4 +1,4 @@
-# Grimoire Plugin 2 (Unity)
+# Grimoire Plugin (Unity)
 
 Editor-only Unity plugin built on the **Grimoire Public API v1**.
 
