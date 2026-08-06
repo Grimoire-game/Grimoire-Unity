@@ -29,7 +29,7 @@ namespace Grimoire.PluginV2.Editor
         public static void Open()
         {
             var window = GetWindow<GrimoireWidgetWindow>("Grimoire Object");
-            window.minSize = new Vector2(360, 300);
+            window.minSize = new Vector2(420, 520);
             window.Show();
         }
 
@@ -263,13 +263,23 @@ namespace Grimoire.PluginV2.Editor
 
         private void OnGUI()
         {
-            DrawToolbar();
-
             if (_setupPanel.NeedsSetup)
             {
-                _setupPanel.Draw();
+                if (_setupPanel.CurrentPhase == SetupPhase.Login)
+                {
+                    _setupPanel.Draw(new Rect(0f, 0f, position.width, position.height));
+                }
+                else
+                {
+                    DrawToolbar();
+                    var toolbarHeight = EditorStyles.toolbar.fixedHeight;
+                    _setupPanel.Draw(new Rect(0f, toolbarHeight, position.width, position.height - toolbarHeight));
+                }
+
                 return;
             }
+
+            DrawToolbar();
 
             if (_settingsOpen)
             {

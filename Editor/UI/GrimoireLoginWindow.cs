@@ -20,97 +20,40 @@ namespace Grimoire.PluginV2.Editor
         public static void Open()
         {
             var window = GetWindow<GrimoireLoginWindow>(true, "Sign in to Grimoire", true);
-            window.minSize = new Vector2(340, 190);
-            window.maxSize = new Vector2(480, 240);
+            window.minSize = new Vector2(420, 520);
+            window.maxSize = new Vector2(900, 900);
             window._email = GrimoireSettings.SessionUserEmail;
         }
 
         private void OnGUI()
         {
-            EditorGUILayout.Space(8);
+            var action = GrimoireLoginUi.Draw(
+                new Rect(0f, 0f, position.width, position.height),
+                ref _email,
+                ref _password,
+                ref _code,
+                _tempToken != null,
+                _busy,
+                _error);
 
-            using (new EditorGUI.DisabledScope(_busy))
+            switch (action)
             {
-                if (_tempToken == null)
-                {
-                    DrawCredentialsStep();
-                }
-                else
-                {
-                    DrawTwoFactorStep();
-                }
-            }
-
-            if (_busy)
-            {
-                EditorGUILayout.Space(4);
-                EditorGUILayout.LabelField("Working...", EditorStyles.centeredGreyMiniLabel);
-            }
-
-            if (!string.IsNullOrEmpty(_error))
-            {
-                EditorGUILayout.Space(4);
-                EditorGUILayout.HelpBox(_error, MessageType.Error);
-            }
-        }
-
-        private void DrawCredentialsStep()
-        {
-            EditorGUILayout.LabelField("Sign in with your Grimoire account to update tasks.", EditorStyles.wordWrappedMiniLabel);
-            EditorGUILayout.Space(4);
-
-            _email = EditorGUILayout.TextField("Email", _email);
-            _password = EditorGUILayout.PasswordField("Password", _password);
-
-            EditorGUILayout.Space(8);
-
-            var canSubmit = !string.IsNullOrWhiteSpace(_email) && !string.IsNullOrEmpty(_password);
-            using (new EditorGUI.DisabledScope(!canSubmit))
-            {
-                if (GUILayout.Button("Sign in", GUILayout.Height(26)) || (canSubmit && SubmitPressed()))
-                {
+                case GrimoireLoginUi.Action.SubmitLogin:
                     Login();
-                }
-            }
-        }
-
-        private void DrawTwoFactorStep()
-        {
-            EditorGUILayout.LabelField(
-                "Two-factor authentication is enabled on this account. Enter the 6-digit code from your authenticator app (or a recovery code).",
-                EditorStyles.wordWrappedMiniLabel);
-            EditorGUILayout.Space(4);
-
-            _code = EditorGUILayout.TextField("Code", _code);
-
-            EditorGUILayout.Space(8);
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (GUILayout.Button("Back"))
-                {
+                    break;
+                case GrimoireLoginUi.Action.SubmitVerify:
+                    Verify();
+                    break;
+                case GrimoireLoginUi.Action.GoBack:
                     _tempToken = null;
                     _code = "";
                     _error = null;
-                    return;
-                }
-
-                var canVerify = !string.IsNullOrWhiteSpace(_code) && _code.Trim().Length == 6;
-                using (new EditorGUI.DisabledScope(!canVerify))
-                {
-                    if (GUILayout.Button("Verify", GUILayout.Height(22)) || (canVerify && SubmitPressed()))
-                    {
-                        Verify();
-                    }
-                }
+                    Repaint();
+                    break;
+                case GrimoireLoginUi.Action.ForgotPassword:
+                    Application.OpenURL(GrimoireLoginUi.PlatformLoginUrl);
+                    break;
             }
-        }
-
-        private static bool SubmitPressed()
-        {
-            var current = Event.current;
-            return current.type == EventType.KeyDown &&
-                   (current.keyCode == KeyCode.Return || current.keyCode == KeyCode.KeypadEnter);
         }
 
         private async void Login()

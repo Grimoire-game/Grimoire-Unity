@@ -52,15 +52,15 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
-        public void Draw()
+        public void Draw(Rect area)
         {
             switch (CurrentPhase)
             {
                 case SetupPhase.Login:
-                    DrawLoginStep();
+                    DrawLoginStep(area);
                     break;
                 case SetupPhase.SelectGame:
-                    DrawGameSelectionStep();
+                    DrawGameSelectionStep(area);
                     break;
             }
         }
@@ -91,91 +91,38 @@ namespace Grimoire.PluginV2.Editor
             RepaintNeeded?.Invoke();
         }
 
-        private void DrawLoginStep()
+        private void DrawLoginStep(Rect area)
         {
-            EditorGUILayout.Space(12);
-            EditorGUILayout.LabelField("Sign in to Grimoire", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(
-                "Use your Grimoire account to connect this Unity project to your games.",
-                EditorStyles.wordWrappedMiniLabel);
-            EditorGUILayout.Space(8);
+            var action = GrimoireLoginUi.Draw(
+                area,
+                ref _email,
+                ref _password,
+                ref _code,
+                _tempToken != null,
+                _busy,
+                _error);
 
-            using (new EditorGUI.DisabledScope(_busy))
+            switch (action)
             {
-                if (_tempToken == null)
-                {
-                    DrawCredentialsForm();
-                }
-                else
-                {
-                    DrawTwoFactorForm();
-                }
-            }
-
-            if (_busy)
-            {
-                EditorGUILayout.Space(4);
-                EditorGUILayout.LabelField("Working...", EditorStyles.centeredGreyMiniLabel);
-            }
-
-            if (!string.IsNullOrEmpty(_error))
-            {
-                EditorGUILayout.Space(4);
-                EditorGUILayout.HelpBox(_error, MessageType.Error);
-            }
-        }
-
-        private void DrawCredentialsForm()
-        {
-            _email = EditorGUILayout.TextField("Email", _email);
-            _password = EditorGUILayout.PasswordField("Password", _password);
-
-            EditorGUILayout.Space(8);
-
-            var canSubmit = !string.IsNullOrWhiteSpace(_email) && !string.IsNullOrEmpty(_password);
-            using (new EditorGUI.DisabledScope(!canSubmit))
-            {
-                if (GUILayout.Button("Sign in", GUILayout.Height(28)) || (canSubmit && SubmitPressed()))
-                {
+                case GrimoireLoginUi.Action.SubmitLogin:
                     Login();
-                }
-            }
-        }
-
-        private void DrawTwoFactorForm()
-        {
-            EditorGUILayout.LabelField(
-                "Enter the 6-digit code from your authenticator app (or a recovery code).",
-                EditorStyles.wordWrappedMiniLabel);
-            EditorGUILayout.Space(4);
-
-            _code = EditorGUILayout.TextField("Code", _code);
-
-            EditorGUILayout.Space(8);
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (GUILayout.Button("Back"))
-                {
+                    break;
+                case GrimoireLoginUi.Action.SubmitVerify:
+                    Verify();
+                    break;
+                case GrimoireLoginUi.Action.GoBack:
                     _tempToken = null;
                     _code = "";
                     _error = null;
                     RepaintNeeded?.Invoke();
-                    return;
-                }
-
-                var canVerify = !string.IsNullOrWhiteSpace(_code) && _code.Trim().Length == 6;
-                using (new EditorGUI.DisabledScope(!canVerify))
-                {
-                    if (GUILayout.Button("Verify", GUILayout.Height(24)) || (canVerify && SubmitPressed()))
-                    {
-                        Verify();
-                    }
-                }
+                    break;
+                case GrimoireLoginUi.Action.ForgotPassword:
+                    Application.OpenURL(GrimoireLoginUi.PlatformLoginUrl);
+                    break;
             }
         }
 
-        private void DrawGameSelectionStep()
+        private void DrawGameSelectionStep(Rect area)
         {
             if (!_gamesFetchRequested && !_gamesLoading)
             {
@@ -183,6 +130,7 @@ namespace Grimoire.PluginV2.Editor
                 FetchGames();
             }
 
+            GUILayout.BeginArea(area);
             EditorGUILayout.Space(12);
             EditorGUILayout.LabelField("Select a game", EditorStyles.boldLabel);
             EditorGUILayout.LabelField(
@@ -239,6 +187,7 @@ namespace Grimoire.PluginV2.Editor
                     FetchGames();
                 }
             }
+            GUILayout.EndArea();
         }
 
         private void DrawGameRow(GameDirectoryEntry game)
@@ -360,13 +309,6 @@ namespace Grimoire.PluginV2.Editor
             GrimoireObjectKeyResolver.InvalidateCache();
             SetupCompleted?.Invoke();
             RepaintNeeded?.Invoke();
-        }
-
-        private static bool SubmitPressed()
-        {
-            var current = Event.current;
-            return current.type == EventType.KeyDown &&
-                   (current.keyCode == KeyCode.Return || current.keyCode == KeyCode.KeypadEnter);
         }
     }
 
