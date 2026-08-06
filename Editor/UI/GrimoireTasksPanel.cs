@@ -49,25 +49,19 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>Raised when async work finished and the window should repaint.</summary>
         public event Action RepaintNeeded;
 
-        public void Draw(string gameId, GrimoireTask[] tasks, bool showHeader = true)
+        public void Draw(string gameId, GrimoireTask[] tasks, bool showHeader = true, string sectionId = "object-tasks")
         {
             if (showHeader)
             {
-                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            }
-            else
-            {
-                EditorGUILayout.BeginVertical();
-            }
-
-            if (showHeader)
-            {
                 var openCount = tasks?.Count(task => task.is_task && !IsDone(gameId, task.status)) ?? 0;
-                EditorGUILayout.LabelField(
-                    tasks == null || tasks.Length == 0
-                        ? "Tasks"
-                        : $"Tasks ({tasks.Length}, {openCount} open)",
-                    EditorStyles.boldLabel);
+                var title = tasks == null || tasks.Length == 0
+                    ? "Tasks"
+                    : $"Tasks ({tasks.Length}, {openCount} open)";
+
+                if (!GrimoireEditorStyles.BeginCollapsibleSection(sectionId, title, defaultExpanded: true))
+                {
+                    return;
+                }
             }
 
             if (tasks == null || tasks.Length == 0)
@@ -76,8 +70,12 @@ namespace Grimoire.PluginV2.Editor
                     showHeader
                         ? "No tasks or notes are attached to this object."
                         : "No tasks match the current filter.",
-                    EditorStyles.miniLabel);
-                EditorGUILayout.EndVertical();
+                    GrimoireEditorStyles.MiniSecondaryStyle);
+                if (showHeader)
+                {
+                    GrimoireEditorStyles.EndCollapsibleSection();
+                }
+
                 return;
             }
 
@@ -85,16 +83,16 @@ namespace Grimoire.PluginV2.Editor
 
             if (!GrimoireAuthSession.IsSignedIn)
             {
-                EditorGUILayout.HelpBox("Sign in with your Grimoire account to update task statuses.", MessageType.Info);
+                GrimoireEditorStyles.DrawInfoBox("Sign in with your Grimoire account to update task statuses.");
             }
             else if (_statusesLoading)
             {
-                EditorGUILayout.LabelField("Loading task statuses...", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("Loading task statuses...", GrimoireEditorStyles.MiniSecondaryStyle);
             }
 
             if (!string.IsNullOrEmpty(_error))
             {
-                EditorGUILayout.HelpBox(_error, MessageType.Error);
+                GrimoireEditorStyles.DrawErrorBox(_error);
             }
 
             foreach (var task in tasks)
@@ -102,7 +100,10 @@ namespace Grimoire.PluginV2.Editor
                 DrawTask(gameId, task);
             }
 
-            EditorGUILayout.EndVertical();
+            if (showHeader)
+            {
+                GrimoireEditorStyles.EndCollapsibleSection();
+            }
         }
 
         private void EnsureStatusesScheduled(string gameId)
@@ -126,6 +127,7 @@ namespace Grimoire.PluginV2.Editor
         private void DrawTask(string gameId, GrimoireTask task)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.Space(2);
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(task.is_task ? "Task" : "Note", EditorStyles.miniBoldLabel, GUILayout.Width(36));

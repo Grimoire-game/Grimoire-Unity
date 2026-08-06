@@ -30,7 +30,7 @@ namespace Grimoire.PluginV2.Editor
         {
             if (document == null)
             {
-                EditorGUILayout.HelpBox("No object loaded.", MessageType.Info);
+                GrimoireEditorStyles.DrawInfoBox("No object loaded.");
                 return;
             }
 
@@ -38,9 +38,8 @@ namespace Grimoire.PluginV2.Editor
 
             if (document.sections == null || document.sections.Length == 0)
             {
-                EditorGUILayout.HelpBox(
-                    "This object has no sections you can view. It may be empty, or your role may hide all of them.",
-                    MessageType.Info);
+                GrimoireEditorStyles.DrawInfoBox(
+                    "This object has no sections you can view. It may be empty, or your role may hide all of them.");
                 return;
             }
 
@@ -53,8 +52,13 @@ namespace Grimoire.PluginV2.Editor
         private static void DrawHeader(ObjectViewDocument document)
         {
             var summary = document.@object;
+            var title = "Overview";
 
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            if (!GrimoireEditorStyles.BeginCollapsibleSection("object-header", title, defaultExpanded: true))
+            {
+                return;
+            }
+
             EditorGUILayout.BeginHorizontal();
 
             if (!string.IsNullOrEmpty(summary.thumbnail_url))
@@ -67,7 +71,10 @@ namespace Grimoire.PluginV2.Editor
             }
 
             EditorGUILayout.BeginVertical();
-            EditorGUILayout.LabelField(summary.name, EditorStyles.boldLabel);
+            if (!string.IsNullOrEmpty(summary.name))
+            {
+                EditorGUILayout.LabelField(summary.name, GrimoireEditorStyles.TitleStyle);
+            }
 
             if (!string.IsNullOrEmpty(summary.description))
             {
@@ -95,9 +102,8 @@ namespace Grimoire.PluginV2.Editor
             {
                 if (string.IsNullOrEmpty(document.locale.resolved))
                 {
-                    EditorGUILayout.HelpBox(
-                        $"No '{document.locale.requested}' translations found. Showing source text.",
-                        MessageType.Info);
+                    GrimoireEditorStyles.DrawInfoBox(
+                        $"No '{document.locale.requested}' translations found. Showing source text.");
                 }
                 else
                 {
@@ -105,8 +111,7 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            EditorGUILayout.EndVertical();
-            EditorGUILayout.Space(4);
+            GrimoireEditorStyles.EndCollapsibleSection();
         }
 
         private static void DrawMetaRow(string label, string value)
@@ -124,12 +129,16 @@ namespace Grimoire.PluginV2.Editor
 
         private static void DrawSection(ViewSection section)
         {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.LabelField(section.title, EditorStyles.boldLabel);
+            var sectionId = $"section:{section.title}";
+            if (!GrimoireEditorStyles.BeginCollapsibleSection(sectionId, section.title, defaultExpanded: true))
+            {
+                return;
+            }
 
             if (!string.IsNullOrEmpty(section.documentation))
             {
                 EditorGUILayout.LabelField(section.documentation, EditorStyles.wordWrappedMiniLabel);
+                EditorGUILayout.Space(2);
             }
 
             if (section.fields != null)
@@ -140,8 +149,7 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            EditorGUILayout.EndVertical();
-            EditorGUILayout.Space(4);
+            GrimoireEditorStyles.EndCollapsibleSection();
         }
 
         private static void DrawField(ViewField field)

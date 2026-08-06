@@ -73,7 +73,7 @@ namespace Grimoire.PluginV2.Editor
         {
             if (!GrimoireSettings.IsConfigured)
             {
-                EditorGUILayout.HelpBox("Sign in and choose a company and game to view tasks.", MessageType.Info);
+                GrimoireEditorStyles.DrawInfoBox("Sign in and choose a company and game to view tasks.");
                 return;
             }
 
@@ -83,28 +83,32 @@ namespace Grimoire.PluginV2.Editor
             {
                 EditorGUILayout.LabelField(
                     _usersLoading ? "Loading team members..." : "Loading tasks...",
-                    EditorStyles.centeredGreyMiniLabel);
+                    GrimoireEditorStyles.MiniSecondaryStyle);
             }
 
             if (!string.IsNullOrEmpty(_error))
             {
-                EditorGUILayout.HelpBox(_error, MessageType.Error);
-                if (GUILayout.Button("Retry"))
+                GrimoireEditorStyles.DrawErrorBox(_error);
+                if (GUILayout.Button("Retry", GrimoireEditorStyles.PrimaryButtonStyle, GUILayout.Width(80)))
                 {
                     RequestTasksRefresh();
                 }
             }
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            _tasksPanel.Draw(GrimoireSettings.GameId, _tasks, showHeader: false);
+            _tasksPanel.Draw(GrimoireSettings.GameId, _tasks, showHeader: true, sectionId: "user-tasks");
             EditorGUILayout.EndScrollView();
         }
 
         private void DrawFilterBar()
         {
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            if (!GrimoireEditorStyles.BeginCollapsibleSection("tasks-filter", "Filter tasks", defaultExpanded: true))
+            {
+                return;
+            }
 
-            EditorGUILayout.LabelField("Assignee", GUILayout.Width(56));
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Assignee", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(56));
             using (new EditorGUI.DisabledScope(_usersLoading || _assigneeLabels.Length == 0))
             {
                 EditorGUI.BeginChangeCheck();
@@ -119,13 +123,14 @@ namespace Grimoire.PluginV2.Editor
 
             using (new EditorGUI.DisabledScope(_loading || _usersLoading))
             {
-                if (GUILayout.Button("Refresh", EditorStyles.toolbarButton, GUILayout.Width(64)))
+                if (GrimoireEditorStyles.ToolbarButton("Refresh", false, GUILayout.Width(64)))
                 {
                     RequestTasksRefresh();
                 }
             }
 
             EditorGUILayout.EndHorizontal();
+            GrimoireEditorStyles.EndCollapsibleSection();
         }
 
         private void DeferredActivate()

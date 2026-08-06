@@ -304,6 +304,7 @@ namespace Grimoire.PluginV2.Editor
 
             DrawTabBar();
 
+            GrimoireEditorStyles.BeginContentArea();
             switch (_selectedTab)
             {
                 case TabTasks:
@@ -313,12 +314,13 @@ namespace Grimoire.PluginV2.Editor
                     DrawObjectTab();
                     break;
             }
+
+            GrimoireEditorStyles.EndContentArea();
         }
 
         private void DrawTabBar()
         {
-            EditorGUILayout.Space(2);
-            var picked = GUILayout.Toolbar(_selectedTab, TabLabels, EditorStyles.toolbarButton);
+            var picked = GrimoireEditorStyles.DrawTabBar(_selectedTab, TabLabels);
             if (picked != _selectedTab)
             {
                 _selectedTab = picked;
@@ -331,8 +333,6 @@ namespace Grimoire.PluginV2.Editor
                     _userTasksPanel.Activate();
                 }
             }
-
-            EditorGUILayout.Space(4);
         }
 
         private void DrawTasksTab()
@@ -344,21 +344,20 @@ namespace Grimoire.PluginV2.Editor
         {
             if (!string.IsNullOrEmpty(_error))
             {
-                EditorGUILayout.HelpBox(_error, MessageType.Error);
+                GrimoireEditorStyles.DrawErrorBox(_error);
             }
 
             if (_loading)
             {
-                EditorGUILayout.LabelField(_statusMessage ?? "Loading...", EditorStyles.centeredGreyMiniLabel);
+                EditorGUILayout.LabelField(_statusMessage ?? "Loading...", GrimoireEditorStyles.MiniSecondaryStyle);
             }
 
             if (_document == null)
             {
                 if (!_loading && string.IsNullOrEmpty(_error))
                 {
-                    EditorGUILayout.HelpBox(
-                        "Select a GameObject with a Grimoire Object Link component to view its Grimoire data.",
-                        MessageType.Info);
+                    GrimoireEditorStyles.DrawInfoBox(
+                        "Select a GameObject with a Grimoire Object Link component to view its Grimoire data.");
                 }
 
                 return;
@@ -374,7 +373,7 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawToolbar()
         {
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            GrimoireEditorStyles.BeginToolbar();
 
             if (GrimoireSettings.IsConfigured)
             {
@@ -385,21 +384,18 @@ namespace Grimoire.PluginV2.Editor
                     ? "Game"
                     : GrimoireSettings.GameName;
 
-                GUILayout.Label(companyLabel, EditorStyles.boldLabel);
-                GUILayout.Label("·", EditorStyles.miniLabel);
-                GUILayout.Label(gameLabel, EditorStyles.label);
-
+                string objectTitle = null;
                 if (_selectedTab == TabObject)
                 {
-                    GUILayout.Label("·", EditorStyles.miniLabel);
-                    var title = _document?.@object?.name
-                                ?? (_link != null && _link.HasKey ? _link.ObjectKey : "No object");
-                    GUILayout.Label(title, EditorStyles.label);
+                    objectTitle = _document?.@object?.name
+                                  ?? (_link != null && _link.HasKey ? _link.ObjectKey : "No object");
                 }
+
+                GrimoireEditorStyles.DrawToolbarBreadcrumb(companyLabel, gameLabel, objectTitle);
             }
             else
             {
-                GUILayout.Label("Grimoire Connect", EditorStyles.boldLabel);
+                GUILayout.Label("Grimoire Connect", GrimoireEditorStyles.TitleStyle);
             }
 
             GUILayout.FlexibleSpace();
@@ -410,7 +406,7 @@ namespace Grimoire.PluginV2.Editor
                 {
                     using (new EditorGUI.DisabledScope(_link == null || _loading))
                     {
-                        if (GUILayout.Button(new GUIContent("Refresh", "Re-fetch this object from Grimoire"), EditorStyles.toolbarButton))
+                        if (GrimoireEditorStyles.ToolbarButton("Refresh"))
                         {
                             GrimoireObjectKeyResolver.InvalidateCache(GrimoireSettings.GameId);
                             ReloadCurrent();
@@ -420,36 +416,45 @@ namespace Grimoire.PluginV2.Editor
 
                 if (GrimoireAuthSession.IsSignedIn)
                 {
-                    GUILayout.Label(GrimoireAuthSession.UserName, EditorStyles.miniLabel);
-                    if (GUILayout.Button("Change workspace", EditorStyles.toolbarButton))
+                    GUILayout.Label(GrimoireAuthSession.UserName, GrimoireEditorStyles.MiniSecondaryStyle);
+                    if (GrimoireEditorStyles.ToolbarButton("Change workspace"))
                     {
                         _setupPanel.BeginWorkspaceSelection();
                     }
 
-                    if (GUILayout.Button("Sign out", EditorStyles.toolbarButton))
+                    if (GrimoireEditorStyles.ToolbarButton("Sign out"))
                     {
                         GrimoireAuthSession.SignOut();
                     }
                 }
             }
 
-            _settingsOpen = GUILayout.Toggle(_settingsOpen, "Settings", EditorStyles.toolbarButton);
+            if (GrimoireEditorStyles.ToolbarButton("Settings", _settingsOpen))
+            {
+                _settingsOpen = !_settingsOpen;
+            }
 
-            EditorGUILayout.EndHorizontal();
+            GrimoireEditorStyles.EndToolbar();
         }
 
         private void DrawSettings()
         {
+            GrimoireEditorStyles.EnsureStyles();
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Settings", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Settings", GrimoireEditorStyles.TitleStyle);
+            EditorGUILayout.Space(4);
 
             EditorGUI.BeginChangeCheck();
 
+            EditorGUILayout.LabelField("API base URL", GrimoireEditorStyles.FieldLabelStyle);
             var apiBaseUrl = EditorGUILayout.TextField(
-                new GUIContent("API base URL", "Default: " + GrimoireSettings.DefaultApiBaseUrl),
+                new GUIContent("", "Default: " + GrimoireSettings.DefaultApiBaseUrl),
                 GrimoireSettings.ApiBaseUrl);
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField("Locale", GrimoireEditorStyles.FieldLabelStyle);
             var locale = EditorGUILayout.TextField(
-                new GUIContent("Locale", "Language code for translatable fields; empty shows source text"),
+                new GUIContent("", "Language code for translatable fields; empty shows source text"),
                 GrimoireSettings.Locale);
 
             if (EditorGUI.EndChangeCheck())
@@ -461,16 +466,18 @@ namespace Grimoire.PluginV2.Editor
 
             if (GrimoireSettings.HasCompanyId)
             {
-                EditorGUILayout.LabelField("Company", GrimoireSettings.CompanyName, EditorStyles.miniLabel);
+                EditorGUILayout.Space(4);
+                EditorGUILayout.LabelField("Company", GrimoireSettings.CompanyName, GrimoireEditorStyles.MiniSecondaryStyle);
             }
 
             if (GrimoireSettings.HasGameId)
             {
-                EditorGUILayout.LabelField("Game", GrimoireSettings.GameName, EditorStyles.miniLabel);
-                EditorGUILayout.LabelField("Game ID", GrimoireSettings.GameId, EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("Game", GrimoireSettings.GameName, GrimoireEditorStyles.MiniSecondaryStyle);
+                EditorGUILayout.LabelField("Game ID", GrimoireSettings.GameId, GrimoireEditorStyles.MiniSecondaryStyle);
             }
 
             EditorGUILayout.EndVertical();
+            EditorGUILayout.Space(4);
         }
     }
 }
