@@ -268,7 +268,7 @@ namespace Grimoire.PluginV2.Editor
             var placeholderStyle = new GUIStyle(_fieldStyle)
             {
                 normal = { textColor = TextSecondary },
-                focus = { textColor = TextSecondary },
+                focused = { textColor = TextSecondary },
                 hover = { textColor = TextSecondary },
             };
             GUI.Label(Inset(rect, 12f, 0f), text, placeholderStyle);
