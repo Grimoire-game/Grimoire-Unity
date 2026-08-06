@@ -48,6 +48,7 @@ namespace Grimoire.PluginV2.Editor
         private static GUIStyle _errorStyle;
         private static GUIStyle _busyStyle;
         private static GUIStyle _ghostButtonStyle;
+        private static GUIStyle _placeholderStyle;
 
         public static Action Draw(
             Rect area,
@@ -98,22 +99,24 @@ namespace Grimoire.PluginV2.Editor
             using (new EditorGUI.DisabledScope(busy))
             {
                 GUI.SetNextControlName("GrimoireLoginEmail");
-                email = GUI.TextField(FieldRect(content, y), email, _fieldStyle);
-                DrawBorder(FieldRect(content, y), InputBorder);
+                var emailRect = FieldRect(content, y);
+                email = GUI.TextField(emailRect, email, _fieldStyle);
                 if (string.IsNullOrEmpty(email) && GUI.GetNameOfFocusedControl() != "GrimoireLoginEmail")
                 {
-                    DrawPlaceholder(FieldRect(content, y), "Email address");
+                    DrawPlaceholder(emailRect, "Email address");
                 }
+                DrawBorder(emailRect, InputBorder);
 
                 y += FieldHeight + FieldSpacing;
 
                 GUI.SetNextControlName("GrimoireLoginPassword");
-                password = PasswordField(FieldRect(content, y), password, _fieldStyle);
-                DrawBorder(FieldRect(content, y), InputBorder);
+                var passwordRect = FieldRect(content, y);
+                password = PasswordField(passwordRect, password, _fieldStyle);
                 if (string.IsNullOrEmpty(password) && GUI.GetNameOfFocusedControl() != "GrimoireLoginPassword")
                 {
-                    DrawPlaceholder(FieldRect(content, y), "Password");
+                    DrawPlaceholder(passwordRect, "Password");
                 }
+                DrawBorder(passwordRect, InputBorder);
             }
 
             y += FieldHeight + 18f;
@@ -170,12 +173,13 @@ namespace Grimoire.PluginV2.Editor
             using (new EditorGUI.DisabledScope(busy))
             {
                 GUI.SetNextControlName("GrimoireLoginCode");
-                code = GUI.TextField(FieldRect(content, y), code, _fieldStyle);
-                DrawBorder(FieldRect(content, y), InputBorder);
+                var codeRect = FieldRect(content, y);
+                code = GUI.TextField(codeRect, code, _fieldStyle);
                 if (string.IsNullOrEmpty(code) && GUI.GetNameOfFocusedControl() != "GrimoireLoginCode")
                 {
-                    DrawPlaceholder(FieldRect(content, y), "000000");
+                    DrawPlaceholder(codeRect, "000000");
                 }
+                DrawBorder(codeRect, InputBorder);
             }
 
             y += FieldHeight + 16f;
@@ -265,13 +269,7 @@ namespace Grimoire.PluginV2.Editor
 
         private static void DrawPlaceholder(Rect rect, string text)
         {
-            var placeholderStyle = new GUIStyle(_fieldStyle)
-            {
-                normal = { textColor = TextSecondary },
-                focused = { textColor = TextSecondary },
-                hover = { textColor = TextSecondary },
-            };
-            GUI.Label(Inset(rect, 12f, 0f), text, placeholderStyle);
+            GUI.Label(rect, text, _placeholderStyle);
         }
 
         private static Rect FieldRect(Rect content, float y) =>
@@ -476,6 +474,17 @@ namespace Grimoire.PluginV2.Editor
             {
                 fontSize = 11,
                 normal = { textColor = TextSecondary },
+            };
+
+            _placeholderStyle = new GUIStyle(EditorStyles.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 13,
+                padding = new RectOffset(12, 12, 10, 10),
+                normal = { textColor = TextSecondary, background = null },
+                hover = { textColor = TextSecondary, background = null },
+                focused = { textColor = TextSecondary, background = null },
+                active = { textColor = TextSecondary, background = null },
             };
         }
 
