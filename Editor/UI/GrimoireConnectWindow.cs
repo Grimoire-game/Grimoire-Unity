@@ -52,7 +52,7 @@ namespace Grimoire.PluginV2.Editor
             _objectTasksPanel.TaskStatusChanged += OnTaskStatusChanged;
 
             _userTasksPanel = new GrimoireUserTasksPanel();
-            _userTasksPanel.RepaintNeeded += Repaint;
+            _userTasksPanel.RepaintNeeded += ScheduleRepaint;
 
             _setupPanel = new GrimoireSetupPanel();
             _setupPanel.RepaintNeeded += Repaint;
@@ -63,7 +63,14 @@ namespace Grimoire.PluginV2.Editor
             GrimoireSettings.Changed += OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded += Repaint;
 
+            _userTasksPanel.Activate();
             OnSelectionChanged();
+        }
+
+        private void ScheduleRepaint()
+        {
+            EditorApplication.delayCall -= Repaint;
+            EditorApplication.delayCall += Repaint;
         }
 
         private void OnDisable()
@@ -92,6 +99,7 @@ namespace Grimoire.PluginV2.Editor
         {
             _objectTasksPanel.ResetStatusFetchState();
             _userTasksPanel.Reset();
+            _userTasksPanel.Activate();
             Repaint();
         }
 
@@ -99,6 +107,7 @@ namespace Grimoire.PluginV2.Editor
         {
             _error = null;
             _userTasksPanel.Reset();
+            _userTasksPanel.Activate();
             ReloadCurrent();
         }
 
@@ -316,6 +325,10 @@ namespace Grimoire.PluginV2.Editor
                 if (_selectedTab == TabObject)
                 {
                     OnSelectionChanged();
+                }
+                else if (_selectedTab == TabTasks)
+                {
+                    _userTasksPanel.Activate();
                 }
             }
 

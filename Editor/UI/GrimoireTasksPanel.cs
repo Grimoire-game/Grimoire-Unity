@@ -81,7 +81,7 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            EnsureStatuses(gameId);
+            EnsureStatusesScheduled(gameId);
 
             if (!GrimoireAuthSession.IsSignedIn)
             {
@@ -103,6 +103,24 @@ namespace Grimoire.PluginV2.Editor
             }
 
             EditorGUILayout.EndVertical();
+        }
+
+        private void EnsureStatusesScheduled(string gameId)
+        {
+            if (string.IsNullOrEmpty(gameId) || !GrimoireAuthSession.IsSignedIn ||
+                StatusCache.ContainsKey(gameId) ||
+                (_statusesLoading && _statusesGameId == gameId))
+            {
+                return;
+            }
+
+            if (_statusFetchFailedAt.TryGetValue(gameId, out var failedAt) &&
+                EditorApplication.timeSinceStartup - failedAt < StatusRetryCooldownSeconds)
+            {
+                return;
+            }
+
+            EditorApplication.delayCall += () => EnsureStatuses(gameId);
         }
 
         private void DrawTask(string gameId, GrimoireTask task)
@@ -251,14 +269,14 @@ namespace Grimoire.PluginV2.Editor
 
             _pendingTasks.Add(task.id);
             _error = null;
-            RepaintNeeded?.Invoke();
+            RequestRepaint();
 
             var hasSession = await GrimoireAuthSession.EnsureFreshTokenAsync();
             if (!hasSession)
             {
                 _pendingTasks.Remove(task.id);
                 _error = "Your Grimoire session has expired. Sign in again to update tasks.";
-                RepaintNeeded?.Invoke();
+                RequestRepaint();
                 return;
             }
 
@@ -268,7 +286,7 @@ namespace Grimoire.PluginV2.Editor
             if (!result.Success)
             {
                 _error = result.Error;
-                RepaintNeeded?.Invoke();
+                RequestRepaint();
                 return;
             }
 
@@ -328,7 +346,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 _statusesLoading = false;
                 _error = "Your Grimoire session has expired. Sign in again to load task statuses.";
-                RepaintNeeded?.Invoke();
+                RequestRepaint();
                 return;
             }
 
@@ -348,6 +366,17 @@ namespace Grimoire.PluginV2.Editor
                 _error = $"Could not load task statuses: {result.Error}";
             }
 
+            RequestRepaint();
+        }
+
+        private void RequestRepaint()
+        {
+            EditorApplication.delayCall -= InvokeRepaint;
+            EditorApplication.delayCall += InvokeRepaint;
+        }
+
+        private void InvokeRepaint()
+        {
             RepaintNeeded?.Invoke();
         }
     }

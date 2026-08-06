@@ -26,6 +26,7 @@ namespace Grimoire.PluginV2.Editor
         private string _error;
         private string _loadedGameId;
         private string _loadedAssigneeKey;
+        private string _usersFetchedForGameId;
         private int _fetchGeneration;
         private Vector2 _scroll;
 
@@ -33,23 +34,39 @@ namespace Grimoire.PluginV2.Editor
 
         public GrimoireUserTasksPanel()
         {
-            _tasksPanel.RepaintNeeded += () => RepaintNeeded?.Invoke();
-            _tasksPanel.TaskStatusChanged += (_, __) => FetchTasks(force: true);
+            _tasksPanel.RepaintNeeded += RequestRepaint;
+            _tasksPanel.TaskStatusChanged += (_, __) => RequestTasksRefresh();
+            BuildAssigneeFilterOptions();
         }
 
         public void Reset()
         {
             _tasks = Array.Empty<GrimoireTask>();
             _users = Array.Empty<UserDirectoryEntry>();
-            _assigneeKeys = Array.Empty<string>();
-            _assigneeLabels = Array.Empty<string>();
             _assigneeFilterIndex = 0;
             _loading = false;
             _usersLoading = false;
             _error = null;
             _loadedGameId = null;
             _loadedAssigneeKey = null;
+            _usersFetchedForGameId = null;
+            _fetchGeneration++;
+            BuildAssigneeFilterOptions();
             _tasksPanel.ResetStatusFetchState();
+        }
+
+        /// <summary>
+        /// Schedule loading users and tasks outside the current IMGUI pass.
+        /// </summary>
+        public void Activate()
+        {
+            if (!GrimoireSettings.IsConfigured)
+            {
+                return;
+            }
+
+            EditorApplication.delayCall -= DeferredActivate;
+            EditorApplication.delayCall += DeferredActivate;
         }
 
         public void Draw()
@@ -60,12 +77,13 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            EnsureUsers();
             DrawFilterBar();
 
-            if (_loading)
+            if (_usersLoading || _loading)
             {
-                EditorGUILayout.LabelField("Loading tasks...", EditorStyles.centeredGreyMiniLabel);
+                EditorGUILayout.LabelField(
+                    _usersLoading ? "Loading team members..." : "Loading tasks...",
+                    EditorStyles.centeredGreyMiniLabel);
             }
 
             if (!string.IsNullOrEmpty(_error))
@@ -73,11 +91,9 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUILayout.HelpBox(_error, MessageType.Error);
                 if (GUILayout.Button("Retry"))
                 {
-                    FetchTasks(force: true);
+                    RequestTasksRefresh();
                 }
             }
-
-            EnsureTasks();
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             _tasksPanel.Draw(GrimoireSettings.GameId, _tasks, showHeader: false);
@@ -95,49 +111,65 @@ namespace Grimoire.PluginV2.Editor
                 _assigneeFilterIndex = EditorGUILayout.Popup(_assigneeFilterIndex, _assigneeLabels);
                 if (EditorGUI.EndChangeCheck())
                 {
-                    FetchTasks(force: true);
+                    RequestTasksRefresh();
                 }
             }
 
             GUILayout.FlexibleSpace();
 
-            using (new EditorGUI.DisabledScope(_loading))
+            using (new EditorGUI.DisabledScope(_loading || _usersLoading))
             {
                 if (GUILayout.Button("Refresh", EditorStyles.toolbarButton, GUILayout.Width(64)))
                 {
-                    FetchTasks(force: true);
+                    RequestTasksRefresh();
                 }
             }
 
             EditorGUILayout.EndHorizontal();
         }
 
-        private void EnsureUsers()
+        private void DeferredActivate()
         {
-            var gameId = GrimoireSettings.GameId;
-            if (string.IsNullOrEmpty(gameId) || _usersLoading || _loadedGameId == gameId && _users.Length > 0)
+            if (!GrimoireSettings.IsConfigured)
             {
                 return;
             }
 
-            FetchUsers(gameId);
+            var gameId = GrimoireSettings.GameId;
+            if (_usersFetchedForGameId != gameId)
+            {
+                FetchUsers(gameId);
+                return;
+            }
+
+            RequestTasksIfNeeded(force: false);
         }
 
-        private void EnsureTasks()
+        private void RequestTasksRefresh()
+        {
+            _loadedGameId = null;
+            _loadedAssigneeKey = null;
+            EditorApplication.delayCall -= DeferredActivate;
+            EditorApplication.delayCall += DeferredActivate;
+        }
+
+        private void RequestTasksIfNeeded(bool force)
         {
             var gameId = GrimoireSettings.GameId;
-            if (string.IsNullOrEmpty(gameId) || _loading)
+            if (string.IsNullOrEmpty(gameId) || _loading || _usersLoading)
             {
                 return;
             }
 
             var assigneeKey = GetSelectedAssigneeKey();
-            if (_loadedGameId == gameId && _loadedAssigneeKey == assigneeKey)
+            if (!force &&
+                _loadedGameId == gameId &&
+                string.Equals(_loadedAssigneeKey, assigneeKey, StringComparison.Ordinal))
             {
                 return;
             }
 
-            FetchTasks(force: false);
+            FetchTasks(force);
         }
 
         private string GetSelectedAssigneeKey()
@@ -168,37 +200,40 @@ namespace Grimoire.PluginV2.Editor
 
         private async void FetchUsers(string gameId)
         {
+            if (_usersLoading)
+            {
+                return;
+            }
+
             _usersLoading = true;
             _error = null;
-            RepaintNeeded?.Invoke();
+            RequestRepaint();
 
             var hasSession = await GrimoireAuthSession.EnsureFreshTokenAsync();
             if (!hasSession)
             {
                 _usersLoading = false;
                 _error = "Your Grimoire session has expired. Sign in again.";
-                RepaintNeeded?.Invoke();
+                RequestRepaint();
                 return;
             }
 
             var result = await GrimoireApiClient.ListUsersAsync(gameId);
             _usersLoading = false;
+            _usersFetchedForGameId = gameId;
 
             if (!result.Success)
             {
                 _users = Array.Empty<UserDirectoryEntry>();
-                _loadedGameId = gameId;
-                BuildAssigneeFilterOptions();
-                FetchTasks(force: true);
-                RepaintNeeded?.Invoke();
-                return;
+            }
+            else
+            {
+                _users = result.Data ?? Array.Empty<UserDirectoryEntry>();
             }
 
-            _users = result.Data ?? Array.Empty<UserDirectoryEntry>();
-            _loadedGameId = gameId;
             BuildAssigneeFilterOptions();
-            FetchTasks(force: true);
-            RepaintNeeded?.Invoke();
+            RequestTasksIfNeeded(force: true);
+            RequestRepaint();
         }
 
         private void BuildAssigneeFilterOptions()
@@ -236,8 +271,12 @@ namespace Grimoire.PluginV2.Editor
             var assigneeKey = GetSelectedAssigneeKey();
             if (!force &&
                 _loadedGameId == gameId &&
-                _loadedAssigneeKey == assigneeKey &&
-                !_loading)
+                string.Equals(_loadedAssigneeKey, assigneeKey, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (_loading)
             {
                 return;
             }
@@ -245,7 +284,7 @@ namespace Grimoire.PluginV2.Editor
             var generation = ++_fetchGeneration;
             _loading = true;
             _error = null;
-            RepaintNeeded?.Invoke();
+            RequestRepaint();
 
             var hasSession = await GrimoireAuthSession.EnsureFreshTokenAsync();
             if (generation != _fetchGeneration)
@@ -257,7 +296,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 _loading = false;
                 _error = "Your Grimoire session has expired. Sign in again.";
-                RepaintNeeded?.Invoke();
+                RequestRepaint();
                 return;
             }
 
@@ -272,13 +311,24 @@ namespace Grimoire.PluginV2.Editor
             if (!result.Success)
             {
                 _error = result.Error;
-                RepaintNeeded?.Invoke();
+                RequestRepaint();
                 return;
             }
 
             _tasks = result.Data ?? Array.Empty<GrimoireTask>();
             _loadedGameId = gameId;
             _loadedAssigneeKey = assigneeKey;
+            RequestRepaint();
+        }
+
+        private void RequestRepaint()
+        {
+            EditorApplication.delayCall -= InvokeRepaint;
+            EditorApplication.delayCall += InvokeRepaint;
+        }
+
+        private void InvokeRepaint()
+        {
             RepaintNeeded?.Invoke();
         }
     }
