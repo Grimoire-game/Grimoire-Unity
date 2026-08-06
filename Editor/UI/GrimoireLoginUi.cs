@@ -100,6 +100,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 GUI.SetNextControlName("GrimoireLoginEmail");
                 var emailRect = FieldRect(content, y);
+                AddFieldCursor(emailRect);
                 email = GUI.TextField(emailRect, email, _fieldStyle);
                 if (string.IsNullOrEmpty(email) && GUI.GetNameOfFocusedControl() != "GrimoireLoginEmail")
                 {
@@ -111,6 +112,7 @@ namespace Grimoire.PluginV2.Editor
 
                 GUI.SetNextControlName("GrimoireLoginPassword");
                 var passwordRect = FieldRect(content, y);
+                AddFieldCursor(passwordRect);
                 password = PasswordField(passwordRect, password, _fieldStyle);
                 if (string.IsNullOrEmpty(password) && GUI.GetNameOfFocusedControl() != "GrimoireLoginPassword")
                 {
@@ -122,9 +124,11 @@ namespace Grimoire.PluginV2.Editor
             y += FieldHeight + 18f;
 
             var canSubmit = !busy && !string.IsNullOrWhiteSpace(email) && !string.IsNullOrEmpty(password);
+            var loginRect = ButtonRect(content, y);
+            AddButtonCursor(loginRect, canSubmit);
             using (new EditorGUI.DisabledScope(!canSubmit))
             {
-                if (GUI.Button(ButtonRect(content, y), busy ? "Logging in..." : "Login", _primaryButtonStyle))
+                if (GUI.Button(loginRect, busy ? "Logging in..." : "Login", _primaryButtonStyle))
                 {
                     return Action.SubmitLogin;
                 }
@@ -140,6 +144,7 @@ namespace Grimoire.PluginV2.Editor
             y = DrawError(content, y, error);
 
             var linkRect = new Rect(content.x, y, content.width, 22f);
+            AddButtonCursor(linkRect, enabled: true);
             if (GUI.Button(linkRect, "Forgot your password?", _linkStyle))
             {
                 return Action.ForgotPassword;
@@ -174,6 +179,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 GUI.SetNextControlName("GrimoireLoginCode");
                 var codeRect = FieldRect(content, y);
+                AddFieldCursor(codeRect);
                 code = GUI.TextField(codeRect, code, _fieldStyle);
                 if (string.IsNullOrEmpty(code) && GUI.GetNameOfFocusedControl() != "GrimoireLoginCode")
                 {
@@ -186,9 +192,11 @@ namespace Grimoire.PluginV2.Editor
 
             var trimmed = code?.Trim() ?? "";
             var canVerify = !busy && trimmed.Length == 6;
+            var verifyRect = ButtonRect(content, y);
+            AddButtonCursor(verifyRect, canVerify);
             using (new EditorGUI.DisabledScope(!canVerify))
             {
-                if (GUI.Button(ButtonRect(content, y), busy ? "Verifying..." : "Verify", _primaryButtonStyle))
+                if (GUI.Button(verifyRect, busy ? "Verifying..." : "Verify", _primaryButtonStyle))
                 {
                     return Action.SubmitVerify;
                 }
@@ -204,7 +212,9 @@ namespace Grimoire.PluginV2.Editor
             y = DrawError(content, y, error);
             y += 8f;
 
-            if (GUI.Button(ButtonRect(content, y), "Back to login", _ghostButtonStyle))
+            var backRect = ButtonRect(content, y);
+            AddButtonCursor(backRect, enabled: true);
+            if (GUI.Button(backRect, "Back to login", _ghostButtonStyle))
             {
                 return Action.GoBack;
             }
@@ -247,7 +257,11 @@ namespace Grimoire.PluginV2.Editor
         private static float DrawCenteredLabel(Rect content, string text, GUIStyle style, float y, float height)
         {
             var rect = new Rect(content.x, y, content.width, height);
-            GUI.Label(rect, text, style);
+            if (Event.current.type == EventType.Repaint)
+            {
+                style.Draw(rect, new GUIContent(text), false, false, false, false);
+            }
+
             return y + height;
         }
 
@@ -269,7 +283,23 @@ namespace Grimoire.PluginV2.Editor
 
         private static void DrawPlaceholder(Rect rect, string text)
         {
-            GUI.Label(rect, text, _placeholderStyle);
+            if (Event.current.type == EventType.Repaint)
+            {
+                _placeholderStyle.Draw(rect, new GUIContent(text), false, false, false, false);
+            }
+        }
+
+        private static void AddFieldCursor(Rect rect)
+        {
+            EditorGUIUtility.AddCursorRect(rect, MouseCursor.Text);
+        }
+
+        private static void AddButtonCursor(Rect rect, bool enabled)
+        {
+            if (enabled)
+            {
+                EditorGUIUtility.AddCursorRect(rect, MouseCursor.Link);
+            }
         }
 
         private static Rect FieldRect(Rect content, float y) =>
@@ -374,7 +404,10 @@ namespace Grimoire.PluginV2.Editor
                 fontSize = 18,
                 fontStyle = FontStyle.Bold,
                 wordWrap = true,
-                normal = { textColor = TextPrimary },
+                normal = { textColor = TextPrimary, background = null },
+                hover = { textColor = TextPrimary, background = null },
+                focused = { textColor = TextPrimary, background = null },
+                active = { textColor = TextPrimary, background = null },
             };
 
             _subtitleStyle = new GUIStyle(EditorStyles.label)
