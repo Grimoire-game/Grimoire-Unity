@@ -5,37 +5,24 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Inspector for <see cref="GrimoireObjectLink"/>: edit the object key,
-    /// validate it against the API, pick an object from a searchable list, and
-    /// jump to the widget.
+    /// Inspector for <see cref="GrimoireObjectLink"/>: pick an object from
+    /// Grimoire and open it in Connect.
     /// </summary>
     [CustomEditor(typeof(GrimoireObjectLink))]
     public class GrimoireObjectLinkEditor : UnityEditor.Editor
     {
         private string _validationMessage;
         private MessageType _validationType = MessageType.None;
-        private bool _validating;
 
         public override void OnInspectorGUI()
         {
             var link = (GrimoireObjectLink)target;
 
-            EditorGUI.BeginChangeCheck();
-            var key = EditorGUILayout.TextField(
-                new GUIContent("Object key", "The Grimoire object's code_id, e.g. 'characters/aragorn'."),
-                link.ObjectKey);
-
-            if (EditorGUI.EndChangeCheck())
+            using (new EditorGUI.DisabledScope(true))
             {
-                Undo.RecordObject(link, "Change Grimoire object key");
-                link.ObjectKey = key;
-                _validationMessage = null;
-                EditorUtility.SetDirty(link);
-            }
-
-            if (!string.IsNullOrEmpty(link.CachedObjectId))
-            {
-                EditorGUILayout.LabelField("Resolved ID", link.CachedObjectId, EditorStyles.miniLabel);
+                EditorGUILayout.TextField(
+                    new GUIContent("Object key", "The Grimoire object's code_id, e.g. 'characters/aragorn'. Set via Pick from Grimoire."),
+                    link.ObjectKey);
             }
 
             EditorGUILayout.Space(4);
@@ -45,7 +32,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 if (!GrimoireSettings.IsConfigured)
                 {
-                    _validationMessage = "Sign in and select a game first (Window > Grimoire > Object Widget 2).";
+                    _validationMessage = "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).";
                     _validationType = MessageType.Warning;
                 }
                 else
@@ -76,19 +63,11 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            using (new EditorGUI.DisabledScope(!link.HasKey || _validating))
-            {
-                if (GUILayout.Button(_validating ? "Checking..." : "Validate key"))
-                {
-                    Validate(link);
-                }
-            }
-
             using (new EditorGUI.DisabledScope(!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId)))
             {
-                if (GUILayout.Button("Open widget"))
+                if (GUILayout.Button("Open in Connect"))
                 {
-                    GrimoireWidgetWindow.ShowAndLoad(link);
+                    GrimoireConnectWindow.ShowAndLoad(link);
                 }
             }
 
@@ -98,43 +77,6 @@ namespace Grimoire.PluginV2.Editor
             {
                 EditorGUILayout.HelpBox(_validationMessage, _validationType);
             }
-        }
-
-        private async void Validate(GrimoireObjectLink link)
-        {
-            if (!GrimoireSettings.IsConfigured)
-            {
-                _validationMessage = "Sign in and select a game first (Window > Grimoire > Object Widget 2).";
-                _validationType = MessageType.Warning;
-                return;
-            }
-
-            _validating = true;
-            _validationMessage = null;
-            Repaint();
-
-            var result = await GrimoireObjectKeyResolver.ResolveAsync(GrimoireSettings.GameId, link.ObjectKey);
-            _validating = false;
-
-            if (result.Success)
-            {
-                if (link.CachedObjectId != result.Data)
-                {
-                    Undo.RecordObject(link, "Resolve Grimoire object key");
-                    link.CachedObjectId = result.Data;
-                    EditorUtility.SetDirty(link);
-                }
-
-                _validationMessage = $"Key found. Object ID: {result.Data}";
-                _validationType = MessageType.Info;
-            }
-            else
-            {
-                _validationMessage = result.Error;
-                _validationType = MessageType.Error;
-            }
-
-            Repaint();
         }
     }
 
@@ -243,7 +185,7 @@ namespace Grimoire.PluginV2.Editor
         {
             if (!GrimoireSettings.IsConfigured)
             {
-                _error = "Sign in and select a game first (Window > Grimoire > Object Widget 2).";
+                _error = "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).";
                 Repaint();
                 return;
             }

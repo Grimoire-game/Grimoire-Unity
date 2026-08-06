@@ -4,10 +4,10 @@ Editor-only Unity plugin built on the **Grimoire Public API v1**.
 
 - Link any GameObject to a Grimoire object through its key (`code_id`) with the
   `GrimoireObjectLink` component.
-- Select a linked GameObject and the **Grimoire Object Widget** shows the full,
-  render-ready object data (sections, fields, references, media, ...).
-- Tasks and notes attached to the object are listed in the widget. Update task
-  workflow statuses directly from Unity.
+- Open **Grimoire Connect** to sign in, pick your company and game, then browse
+  tasks or inspect linked objects from the scene.
+- Tasks and notes attached to an object are listed on the Object tab. Update
+  task workflow statuses directly from Unity.
 
 Nothing in this package ships in player builds: the runtime assembly contains
 only the serialized link component; all networking and UI live in the editor
@@ -30,13 +30,13 @@ Add the package to your project via the Package Manager:
 
 ## Setup
 
-1. Open `Window > Grimoire > Object Widget 2`.
+1. Open `Window > Grimoire > Grimoire Connect`.
 2. **Sign in** with your Grimoire account (2FA is supported).
-3. **Select a game** from the list of games you have access to.
+3. **Choose your company and game** from the dropdowns.
 
-The selected game is stored per Unity project. Settings (API base URL, locale)
-are stored per-user in `EditorPrefs`; nothing is written to files that could
-be committed.
+The selected company and game are stored per Unity project. Settings (API base
+URL, locale) are stored per-user in `EditorPrefs`; nothing is written to files
+that could be committed.
 
 ## Usage
 
@@ -50,17 +50,23 @@ Add the `Grimoire > Grimoire Object Link` component to a GameObject and either:
 The resolved object UUID is cached on the component so subsequent lookups skip
 the key-resolution step.
 
-### Viewing data and tasks
+### Tasks tab
 
-With the widget window open, click a linked GameObject in the Hierarchy. The
-widget fetches the object's view document and draws it, followed by every task
-and note attached to the object.
+The **Tasks** tab lists all workflow tasks for the selected game via
+`GET /api/v1/tasks`. Use the assignee filter to show all tasks, only tasks
+assigned to you, or tasks assigned to a specific team member.
 
 Each open task gets a **Complete** button (moves it to the game's done status)
 and a status dropdown for other workflow moves.
 
-Use **Change game** in the toolbar to switch which Grimoire game this Unity
-project connects to.
+### Object tab
+
+With Grimoire Connect open, select a linked GameObject in the Hierarchy. The
+**Object** tab fetches the object's view document and draws it, followed by
+every task and note attached to that object.
+
+Use **Change workspace** in the toolbar to switch company or game for this Unity
+project.
 
 ## API endpoints used
 
@@ -68,6 +74,8 @@ project connects to.
 | --- | --- |
 | `POST /api/v1/auth/login` / `verify-2fa` / `refresh` | User sign-in |
 | `GET /api/v1/games` | List games the signed-in user can access |
+| `GET /api/v1/users` | Game members for task assignee filters |
+| `GET /api/v1/tasks` | List tasks for a game (optional assignee filter) |
 | `GET /api/v1/objects` | Object picker + key (`code_id`) resolution |
 | `GET /api/v1/objects/{id}` | Object View Document incl. attached tasks |
 | `GET /api/v1/statuses?domain=tasks` | Valid task workflow statuses |

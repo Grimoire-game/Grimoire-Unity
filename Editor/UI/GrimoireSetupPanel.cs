@@ -1,16 +1,23 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Onboarding flow for the Object Widget: sign in to Grimoire, then pick
-    /// which game this Unity project should talk to. Mirrors the platform's
-    /// login → game selection experience.
+    /// Onboarding for Grimoire Connect: sign in, then pick company and game on
+    /// the same styled card as login.
     /// </summary>
     public class GrimoireSetupPanel
     {
+        private struct CompanyOption
+        {
+            public string Id;
+            public string Label;
+        }
+
         private string _email = "";
         private string _password = "";
         private string _code = "";
@@ -19,10 +26,12 @@ namespace Grimoire.PluginV2.Editor
         private bool _busy;
 
         private GameDirectoryEntry[] _games = Array.Empty<GameDirectoryEntry>();
+        private CompanyOption[] _companies = Array.Empty<CompanyOption>();
+        private int _companyIndex;
+        private int _gameIndex;
         private bool _gamesLoading;
         private bool _gamesFetchRequested;
         private string _gamesError;
-        private Vector2 _gameScroll;
 
         public event Action SetupCompleted;
         public event Action RepaintNeeded;
@@ -45,7 +54,7 @@ namespace Grimoire.PluginV2.Editor
 
                 if (!GrimoireSettings.HasGameId)
                 {
-                    return SetupPhase.SelectGame;
+                    return SetupPhase.SelectWorkspace;
                 }
 
                 return SetupPhase.Ready;
@@ -59,8 +68,8 @@ namespace Grimoire.PluginV2.Editor
                 case SetupPhase.Login:
                     DrawLoginStep(area);
                     break;
-                case SetupPhase.SelectGame:
-                    DrawGameSelectionStep(area);
+                case SetupPhase.SelectWorkspace:
+                    DrawWorkspaceStep(area);
                     break;
             }
         }
@@ -78,15 +87,20 @@ namespace Grimoire.PluginV2.Editor
         public void OnSignedOut()
         {
             _games = Array.Empty<GameDirectoryEntry>();
+            _companies = Array.Empty<CompanyOption>();
             _gamesError = null;
             _gamesFetchRequested = false;
+            _companyIndex = 0;
+            _gameIndex = 0;
             _error = null;
         }
 
-        public void BeginGameSelection()
+        public void BeginWorkspaceSelection()
         {
-            GrimoireSettings.ClearGame();
+            GrimoireSettings.ClearWorkspace();
             _gamesFetchRequested = false;
+            _companyIndex = 0;
+            _gameIndex = 0;
             FetchGames();
             RepaintNeeded?.Invoke();
         }
@@ -122,7 +136,7 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
-        private void DrawGameSelectionStep(Rect area)
+        private void DrawWorkspaceStep(Rect area)
         {
             if (!_gamesFetchRequested && !_gamesLoading)
             {
@@ -130,81 +144,101 @@ namespace Grimoire.PluginV2.Editor
                 FetchGames();
             }
 
-            GUILayout.BeginArea(area);
-            EditorGUILayout.Space(12);
-            EditorGUILayout.LabelField("Select a game", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(
-                $"Signed in as {GrimoireAuthSession.UserName}. Choose which Grimoire game this Unity project should use.",
-                EditorStyles.wordWrappedMiniLabel);
-            EditorGUILayout.Space(8);
+            SyncWorkspaceSelection();
 
-            if (_gamesLoading)
+            var companyLabels = _companies.Select(company => company.Label).ToArray();
+            var filteredGames = GetGamesForSelectedCompany();
+            var gameLabels = filteredGames.Select(game => game.name).ToArray();
+            var gamesEnabled = _companyIndex >= 0 && _companyIndex < _companies.Length && gameLabels.Length > 0;
+
+            var action = GrimoireLoginUi.DrawWorkspaceSelection(
+                area,
+                ref _companyIndex,
+                ref _gameIndex,
+                companyLabels,
+                gameLabels,
+                gamesEnabled,
+                _busy,
+                _gamesLoading,
+                _gamesError ?? _error);
+
+            if (_companyIndex >= 0 && _companyIndex < _companies.Length &&
+                (_gameIndex < 0 || _gameIndex >= gameLabels.Length))
             {
-                EditorGUILayout.LabelField("Loading games...", EditorStyles.centeredGreyMiniLabel);
+                _gameIndex = gameLabels.Length > 0 ? 0 : -1;
             }
 
-            if (!string.IsNullOrEmpty(_gamesError))
+            switch (action)
             {
-                EditorGUILayout.HelpBox(_gamesError, MessageType.Error);
-                if (GUILayout.Button("Retry"))
-                {
-                    _gamesFetchRequested = false;
-                    FetchGames();
-                }
-            }
-
-            _gameScroll = EditorGUILayout.BeginScrollView(_gameScroll);
-
-            foreach (var game in _games)
-            {
-                DrawGameRow(game);
-            }
-
-            if (!_gamesLoading && _games.Length == 0 && string.IsNullOrEmpty(_gamesError))
-            {
-                EditorGUILayout.HelpBox(
-                    "No games were found for your account. Ask a company admin to add you to a game in Grimoire.",
-                    MessageType.Info);
-            }
-
-            EditorGUILayout.EndScrollView();
-
-            EditorGUILayout.Space(4);
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (GUILayout.Button("Sign out", GUILayout.Width(80)))
-                {
+                case GrimoireLoginUi.WorkspaceAction.Continue:
+                    ConfirmWorkspace(filteredGames);
+                    break;
+                case GrimoireLoginUi.WorkspaceAction.SignOut:
                     GrimoireAuthSession.SignOut();
                     OnSignedOut();
                     RepaintNeeded?.Invoke();
-                }
-
-                GUILayout.FlexibleSpace();
-
-                if (GUILayout.Button("Refresh list", GUILayout.Width(90)))
-                {
-                    _gamesFetchRequested = false;
-                    FetchGames();
-                }
+                    break;
             }
-            GUILayout.EndArea();
         }
 
-        private void DrawGameRow(GameDirectoryEntry game)
+        private void SyncWorkspaceSelection()
         {
-            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-
-            EditorGUILayout.BeginVertical();
-            EditorGUILayout.LabelField(game.name, EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(game.id, EditorStyles.miniLabel);
-            EditorGUILayout.EndVertical();
-
-            if (GUILayout.Button("Select", GUILayout.Width(70), GUILayout.Height(32)))
+            if (_companies.Length == 0)
             {
-                SelectGame(game);
+                return;
             }
 
-            EditorGUILayout.EndHorizontal();
+            if (!string.IsNullOrEmpty(GrimoireSettings.CompanyId))
+            {
+                var savedCompanyIndex = Array.FindIndex(_companies, company => company.Id == GrimoireSettings.CompanyId);
+                if (savedCompanyIndex >= 0)
+                {
+                    _companyIndex = savedCompanyIndex;
+                }
+            }
+
+            var filteredGames = GetGamesForSelectedCompany();
+            if (!string.IsNullOrEmpty(GrimoireSettings.GameId))
+            {
+                var savedGameIndex = Array.FindIndex(filteredGames, game => game.id == GrimoireSettings.GameId);
+                if (savedGameIndex >= 0)
+                {
+                    _gameIndex = savedGameIndex;
+                }
+            }
+            else if (filteredGames.Length == 1)
+            {
+                _gameIndex = 0;
+            }
+        }
+
+        private GameDirectoryEntry[] GetGamesForSelectedCompany()
+        {
+            if (_companyIndex < 0 || _companyIndex >= _companies.Length)
+            {
+                return Array.Empty<GameDirectoryEntry>();
+            }
+
+            var companyId = _companies[_companyIndex].Id;
+            return _games
+                .Where(game => game.company_id == companyId)
+                .OrderBy(game => game.name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private void ConfirmWorkspace(GameDirectoryEntry[] filteredGames)
+        {
+            if (_companyIndex < 0 || _companyIndex >= _companies.Length ||
+                _gameIndex < 0 || _gameIndex >= filteredGames.Length)
+            {
+                _error = "Choose a company and a game to continue.";
+                RepaintNeeded?.Invoke();
+                return;
+            }
+
+            var company = _companies[_companyIndex];
+            var game = filteredGames[_gameIndex];
+            SelectWorkspace(company, game);
         }
 
         private async void Login()
@@ -293,19 +327,85 @@ namespace Grimoire.PluginV2.Editor
             }
 
             _games = result.Data ?? Array.Empty<GameDirectoryEntry>();
+            _companies = BuildCompanyOptions(_games);
+            TryMigrateSavedGameWithoutCompany();
+            SyncWorkspaceSelection();
 
-            if (_games.Length == 1 && !GrimoireSettings.HasGameId)
+            if (_companies.Length == 1 && _games.Length == 1 && !GrimoireSettings.HasGameId)
             {
-                SelectGame(_games[0]);
+                SelectWorkspace(_companies[0], _games[0]);
                 return;
             }
 
             RepaintNeeded?.Invoke();
         }
 
-        private void SelectGame(GameDirectoryEntry game)
+        /// <summary>
+        /// Older plugin versions stored only game_id. Infer company from the
+        /// saved game so existing projects keep working after upgrade.
+        /// </summary>
+        private void TryMigrateSavedGameWithoutCompany()
         {
-            GrimoireSettings.SelectGame(game.id, game.name);
+            if (GrimoireSettings.HasCompanyId || !GrimoireSettings.HasGameId)
+            {
+                return;
+            }
+
+            var savedGame = _games.FirstOrDefault(game => game.id == GrimoireSettings.GameId);
+            if (savedGame == null || string.IsNullOrEmpty(savedGame.company_id))
+            {
+                return;
+            }
+
+            var company = _companies.FirstOrDefault(entry => entry.Id == savedGame.company_id);
+            if (string.IsNullOrEmpty(company.Id))
+            {
+                company = new CompanyOption
+                {
+                    Id = savedGame.company_id,
+                    Label = ResolveCompanyLabel(savedGame.company_id, _games.Where(game => game.company_id == savedGame.company_id).ToArray()),
+                };
+            }
+
+            GrimoireSettings.SelectCompany(company.Id, company.Label);
+        }
+
+        private static CompanyOption[] BuildCompanyOptions(GameDirectoryEntry[] games)
+        {
+            return games
+                .Where(game => !string.IsNullOrEmpty(game.company_id))
+                .GroupBy(game => game.company_id)
+                .Select(group =>
+                {
+                    var companyGames = group.OrderBy(game => game.name, StringComparer.OrdinalIgnoreCase).ToArray();
+                    return new CompanyOption
+                    {
+                        Id = group.Key,
+                        Label = ResolveCompanyLabel(group.Key, companyGames),
+                    };
+                })
+                .OrderBy(company => company.Label, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private static string ResolveCompanyLabel(string companyId, GameDirectoryEntry[] companyGames)
+        {
+            if (companyId == GrimoireSettings.CompanyId && !string.IsNullOrEmpty(GrimoireSettings.CompanyName))
+            {
+                return GrimoireSettings.CompanyName;
+            }
+
+            if (companyGames.Length == 1)
+            {
+                return companyGames[0].name;
+            }
+
+            return $"Company ({companyGames.Length} games)";
+        }
+
+        private void SelectWorkspace(CompanyOption company, GameDirectoryEntry game)
+        {
+            GrimoireSettings.SelectWorkspace(company.Id, company.Label, game.id, game.name);
             GrimoireObjectKeyResolver.InvalidateCache();
             SetupCompleted?.Invoke();
             RepaintNeeded?.Invoke();
@@ -315,7 +415,7 @@ namespace Grimoire.PluginV2.Editor
     public enum SetupPhase
     {
         Login,
-        SelectGame,
+        SelectWorkspace,
         Ready,
     }
 }

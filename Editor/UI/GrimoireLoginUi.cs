@@ -1,3 +1,4 @@
+using System;
 using UnityEditor;
 using UnityEngine;
 
@@ -17,6 +18,13 @@ namespace Grimoire.PluginV2.Editor
             SubmitVerify,
             GoBack,
             ForgotPassword,
+        }
+
+        public enum WorkspaceAction
+        {
+            None,
+            Continue,
+            SignOut,
         }
 
         private static readonly Color Purple = new Color(0.431f, 0.208f, 1f);       // #6E35FF
@@ -49,6 +57,8 @@ namespace Grimoire.PluginV2.Editor
         private static GUIStyle _busyStyle;
         private static GUIStyle _ghostButtonStyle;
         private static GUIStyle _placeholderStyle;
+        private static GUIStyle _fieldLabelStyle;
+        private static GUIStyle _popupStyle;
 
         public static Action Draw(
             Rect area,
@@ -83,6 +93,146 @@ namespace Grimoire.PluginV2.Editor
             }
 
             return DrawCredentialsContent(content, ref y, ref email, ref password, busy, error);
+        }
+
+        /// <summary>
+        /// Company and game pickers on the same styled card as login.
+        /// </summary>
+        public static WorkspaceAction DrawWorkspaceSelection(
+            Rect area,
+            ref int companyIndex,
+            ref int gameIndex,
+            string[] companyLabels,
+            string[] gameLabels,
+            bool gamesEnabled,
+            bool busy,
+            bool loading,
+            string error)
+        {
+            EnsureStyles();
+            DrawGradientBackground(area);
+
+            const float cardHeight = 520f;
+            var cardRect = new Rect(
+                area.x + (area.width - CardWidth) * 0.5f,
+                area.y + Mathf.Max(24f, (area.height - cardHeight) * 0.5f),
+                CardWidth,
+                cardHeight);
+
+            DrawCard(cardRect);
+
+            var content = Inset(cardRect, CardPadding);
+            var y = content.y;
+
+            y = DrawLogo(content, y);
+            y += 16f;
+
+            y = DrawCenteredLabel(content, "Choose your workspace", _titleStyle, y, 28f);
+            y += 8f;
+            y = DrawCenteredLabel(
+                content,
+                $"Signed in as {GrimoireAuthSession.UserName}",
+                _subtitleStyle,
+                y,
+                36f);
+            y += 16f;
+
+            if (loading)
+            {
+                DrawCenteredLabel(content, "Loading your games...", _busyStyle, y, 24f);
+                return WorkspaceAction.None;
+            }
+
+            companyLabels ??= Array.Empty<string>();
+            gameLabels ??= Array.Empty<string>();
+
+            if (companyLabels.Length == 0)
+            {
+                y = DrawError(content, y, error ?? "No companies were found for your account.");
+                y += 8f;
+                var signOutRect = ButtonRect(content, y);
+                AddButtonCursor(signOutRect, enabled: true);
+                if (GUI.Button(signOutRect, "Sign out", _ghostButtonStyle))
+                {
+                    return WorkspaceAction.SignOut;
+                }
+
+                return WorkspaceAction.None;
+            }
+
+            using (new EditorGUI.DisabledScope(busy))
+            {
+                y = DrawFieldLabel(content, y, "Company");
+                companyIndex = DrawPopup(content, y, companyIndex, companyLabels);
+                y += FieldHeight + FieldSpacing;
+
+                y = DrawFieldLabel(content, y, "Game");
+                using (new EditorGUI.DisabledScope(!gamesEnabled || gameLabels.Length == 0))
+                {
+                    gameIndex = DrawPopup(content, y, gameIndex, gameLabels);
+                }
+
+                y += FieldHeight + 18f;
+            }
+
+            var canContinue = !busy &&
+                              companyIndex >= 0 && companyIndex < companyLabels.Length &&
+                              gamesEnabled &&
+                              gameIndex >= 0 && gameIndex < gameLabels.Length;
+
+            var continueRect = ButtonRect(content, y);
+            AddButtonCursor(continueRect, canContinue);
+            using (new EditorGUI.DisabledScope(!canContinue))
+            {
+                if (GUI.Button(continueRect, busy ? "Saving..." : "Continue", _primaryButtonStyle))
+                {
+                    return WorkspaceAction.Continue;
+                }
+            }
+
+            y += ButtonHeight + 8f;
+
+            if (SubmitPressed() && canContinue)
+            {
+                return WorkspaceAction.Continue;
+            }
+
+            y = DrawError(content, y, error);
+
+            var backRect = ButtonRect(content, y);
+            AddButtonCursor(backRect, enabled: true);
+            if (GUI.Button(backRect, "Sign out", _ghostButtonStyle))
+            {
+                return WorkspaceAction.SignOut;
+            }
+
+            return WorkspaceAction.None;
+        }
+
+        private static float DrawFieldLabel(Rect content, float y, string label)
+        {
+            var rect = new Rect(content.x, y, content.width, 18f);
+            if (Event.current.type == EventType.Repaint)
+            {
+                _fieldLabelStyle.Draw(rect, new GUIContent(label), false, false, false, false);
+            }
+
+            return y + 18f;
+        }
+
+        private static int DrawPopup(Rect content, float y, int selectedIndex, string[] options)
+        {
+            if (options == null || options.Length == 0)
+            {
+                return -1;
+            }
+
+            selectedIndex = Mathf.Clamp(selectedIndex, 0, options.Length - 1);
+            var rect = FieldRect(content, y);
+            AddFieldCursor(rect);
+            var picked = EditorGUI.Popup(rect, selectedIndex, options, _popupStyle);
+            DrawBorder(rect, InputBorder);
+            return picked;
         }
 
         private static Action DrawCredentialsContent(
@@ -518,6 +668,37 @@ namespace Grimoire.PluginV2.Editor
                 hover = { textColor = TextSecondary, background = null },
                 focused = { textColor = TextSecondary, background = null },
                 active = { textColor = TextSecondary, background = null },
+            };
+
+            _fieldLabelStyle = new GUIStyle(EditorStyles.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 12,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = TextPrimary },
+            };
+
+            _popupStyle = new GUIStyle(EditorStyles.popup)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 13,
+                fixedHeight = FieldHeight,
+                padding = new RectOffset(12, 24, 10, 10),
+                normal =
+                {
+                    background = _inputBgTexture,
+                    textColor = TextPrimary,
+                },
+                focused =
+                {
+                    background = _inputBgTexture,
+                    textColor = TextPrimary,
+                },
+                hover =
+                {
+                    background = _inputBgTexture,
+                    textColor = TextPrimary,
+                },
             };
         }
 

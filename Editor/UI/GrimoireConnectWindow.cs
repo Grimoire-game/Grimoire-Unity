@@ -4,31 +4,35 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// The Grimoire object widget: select a GameObject carrying a
-    /// <see cref="GrimoireObjectLink"/> and this window shows the linked
-    /// object's data (Object View Document) plus its attached tasks.
-    ///
-    /// Setup follows the Grimoire platform: sign in, pick a game, then work.
+    /// Grimoire Connect: sign in, pick company and game, then browse tasks or
+    /// inspect linked objects from the scene.
     /// </summary>
-    public class GrimoireWidgetWindow : EditorWindow
+    public class GrimoireConnectWindow : EditorWindow
     {
+        private const int TabTasks = 0;
+        private const int TabObject = 1;
+
+        private static readonly string[] TabLabels = { "Tasks", "Object" };
+
         private GrimoireObjectLink _link;
         private ObjectViewDocument _document;
         private string _statusMessage;
         private string _error;
         private bool _loading;
         private bool _settingsOpen;
-        private Vector2 _scroll;
+        private Vector2 _objectScroll;
+        private int _selectedTab;
 
         private int _loadGeneration;
 
-        private GrimoireTasksPanel _tasksPanel;
+        private GrimoireTasksPanel _objectTasksPanel;
+        private GrimoireUserTasksPanel _userTasksPanel;
         private GrimoireSetupPanel _setupPanel;
 
-        [MenuItem("Window/Grimoire/Object Widget 2")]
+        [MenuItem("Window/Grimoire/Grimoire Connect")]
         public static void Open()
         {
-            var window = GetWindow<GrimoireWidgetWindow>("Grimoire Object");
+            var window = GetWindow<GrimoireConnectWindow>("Grimoire Connect");
             window.minSize = new Vector2(420, 520);
             window.Show();
         }
@@ -36,15 +40,19 @@ namespace Grimoire.PluginV2.Editor
         public static void ShowAndLoad(GrimoireObjectLink link)
         {
             Open();
-            var window = GetWindow<GrimoireWidgetWindow>();
+            var window = GetWindow<GrimoireConnectWindow>();
+            window._selectedTab = TabObject;
             window.LoadLink(link);
         }
 
         private void OnEnable()
         {
-            _tasksPanel = new GrimoireTasksPanel();
-            _tasksPanel.RepaintNeeded += Repaint;
-            _tasksPanel.TaskStatusChanged += OnTaskStatusChanged;
+            _objectTasksPanel = new GrimoireTasksPanel();
+            _objectTasksPanel.RepaintNeeded += Repaint;
+            _objectTasksPanel.TaskStatusChanged += OnTaskStatusChanged;
+
+            _userTasksPanel = new GrimoireUserTasksPanel();
+            _userTasksPanel.RepaintNeeded += Repaint;
 
             _setupPanel = new GrimoireSetupPanel();
             _setupPanel.RepaintNeeded += Repaint;
@@ -68,7 +76,8 @@ namespace Grimoire.PluginV2.Editor
 
         private void OnAuthChanged()
         {
-            _tasksPanel.ResetStatusFetchState();
+            _objectTasksPanel.ResetStatusFetchState();
+            _userTasksPanel.Reset();
 
             if (!GrimoireAuthSession.IsSignedIn)
             {
@@ -81,18 +90,26 @@ namespace Grimoire.PluginV2.Editor
 
         private void OnSettingsChanged()
         {
-            _tasksPanel.ResetStatusFetchState();
+            _objectTasksPanel.ResetStatusFetchState();
+            _userTasksPanel.Reset();
             Repaint();
         }
 
         private void OnSetupCompleted()
         {
             _error = null;
+            _userTasksPanel.Reset();
             ReloadCurrent();
         }
 
         private void OnSelectionChanged()
         {
+            if (_selectedTab != TabObject)
+            {
+                Repaint();
+                return;
+            }
+
             var active = Selection.activeGameObject;
             var link = active != null ? active.GetComponent<GrimoireObjectLink>() : null;
 
@@ -265,17 +282,7 @@ namespace Grimoire.PluginV2.Editor
         {
             if (_setupPanel.NeedsSetup)
             {
-                if (_setupPanel.CurrentPhase == SetupPhase.Login)
-                {
-                    _setupPanel.Draw(new Rect(0f, 0f, position.width, position.height));
-                }
-                else
-                {
-                    DrawToolbar();
-                    var toolbarHeight = EditorStyles.toolbar.fixedHeight;
-                    _setupPanel.Draw(new Rect(0f, toolbarHeight, position.width, position.height - toolbarHeight));
-                }
-
+                _setupPanel.Draw(new Rect(0f, 0f, position.width, position.height));
                 return;
             }
 
@@ -286,6 +293,42 @@ namespace Grimoire.PluginV2.Editor
                 DrawSettings();
             }
 
+            DrawTabBar();
+
+            switch (_selectedTab)
+            {
+                case TabTasks:
+                    DrawTasksTab();
+                    break;
+                case TabObject:
+                    DrawObjectTab();
+                    break;
+            }
+        }
+
+        private void DrawTabBar()
+        {
+            EditorGUILayout.Space(2);
+            var picked = GUILayout.Toolbar(_selectedTab, TabLabels, EditorStyles.toolbarButton);
+            if (picked != _selectedTab)
+            {
+                _selectedTab = picked;
+                if (_selectedTab == TabObject)
+                {
+                    OnSelectionChanged();
+                }
+            }
+
+            EditorGUILayout.Space(4);
+        }
+
+        private void DrawTasksTab()
+        {
+            _userTasksPanel.Draw();
+        }
+
+        private void DrawObjectTab()
+        {
             if (!string.IsNullOrEmpty(_error))
             {
                 EditorGUILayout.HelpBox(_error, MessageType.Error);
@@ -308,10 +351,10 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+            _objectScroll = EditorGUILayout.BeginScrollView(_objectScroll);
 
             GrimoireObjectViewRenderer.Draw(_document);
-            _tasksPanel.Draw(GrimoireSettings.GameId, _document.tasks);
+            _objectTasksPanel.Draw(GrimoireSettings.GameId, _document.tasks);
 
             EditorGUILayout.EndScrollView();
         }
@@ -322,40 +365,52 @@ namespace Grimoire.PluginV2.Editor
 
             if (GrimoireSettings.IsConfigured)
             {
+                var companyLabel = string.IsNullOrEmpty(GrimoireSettings.CompanyName)
+                    ? "Company"
+                    : GrimoireSettings.CompanyName;
                 var gameLabel = string.IsNullOrEmpty(GrimoireSettings.GameName)
                     ? "Game"
                     : GrimoireSettings.GameName;
-                GUILayout.Label(gameLabel, EditorStyles.boldLabel);
-                GUILayout.Label("·", EditorStyles.miniLabel);
 
-                var title = _document?.@object?.name
-                            ?? (_link != null && _link.HasKey ? _link.ObjectKey : "No object");
-                GUILayout.Label(title, EditorStyles.label);
+                GUILayout.Label(companyLabel, EditorStyles.boldLabel);
+                GUILayout.Label("·", EditorStyles.miniLabel);
+                GUILayout.Label(gameLabel, EditorStyles.label);
+
+                if (_selectedTab == TabObject)
+                {
+                    GUILayout.Label("·", EditorStyles.miniLabel);
+                    var title = _document?.@object?.name
+                                ?? (_link != null && _link.HasKey ? _link.ObjectKey : "No object");
+                    GUILayout.Label(title, EditorStyles.label);
+                }
             }
             else
             {
-                GUILayout.Label("Grimoire", EditorStyles.boldLabel);
+                GUILayout.Label("Grimoire Connect", EditorStyles.boldLabel);
             }
 
             GUILayout.FlexibleSpace();
 
             if (GrimoireSettings.IsConfigured)
             {
-                using (new EditorGUI.DisabledScope(_link == null || _loading))
+                if (_selectedTab == TabObject)
                 {
-                    if (GUILayout.Button(new GUIContent("Refresh", "Re-fetch this object from Grimoire"), EditorStyles.toolbarButton))
+                    using (new EditorGUI.DisabledScope(_link == null || _loading))
                     {
-                        GrimoireObjectKeyResolver.InvalidateCache(GrimoireSettings.GameId);
-                        ReloadCurrent();
+                        if (GUILayout.Button(new GUIContent("Refresh", "Re-fetch this object from Grimoire"), EditorStyles.toolbarButton))
+                        {
+                            GrimoireObjectKeyResolver.InvalidateCache(GrimoireSettings.GameId);
+                            ReloadCurrent();
+                        }
                     }
                 }
 
                 if (GrimoireAuthSession.IsSignedIn)
                 {
                     GUILayout.Label(GrimoireAuthSession.UserName, EditorStyles.miniLabel);
-                    if (GUILayout.Button("Change game", EditorStyles.toolbarButton))
+                    if (GUILayout.Button("Change workspace", EditorStyles.toolbarButton))
                     {
-                        _setupPanel.BeginGameSelection();
+                        _setupPanel.BeginWorkspaceSelection();
                     }
 
                     if (GUILayout.Button("Sign out", EditorStyles.toolbarButton))
@@ -389,6 +444,11 @@ namespace Grimoire.PluginV2.Editor
                 GrimoireSettings.ApiBaseUrl = apiBaseUrl;
                 GrimoireSettings.Locale = locale;
                 GrimoireObjectKeyResolver.InvalidateCache();
+            }
+
+            if (GrimoireSettings.HasCompanyId)
+            {
+                EditorGUILayout.LabelField("Company", GrimoireSettings.CompanyName, EditorStyles.miniLabel);
             }
 
             if (GrimoireSettings.HasGameId)

@@ -102,6 +102,44 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>
+        /// GET /api/v1/tasks — list tasks and notes for a game. Pass
+        /// <paramref name="userId"/> to restrict to tasks assigned to that user.
+        /// </summary>
+        public static async Task<ApiResult<GrimoireTask[]>> ListTasksAsync(
+            string gameId,
+            string userId = null,
+            bool? isTask = true,
+            bool? archived = false)
+        {
+            var url = BuildUrl("/api/v1/tasks", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+                ["user_id"] = string.IsNullOrWhiteSpace(userId) ? null : userId.Trim(),
+                ["is_task"] = isTask.HasValue ? (isTask.Value ? "true" : "false") : null,
+                ["archived"] = archived.HasValue ? (archived.Value ? "true" : "false") : null,
+            });
+
+            var result = await SendAsync<ListEnvelope<GrimoireTask>>("GET", url, null, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<GrimoireTask[]>.Ok(result.Data.data ?? Array.Empty<GrimoireTask>())
+                : ApiResult<GrimoireTask[]>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
+        /// <summary>GET /api/v1/users — game members for assignee labels and filters.</summary>
+        public static async Task<ApiResult<UserDirectoryEntry[]>> ListUsersAsync(string gameId)
+        {
+            var url = BuildUrl("/api/v1/users", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+            });
+
+            var result = await SendAsync<ListEnvelope<UserDirectoryEntry>>("GET", url, null, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<UserDirectoryEntry[]>.Ok(result.Data.data ?? Array.Empty<UserDirectoryEntry>())
+                : ApiResult<UserDirectoryEntry[]>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
+        /// <summary>
         /// PATCH /api/v1/tasks/{id} — update a task's workflow status. Bearer
         /// JWT only; the API rejects API keys on PATCH.
         /// </summary>
@@ -349,7 +387,7 @@ namespace Grimoire.PluginV2.Editor
                     {
                         case "invalid_credentials":
                         case "missing_credentials":
-                            return $"{envelope.error} Sign in with your Grimoire account in the Object Widget.";
+                            return $"{envelope.error} Sign in with your Grimoire account in Grimoire Connect.";
                         case "insufficient_scope":
                             return $"{envelope.error} Your account may not have access to this action in Grimoire.";
                         case "rate_limited":
@@ -357,7 +395,7 @@ namespace Grimoire.PluginV2.Editor
                         case "jwt_not_accepted":
                         case "api_key_not_accepted":
                         case "user_session_required":
-                            return $"{envelope.error} Sign in with your Grimoire account in the Object Widget.";
+                            return $"{envelope.error} Sign in with your Grimoire account in Grimoire Connect.";
                         default:
                             return envelope.error;
                     }

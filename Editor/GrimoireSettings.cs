@@ -23,6 +23,26 @@ namespace Grimoire.PluginV2.Editor
             set => EditorPrefs.SetString(Key("ApiBaseUrl"), Normalize(value));
         }
 
+        public static string CompanyId
+        {
+            get => EditorPrefs.GetString(Key("CompanyId"), "");
+            set
+            {
+                EditorPrefs.SetString(Key("CompanyId"), value?.Trim() ?? "");
+                Changed?.Invoke();
+            }
+        }
+
+        public static string CompanyName
+        {
+            get => EditorPrefs.GetString(Key("CompanyName"), "");
+            set
+            {
+                EditorPrefs.SetString(Key("CompanyName"), value?.Trim() ?? "");
+                Changed?.Invoke();
+            }
+        }
+
         public static string GameId
         {
             get => EditorPrefs.GetString(Key("GameId"), "");
@@ -50,14 +70,22 @@ namespace Grimoire.PluginV2.Editor
             set => EditorPrefs.SetString(Key("Locale"), value?.Trim() ?? "");
         }
 
+        public static bool HasCompanyId => !string.IsNullOrEmpty(CompanyId);
+
         public static bool HasGameId => !string.IsNullOrEmpty(GameId);
 
         public static bool CanUpdateTaskStatuses =>
             GrimoireAuthSession.IsSignedIn && HasGameId;
 
-        /// <summary>Signed in and a game is selected for this Unity project.</summary>
+        /// <summary>Signed in with a company and game selected for this Unity project.</summary>
         public static bool IsConfigured =>
-            GrimoireAuthSession.IsSignedIn && HasGameId;
+            GrimoireAuthSession.IsSignedIn && HasCompanyId && HasGameId;
+
+        public static void SelectCompany(string companyId, string companyName)
+        {
+            CompanyId = companyId;
+            CompanyName = companyName ?? "";
+        }
 
         public static void SelectGame(string gameId, string gameName)
         {
@@ -65,10 +93,23 @@ namespace Grimoire.PluginV2.Editor
             GameName = gameName ?? "";
         }
 
-        public static void ClearGame()
+        public static void SelectWorkspace(string companyId, string companyName, string gameId, string gameName)
         {
+            SelectCompany(companyId, companyName);
+            SelectGame(gameId, gameName);
+        }
+
+        public static void ClearWorkspace()
+        {
+            CompanyId = "";
+            CompanyName = "";
             GameId = "";
             GameName = "";
+        }
+
+        public static void ClearGame()
+        {
+            ClearWorkspace();
         }
 
         // Auth session storage lives here too so every consumer agrees on the keys.
@@ -96,6 +137,12 @@ namespace Grimoire.PluginV2.Editor
         {
             get => EditorPrefs.GetString(Key("SessionUserEmail"), "");
             set => EditorPrefs.SetString(Key("SessionUserEmail"), value ?? "");
+        }
+
+        public static string SessionUserId
+        {
+            get => EditorPrefs.GetString(Key("SessionUserId"), "");
+            set => EditorPrefs.SetString(Key("SessionUserId"), value ?? "");
         }
 
         private static string Normalize(string url)

@@ -266,6 +266,17 @@ namespace Grimoire.PluginV2.Editor
         public string company_id;
     }
 
+    public class UserDirectoryEntry
+    {
+        public string id;
+        public string name;
+        public string username;
+
+        public string DisplayName =>
+            !string.IsNullOrEmpty(name) ? name :
+            !string.IsNullOrEmpty(username) ? username : id;
+    }
+
     // ---------------------------------------------------------------------
     // Auth
     // ---------------------------------------------------------------------

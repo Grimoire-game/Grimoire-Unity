@@ -21,6 +21,8 @@ namespace Grimoire.PluginV2.Editor
 
         public static string UserName => GrimoireSettings.SessionUserName;
 
+        public static string UserId => GrimoireSettings.SessionUserId;
+
         public static DateTime ExpiresAtUtc
         {
             get
@@ -37,6 +39,7 @@ namespace Grimoire.PluginV2.Editor
                 (DateTime.UtcNow + ParseLifetime(session.expires_in)).Ticks;
             GrimoireSettings.SessionUserName = session.user?.DisplayName ?? "";
             GrimoireSettings.SessionUserEmail = session.user?.email ?? "";
+            GrimoireSettings.SessionUserId = session.user?.id ?? "";
             Changed?.Invoke();
         }
 
@@ -46,6 +49,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireSettings.SessionExpiresAtTicks = 0;
             GrimoireSettings.SessionUserName = "";
             GrimoireSettings.SessionUserEmail = "";
+            GrimoireSettings.SessionUserId = "";
             Changed?.Invoke();
         }
 

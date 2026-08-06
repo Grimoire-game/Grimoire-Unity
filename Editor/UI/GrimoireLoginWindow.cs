@@ -115,11 +115,11 @@ namespace Grimoire.PluginV2.Editor
             _password = "";
             Close();
 
-            if (!GrimoireSettings.HasGameId)
+            if (!GrimoireSettings.IsConfigured)
             {
-                GrimoireWidgetWindow.Open();
-                var widget = EditorWindow.GetWindow<GrimoireWidgetWindow>();
-                widget.Repaint();
+                GrimoireConnectWindow.Open();
+                var connect = EditorWindow.GetWindow<GrimoireConnectWindow>();
+                connect.Repaint();
             }
         }
     }

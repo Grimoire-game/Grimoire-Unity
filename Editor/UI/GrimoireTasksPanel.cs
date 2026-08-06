@@ -49,20 +49,34 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>Raised when async work finished and the window should repaint.</summary>
         public event Action RepaintNeeded;
 
-        public void Draw(string gameId, GrimoireTask[] tasks)
+        public void Draw(string gameId, GrimoireTask[] tasks, bool showHeader = true)
         {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            if (showHeader)
+            {
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            }
+            else
+            {
+                EditorGUILayout.BeginVertical();
+            }
 
-            var openCount = tasks?.Count(task => task.is_task && !IsDone(gameId, task.status)) ?? 0;
-            EditorGUILayout.LabelField(
-                tasks == null || tasks.Length == 0
-                    ? "Tasks"
-                    : $"Tasks ({tasks.Length}, {openCount} open)",
-                EditorStyles.boldLabel);
+            if (showHeader)
+            {
+                var openCount = tasks?.Count(task => task.is_task && !IsDone(gameId, task.status)) ?? 0;
+                EditorGUILayout.LabelField(
+                    tasks == null || tasks.Length == 0
+                        ? "Tasks"
+                        : $"Tasks ({tasks.Length}, {openCount} open)",
+                    EditorStyles.boldLabel);
+            }
 
             if (tasks == null || tasks.Length == 0)
             {
-                EditorGUILayout.LabelField("No tasks or notes are attached to this object.", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField(
+                    showHeader
+                        ? "No tasks or notes are attached to this object."
+                        : "No tasks match the current filter.",
+                    EditorStyles.miniLabel);
                 EditorGUILayout.EndVertical();
                 return;
             }
