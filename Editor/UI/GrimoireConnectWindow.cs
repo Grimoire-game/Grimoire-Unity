@@ -4,18 +4,18 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Grimoire Connect: sign in, pick company and game, then browse tasks or
-    /// inspect linked objects from the scene.
+    /// Grimoire Connect: sign in, pick company and game, then browse tasks,
+    /// inspect linked objects, or sync game engine data changes.
     /// </summary>
     public class GrimoireConnectWindow : EditorWindow
     {
         private const int TabTasks = 0;
         private const int TabObject = 1;
+        private const int TabSync = 2;
 
         private const int ObjectTabInfo = 0;
         private const int ObjectTabGameEngine = 1;
 
-        private static readonly string[] TabLabels = { "Tasks", "Object" };
         private static readonly string[] ObjectTabLabels = { "Info", "Game Engine Data" };
 
         private GrimoireObjectLink _link;
@@ -33,7 +33,8 @@ namespace Grimoire.PluginV2.Editor
 
         private GrimoireTasksPanel _objectTasksPanel;
         private GrimoireUserTasksPanel _userTasksPanel;
-        private GrimoireSetupPanel _setupPanel;
+        private GrimoireSetupPanel _setupQueue;
+        private GrimoireSyncPanel _syncPanel;
 
         [MenuItem("Window/Grimoire/Grimoire Connect")]
         public static void Open()
@@ -60,9 +61,12 @@ namespace Grimoire.PluginV2.Editor
             _userTasksPanel = new GrimoireUserTasksPanel();
             _userTasksPanel.RepaintNeeded += ScheduleRepaint;
 
-            _setupPanel = new GrimoireSetupPanel();
-            _setupPanel.RepaintNeeded += Repaint;
-            _setupPanel.SetupCompleted += OnSetupCompleted;
+            _setupQueue = new GrimoireSetupPanel();
+            _setupQueue.RepaintNeeded += Repaint;
+            _setupQueue.SetupCompleted += OnSetupCompleted;
+
+            _syncPanel = new GrimoireSyncPanel();
+            _syncPanel.RepaintNeeded += ScheduleRepaint;
 
             Selection.selectionChanged += OnSelectionChanged;
             GrimoireAuthSession.Changed += OnAuthChanged;
@@ -71,6 +75,11 @@ namespace Grimoire.PluginV2.Editor
             GrimoireGameEngineSync.DocumentUpdated += OnGameEngineDocumentUpdated;
 
             _userTasksPanel.Activate();
+            if (_selectedTab == TabSync)
+            {
+                _syncPanel.Activate();
+            }
+
             OnSelectionChanged();
         }
 
@@ -87,6 +96,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireSettings.Changed -= OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded -= Repaint;
             GrimoireGameEngineSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
+            _syncPanel?.Deactivate();
         }
 
         private void OnGameEngineDocumentUpdated(ObjectViewDocument document)
@@ -117,7 +127,7 @@ namespace Grimoire.PluginV2.Editor
 
             if (!GrimoireAuthSession.IsSignedIn)
             {
-                _setupPanel.OnSignedOut();
+                _setupQueue.OnSignedOut();
                 _document = null;
             }
 
@@ -318,9 +328,9 @@ namespace Grimoire.PluginV2.Editor
 
         private void OnGUI()
         {
-            if (_setupPanel.NeedsSetup)
+            if (_setupQueue.NeedsSetup)
             {
-                _setupPanel.Draw(new Rect(0f, 0f, position.width, position.height));
+                _setupQueue.Draw(new Rect(0f, 0f, position.width, position.height));
                 return;
             }
 
@@ -342,6 +352,9 @@ namespace Grimoire.PluginV2.Editor
                 case TabObject:
                     DrawObjectTab();
                     break;
+                case TabSync:
+                    DrawSyncTab();
+                    break;
             }
 
             GrimoireEditorStyles.EndContentArea();
@@ -349,9 +362,18 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawTabBar()
         {
-            var picked = GrimoireEditorStyles.DrawTabBar(_selectedTab, TabLabels);
+            var dirty = GrimoireGameEngineDirtyTracker.DirtyCount;
+            var syncLabel = dirty > 0 ? $"Sync ({dirty})" : "Sync";
+            var labels = new[] { "Tasks", "Object", syncLabel };
+
+            var picked = GrimoireEditorStyles.DrawTabBar(_selectedTab, labels);
             if (picked != _selectedTab)
             {
+                if (_selectedTab == TabSync)
+                {
+                    _syncPanel?.Deactivate();
+                }
+
                 _selectedTab = picked;
                 if (_selectedTab == TabObject)
                 {
@@ -361,12 +383,21 @@ namespace Grimoire.PluginV2.Editor
                 {
                     _userTasksPanel.Activate();
                 }
+                else if (_selectedTab == TabSync)
+                {
+                    _syncPanel?.Activate();
+                }
             }
         }
 
         private void DrawTasksTab()
         {
             _userTasksPanel.Draw();
+        }
+
+        private void DrawSyncTab()
+        {
+            _syncPanel?.Draw();
         }
 
         private void DrawObjectTab()
@@ -470,7 +501,7 @@ namespace Grimoire.PluginV2.Editor
                     GUILayout.Label(GrimoireAuthSession.UserName, GrimoireEditorStyles.MiniSecondaryStyle);
                     if (GrimoireEditorStyles.ToolbarButton("Change workspace"))
                     {
-                        _setupPanel.BeginWorkspaceSelection();
+                        _setupQueue.BeginWorkspaceSelection();
                     }
 
                     if (GrimoireEditorStyles.ToolbarButton("Sign out"))

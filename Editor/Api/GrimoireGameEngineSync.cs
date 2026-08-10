@@ -116,6 +116,7 @@ namespace Grimoire.PluginV2.Editor
             var patched = await GrimoireApiClient.PatchObjectGameEngineDataAsync(gameId, objectId.Data, next);
             if (patched.Success)
             {
+                GrimoireGameEngineDirtyTracker.MarkClean(link);
                 DocumentUpdated?.Invoke(patched.Data);
             }
 

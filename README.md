@@ -59,7 +59,9 @@ On the component, choose which fields to sync (defaults on):
 - **Scale** → `scale`
 - **Id / Name** → `engine_instance_id` (Unity `GlobalObjectId` + GameObject name)
 
-Use **Sync now** to push the current transform after moving the object.
+Use **Sync now** on the component, or the **Sync** tab in Grimoire Connect, to
+push transform changes after moving objects. The Sync tab lists the selected
+object separately from other pending linked objects and can sync one or all.
 
 ### Tasks tab
 

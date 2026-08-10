@@ -249,6 +249,7 @@ namespace Grimoire.PluginV2.Editor
             link.CachedObjectId = "";
             EditorUtility.SetDirty(link);
             GrimoireGameEngineSyncHooks.Forget(link);
+            GrimoireGameEngineDirtyTracker.Forget(link);
 
             _syncing = false;
 
