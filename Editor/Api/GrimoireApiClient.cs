@@ -158,6 +158,39 @@ namespace Grimoire.PluginV2.Editor
                 : ApiResult<GrimoireTask>.Fail(result.Error, result.Code, result.HttpStatus);
         }
 
+        /// <summary>
+        /// PATCH /api/v1/objects/{id} — full replace of <c>game_engine_data</c>.
+        /// Pass <paramref name="instances"/> as <c>null</c> to clear all links.
+        /// Returns the updated Object View Document.
+        /// </summary>
+        public static async Task<ApiResult<ObjectViewDocument>> PatchObjectGameEngineDataAsync(
+            string gameId, string objectId, GameEngineInstance[] instances)
+        {
+            var url = BuildUrl($"/api/v1/objects/{UnityWebRequest.EscapeURL(objectId)}", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+            });
+
+            // Null clears all links; omit null fields on instances (e.g. optional id).
+            var body = JsonConvert.SerializeObject(
+                new Dictionary<string, object> { ["game_engine_data"] = instances },
+                new JsonSerializerSettings
+                {
+                    NullValueHandling = instances == null
+                        ? NullValueHandling.Include
+                        : NullValueHandling.Ignore,
+                });
+
+            var result = await SendAsync<SingleEnvelope<ObjectViewDocument>>("PATCH", url, body, ApiAuth.Bearer);
+            if (!result.Success)
+            {
+                return ApiResult<ObjectViewDocument>.Fail(result.Error, result.Code, result.HttpStatus);
+            }
+
+            ObjectViewSchema.WarnOnVersionMismatch(result.Data.data?.schema_version);
+            return ApiResult<ObjectViewDocument>.Ok(result.Data.data);
+        }
+
         /// <summary>POST /api/v1/auth/login — session or 2FA challenge.</summary>
         public static async Task<ApiResult<AuthSessionData>> LoginAsync(string email, string password)
         {

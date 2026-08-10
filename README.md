@@ -42,13 +42,24 @@ that could be committed.
 
 ### Linking a GameObject
 
-Add the `Grimoire > Grimoire Object Link` component to a GameObject and either:
-
-- type the object key (`code_id`, e.g. `characters/aragorn`) directly, or
-- click **Pick from Grimoire...** to search and select an object.
+Add the `Grimoire > Grimoire Object Link` component to a GameObject and click
+**Pick from Grimoire...** to search and select an object.
 
 The resolved object UUID is cached on the component so subsequent lookups skip
 the key-resolution step.
+
+Linking also upserts this scene instance into the object's `game_engine_data`
+(so Grimoire knows it exists in the engine). Removing the component, deleting
+the GameObject, or clicking **Unlink** removes that entry again.
+
+On the component, choose which fields to sync (defaults on):
+
+- **Position** → `location`
+- **Rotation** → `rotation`
+- **Scale** → `scale`
+- **Id / Name** → `engine_instance_id` (Unity `GlobalObjectId` + GameObject name)
+
+Use **Sync now** to push the current transform after moving the object.
 
 ### Tasks tab
 
@@ -78,5 +89,6 @@ project.
 | `GET /api/v1/tasks` | List tasks for a game (optional assignee filter) |
 | `GET /api/v1/objects` | Object picker + key (`code_id`) resolution |
 | `GET /api/v1/objects/{id}` | Object View Document incl. attached tasks |
+| `PATCH /api/v1/objects/{id}` | Replace `game_engine_data` (engine instance sync) |
 | `GET /api/v1/statuses?domain=tasks` | Valid task workflow statuses |
 | `PATCH /api/v1/tasks/{id}` | Update a task's status |

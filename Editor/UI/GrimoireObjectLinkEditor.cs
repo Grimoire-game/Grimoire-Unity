@@ -6,13 +6,15 @@ namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
     /// Inspector for <see cref="GrimoireObjectLink"/>: pick an object from
-    /// Grimoire and open it in Connect.
+    /// Grimoire, choose which transform fields sync into
+    /// <c>game_engine_data</c>, and open the object in Connect.
     /// </summary>
     [CustomEditor(typeof(GrimoireObjectLink))]
     public class GrimoireObjectLinkEditor : UnityEditor.Editor
     {
         private string _validationMessage;
         private MessageType _validationType = MessageType.None;
+        private bool _syncing;
 
         public override void OnInspectorGUI()
         {
@@ -25,58 +27,244 @@ namespace Grimoire.PluginV2.Editor
                     link.ObjectKey);
             }
 
-            EditorGUILayout.Space(4);
-            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.Space(6);
+            EditorGUILayout.LabelField("Sync to game engine data", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "When linked, selected fields are written to this object's game_engine_data in Grimoire. " +
+                "Removing the link or this component clears the entry.",
+                MessageType.None);
 
-            if (GUILayout.Button("Pick from Grimoire..."))
+            EditorGUI.BeginChangeCheck();
+            var syncPosition = EditorGUILayout.Toggle(
+                new GUIContent("Position", "World position → location"),
+                link.SyncPosition);
+            var syncRotation = EditorGUILayout.Toggle(
+                new GUIContent("Rotation", "World euler angles → rotation"),
+                link.SyncRotation);
+            var syncScale = EditorGUILayout.Toggle(
+                new GUIContent("Scale", "Local scale → scale"),
+                link.SyncScale);
+            var syncIdName = EditorGUILayout.Toggle(
+                new GUIContent("Id / Name", "Unity GlobalObjectId and GameObject name → engine_instance_id"),
+                link.SyncIdName);
+
+            if (EditorGUI.EndChangeCheck())
             {
-                if (!GrimoireSettings.IsConfigured)
-                {
-                    _validationMessage = "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).";
-                    _validationType = MessageType.Warning;
-                }
-                else
-                {
-                    GrimoireObjectPickerWindow.Open(summary =>
-                    {
-                        Undo.RecordObject(link, "Pick Grimoire object");
-                        link.ObjectKey = summary.code_id ?? "";
-                        link.CachedObjectId = summary.id;
-                        GrimoireObjectKeyResolver.Remember(GrimoireSettings.GameId, summary.code_id, summary.id);
-                        EditorUtility.SetDirty(link);
+                Undo.RecordObject(link, "Change Grimoire sync fields");
+                link.SyncPosition = syncPosition;
+                link.SyncRotation = syncRotation;
+                link.SyncScale = syncScale;
+                link.SyncIdName = syncIdName;
+                EditorUtility.SetDirty(link);
 
-                        if (string.IsNullOrEmpty(summary.code_id))
-                        {
-                            _validationMessage =
-                                $"'{summary.name}' has no key (code_id) in Grimoire. The link uses its UUID, " +
-                                "but giving the object a Code ID in Grimoire makes the link robust.";
-                            _validationType = MessageType.Warning;
-                        }
-                        else
-                        {
-                            _validationMessage = $"Linked to '{summary.name}' ({summary.code_id}).";
-                            _validationType = MessageType.Info;
-                        }
-
-                        Repaint();
-                    });
+                if (link.HasKey || !string.IsNullOrEmpty(link.CachedObjectId))
+                {
+                    SyncUpsert(link, "Updated game_engine_data sync fields.");
                 }
             }
 
-            using (new EditorGUI.DisabledScope(!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId)))
+            EditorGUILayout.Space(4);
+            EditorGUILayout.BeginHorizontal();
+
+            using (new EditorGUI.DisabledScope(_syncing))
             {
-                if (GUILayout.Button("Open in Connect"))
+                if (GUILayout.Button("Pick from Grimoire..."))
                 {
-                    GrimoireConnectWindow.ShowAndLoad(link);
+                    if (!GrimoireSettings.IsConfigured)
+                    {
+                        _validationMessage = "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).";
+                        _validationType = MessageType.Warning;
+                    }
+                    else
+                    {
+                        GrimoireObjectPickerWindow.Open(summary =>
+                        {
+                            var previous = GrimoireGameEngineSync.CaptureIdentity(link);
+
+                            Undo.RecordObject(link, "Pick Grimoire object");
+                            link.ObjectKey = summary.code_id ?? "";
+                            link.CachedObjectId = summary.id;
+                            GrimoireObjectKeyResolver.Remember(GrimoireSettings.GameId, summary.code_id, summary.id);
+                            EditorUtility.SetDirty(link);
+
+                            if (string.IsNullOrEmpty(summary.code_id))
+                            {
+                                _validationMessage =
+                                    $"'{summary.name}' has no key (code_id) in Grimoire. The link uses its UUID, " +
+                                    "but giving the object a Code ID in Grimoire makes the link robust.";
+                                _validationType = MessageType.Warning;
+                            }
+                            else
+                            {
+                                _validationMessage = $"Linked to '{summary.name}' ({summary.code_id}).";
+                                _validationType = MessageType.Info;
+                            }
+
+                            // If this GameObject was previously linked to another
+                            // Grimoire object, drop the old engine instance first.
+                            if (!string.IsNullOrEmpty(previous.ObjectId) &&
+                                previous.ObjectId != summary.id)
+                            {
+                                RemovePreviousThenUpsert(link, previous);
+                            }
+                            else
+                            {
+                                SyncUpsert(link, _validationMessage);
+                            }
+
+                            Repaint();
+                        });
+                    }
+                }
+
+                using (new EditorGUI.DisabledScope(!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId)))
+                {
+                    if (GUILayout.Button("Open in Connect"))
+                    {
+                        GrimoireConnectWindow.ShowAndLoad(link);
+                    }
                 }
             }
 
             EditorGUILayout.EndHorizontal();
 
-            if (!string.IsNullOrEmpty(_validationMessage))
+            EditorGUILayout.BeginHorizontal();
+            using (new EditorGUI.DisabledScope(_syncing || (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))))
+            {
+                if (GUILayout.Button("Sync now"))
+                {
+                    SyncUpsert(link, "Synced game_engine_data.");
+                }
+
+                if (GUILayout.Button("Unlink"))
+                {
+                    Unlink(link);
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            if (_syncing)
+            {
+                EditorGUILayout.HelpBox("Syncing with Grimoire…", MessageType.Info);
+            }
+            else if (!string.IsNullOrEmpty(_validationMessage))
             {
                 EditorGUILayout.HelpBox(_validationMessage, _validationType);
             }
+        }
+
+        private async void SyncUpsert(GrimoireObjectLink link, string successMessage)
+        {
+            if (_syncing || link == null)
+            {
+                return;
+            }
+
+            _syncing = true;
+            Repaint();
+
+            var result = await GrimoireGameEngineSync.UpsertAsync(link);
+
+            _syncing = false;
+            if (link == null)
+            {
+                return;
+            }
+
+            if (result.Success)
+            {
+                GrimoireGameEngineSyncHooks.Remember(link);
+                _validationMessage = successMessage;
+                _validationType = MessageType.Info;
+            }
+            else
+            {
+                _validationMessage = result.Error;
+                _validationType = MessageType.Error;
+            }
+
+            Repaint();
+        }
+
+        private async void RemovePreviousThenUpsert(
+            GrimoireObjectLink link, GrimoireGameEngineSync.LinkIdentity previous)
+        {
+            if (_syncing || link == null)
+            {
+                return;
+            }
+
+            _syncing = true;
+            Repaint();
+
+            var removed = await GrimoireGameEngineSync.RemoveAsync(null, previous);
+            if (!removed.Success)
+            {
+                Debug.LogWarning($"[Grimoire] Could not clear previous game_engine_data entry: {removed.Error}");
+            }
+
+            var result = await GrimoireGameEngineSync.UpsertAsync(link);
+
+            _syncing = false;
+            if (link == null)
+            {
+                return;
+            }
+
+            if (result.Success)
+            {
+                GrimoireGameEngineSyncHooks.Remember(link);
+                if (_validationType != MessageType.Warning)
+                {
+                    _validationMessage = "Linked and synced game_engine_data.";
+                    _validationType = MessageType.Info;
+                }
+            }
+            else
+            {
+                _validationMessage = result.Error;
+                _validationType = MessageType.Error;
+            }
+
+            Repaint();
+        }
+
+        private async void Unlink(GrimoireObjectLink link)
+        {
+            if (_syncing || link == null)
+            {
+                return;
+            }
+
+            var identity = GrimoireGameEngineSync.CaptureIdentity(link);
+
+            _syncing = true;
+            Repaint();
+
+            var result = await GrimoireGameEngineSync.RemoveAsync(link, identity);
+
+            Undo.RecordObject(link, "Unlink Grimoire object");
+            link.ObjectKey = "";
+            link.CachedObjectId = "";
+            EditorUtility.SetDirty(link);
+            GrimoireGameEngineSyncHooks.Forget(link);
+
+            _syncing = false;
+
+            if (result.Success)
+            {
+                _validationMessage = "Unlinked and removed from game_engine_data.";
+                _validationType = MessageType.Info;
+            }
+            else
+            {
+                _validationMessage =
+                    $"Unlinked locally, but Grimoire remove failed: {result.Error}";
+                _validationType = MessageType.Warning;
+            }
+
+            Repaint();
         }
     }
 

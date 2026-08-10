@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace Grimoire.PluginV2
@@ -7,8 +8,9 @@ namespace Grimoire.PluginV2
     /// e.g. <c>characters/aragorn</c>).
     ///
     /// This component is pure serialized data. Everything that talks to the
-    /// Grimoire API — key resolution, the object widget, task updates — lives in
-    /// the editor assembly, so builds carry nothing but these two strings.
+    /// Grimoire API — key resolution, the object widget, task updates, and
+    /// game-engine sync — lives in the editor assembly, so builds carry nothing
+    /// but these fields.
     /// </summary>
     [AddComponentMenu("Grimoire/Grimoire Object Link")]
     [DisallowMultipleComponent]
@@ -21,6 +23,28 @@ namespace Grimoire.PluginV2
         [SerializeField]
         [HideInInspector]
         private string _cachedObjectId = "";
+
+        [SerializeField]
+        [Tooltip("Include this object's world position in game_engine_data.location.")]
+        private bool _syncPosition = true;
+
+        [SerializeField]
+        [Tooltip("Include this object's world euler angles in game_engine_data.rotation.")]
+        private bool _syncRotation = true;
+
+        [SerializeField]
+        [Tooltip("Include this object's local scale in game_engine_data.scale.")]
+        private bool _syncScale = true;
+
+        [SerializeField]
+        [Tooltip("Include this object's engine id / name in game_engine_data.engine_instance_id.")]
+        private bool _syncIdName = true;
+
+        /// <summary>
+        /// Fired in the editor when this component is destroyed so the editor
+        /// assembly can remove the matching <c>game_engine_data</c> entry.
+        /// </summary>
+        public static event Action<GrimoireObjectLink> EditorDestroyed;
 
         /// <summary>The Grimoire object key (<c>code_id</c>) this GameObject is linked to.</summary>
         public string ObjectKey
@@ -54,5 +78,36 @@ namespace Grimoire.PluginV2
         }
 
         public bool HasKey => !string.IsNullOrWhiteSpace(_objectKey);
+
+        public bool SyncPosition
+        {
+            get => _syncPosition;
+            set => _syncPosition = value;
+        }
+
+        public bool SyncRotation
+        {
+            get => _syncRotation;
+            set => _syncRotation = value;
+        }
+
+        public bool SyncScale
+        {
+            get => _syncScale;
+            set => _syncScale = value;
+        }
+
+        public bool SyncIdName
+        {
+            get => _syncIdName;
+            set => _syncIdName = value;
+        }
+
+#if UNITY_EDITOR
+        private void OnDestroy()
+        {
+            EditorDestroyed?.Invoke(this);
+        }
+#endif
     }
 }

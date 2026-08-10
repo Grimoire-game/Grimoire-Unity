@@ -68,6 +68,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireAuthSession.Changed += OnAuthChanged;
             GrimoireSettings.Changed += OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded += Repaint;
+            GrimoireGameEngineSync.DocumentUpdated += OnGameEngineDocumentUpdated;
 
             _userTasksPanel.Activate();
             OnSelectionChanged();
@@ -85,6 +86,28 @@ namespace Grimoire.PluginV2.Editor
             GrimoireAuthSession.Changed -= OnAuthChanged;
             GrimoireSettings.Changed -= OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded -= Repaint;
+            GrimoireGameEngineSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
+        }
+
+        private void OnGameEngineDocumentUpdated(ObjectViewDocument document)
+        {
+            if (document == null || _link == null)
+            {
+                return;
+            }
+
+            var linkedId = _link.CachedObjectId;
+            var updatedId = document.@object?.id;
+            if (string.IsNullOrEmpty(linkedId) || linkedId != updatedId)
+            {
+                return;
+            }
+
+            _document = document;
+            _error = null;
+            _loading = false;
+            _statusMessage = null;
+            Repaint();
         }
 
         private void OnAuthChanged()
