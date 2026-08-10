@@ -61,7 +61,11 @@ On the component, choose which fields to sync (defaults on):
 
 Use **Sync now** on the component, or the **Sync** tab in Grimoire Connect, to
 push transform changes after moving objects. The Sync tab lists the selected
-object separately from other pending linked objects and can sync one or all.
+object separately from other pending linked objects and can sync or reset one
+or all.
+
+**Reset to Grimoire** (on the Object → Game Engine Data tab and the Sync tab)
+restores the Unity transform from the values currently saved in Grimoire.
 
 ### Tasks tab
 

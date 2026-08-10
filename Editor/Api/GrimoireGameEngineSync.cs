@@ -70,6 +70,225 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>
+        /// Pull the matching <c>game_engine_data</c> entry from Grimoire and
+        /// apply location / rotation / scale (and name when present) back onto
+        /// the Unity transform.
+        /// </summary>
+        public static async Task<ApiResult<ObjectViewDocument>> ResetTransformFromGrimoireAsync(
+            GrimoireObjectLink link)
+        {
+            if (link == null)
+            {
+                return ApiResult<ObjectViewDocument>.Fail("No Grimoire Object Link.", "missing_link");
+            }
+
+            if (!GrimoireSettings.IsConfigured)
+            {
+                return ApiResult<ObjectViewDocument>.Fail(
+                    "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).",
+                    "not_configured");
+            }
+
+            if (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))
+            {
+                return ApiResult<ObjectViewDocument>.Fail("No Grimoire object linked.", "missing_key");
+            }
+
+            await GrimoireAuthSession.EnsureFreshTokenAsync();
+
+            var gameId = GrimoireSettings.GameId;
+            var objectId = await ResolveObjectIdAsync(link, gameId);
+            if (!objectId.Success)
+            {
+                return ApiResult<ObjectViewDocument>.Fail(objectId.Error, objectId.Code, objectId.HttpStatus);
+            }
+
+            var current = await GrimoireApiClient.GetObjectViewAsync(gameId, objectId.Data, GrimoireSettings.Locale);
+            if (!current.Success)
+            {
+                return ApiResult<ObjectViewDocument>.Fail(current.Error, current.Code, current.HttpStatus);
+            }
+
+            var engineInstanceId = GetEngineInstanceId(link.gameObject);
+            var scene = GetSceneName(link.gameObject);
+            var existing = FindInstance(current.Data?.game_engine_data, engineInstanceId, scene);
+            if (existing == null)
+            {
+                return ApiResult<ObjectViewDocument>.Fail(
+                    "No matching game_engine_data entry on Grimoire for this object.",
+                    "not_found");
+            }
+
+            if (!ApplyInstanceToTransform(link, existing))
+            {
+                return ApiResult<ObjectViewDocument>.Fail(
+                    "Could not apply Grimoire transform to the Unity object.",
+                    "apply_failed");
+            }
+
+            GrimoireGameEngineDirtyTracker.MarkClean(link);
+            DocumentUpdated?.Invoke(current.Data);
+            return ApiResult<ObjectViewDocument>.Ok(current.Data);
+        }
+
+        /// <summary>
+        /// Apply a Grimoire instance onto a local link without fetching. Used
+        /// when the Object View Document is already loaded.
+        /// </summary>
+        public static bool ResetTransformFromInstance(GrimoireObjectLink link, GameEngineInstance instance)
+        {
+            if (link == null || instance == null)
+            {
+                return false;
+            }
+
+            if (!ApplyInstanceToTransform(link, instance))
+            {
+                return false;
+            }
+
+            GrimoireGameEngineDirtyTracker.MarkClean(link);
+            return true;
+        }
+
+        public static bool TryFindSceneLink(GameEngineInstance instance, out GrimoireObjectLink link)
+        {
+            link = null;
+            if (instance == null || string.IsNullOrEmpty(instance.engine_instance_id))
+            {
+                return false;
+            }
+
+            var normalized = NormalizeEngineInstanceId(instance.engine_instance_id);
+            if (GlobalObjectId.TryParse(normalized, out var globalId))
+            {
+                var obj = GlobalObjectId.GlobalObjectIdentifierToObjectSlow(globalId);
+                if (obj is GameObject go)
+                {
+                    link = go.GetComponent<GrimoireObjectLink>();
+                    if (link != null)
+                    {
+                        return true;
+                    }
+                }
+                else if (obj is Component component)
+                {
+                    link = component.GetComponent<GrimoireObjectLink>()
+                           ?? component.GetComponentInParent<GrimoireObjectLink>();
+                    if (link != null)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            // Fallback: match by GlobalObjectId of every linked object in open scenes.
+            foreach (var candidate in Resources.FindObjectsOfTypeAll<GrimoireObjectLink>())
+            {
+                if (candidate == null || EditorUtility.IsPersistent(candidate))
+                {
+                    continue;
+                }
+
+                var scene = candidate.gameObject.scene;
+                if (!scene.IsValid() || !scene.isLoaded)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(GetSceneName(candidate.gameObject), instance.scene ?? "", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (SameInstance(instance, GetEngineInstanceId(candidate.gameObject), instance.scene))
+                {
+                    link = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public static bool IsVectorDirty(GameEngineVector3 saved, Vector3 live, bool compareEuler = false)
+        {
+            if (saved == null)
+            {
+                return true;
+            }
+
+            var savedVec = ToVector3(saved);
+            return compareEuler ? !ApproximatelyEuler(savedVec, live) : !Approximately(savedVec, live);
+        }
+
+        public static Vector3 ToVector3(GameEngineVector3 value) =>
+            value == null ? Vector3.zero : new Vector3((float)value.x, (float)value.y, (float)value.z);
+
+        private static bool ApplyInstanceToTransform(GrimoireObjectLink link, GameEngineInstance instance)
+        {
+            var transform = link.transform;
+            Undo.RecordObject(transform, "Reset transform from Grimoire");
+            if (link.SyncIdName)
+            {
+                Undo.RecordObject(link.gameObject, "Reset name from Grimoire");
+            }
+
+            if (link.SyncPosition && instance.location != null)
+            {
+                transform.position = ToVector3(instance.location);
+            }
+
+            if (link.SyncRotation && instance.rotation != null)
+            {
+                transform.eulerAngles = ToVector3(instance.rotation);
+            }
+
+            if (link.SyncScale && instance.scale != null)
+            {
+                transform.localScale = ToVector3(instance.scale);
+            }
+
+            if (link.SyncIdName)
+            {
+                var name = ExtractNameFromEngineInstanceId(instance.engine_instance_id);
+                if (!string.IsNullOrEmpty(name) && link.gameObject.name != name)
+                {
+                    link.gameObject.name = name;
+                }
+            }
+
+            EditorUtility.SetDirty(transform);
+            EditorUtility.SetDirty(link.gameObject);
+            return true;
+        }
+
+        private static string ExtractNameFromEngineInstanceId(string engineInstanceId)
+        {
+            if (string.IsNullOrEmpty(engineInstanceId))
+            {
+                return null;
+            }
+
+            var separator = engineInstanceId.IndexOf('|');
+            return separator >= 0 && separator < engineInstanceId.Length - 1
+                ? engineInstanceId.Substring(separator + 1)
+                : null;
+        }
+
+        private const float Epsilon = 0.0001f;
+
+        private static bool Approximately(Vector3 a, Vector3 b) =>
+            Mathf.Abs(a.x - b.x) <= Epsilon &&
+            Mathf.Abs(a.y - b.y) <= Epsilon &&
+            Mathf.Abs(a.z - b.z) <= Epsilon;
+
+        private static bool ApproximatelyEuler(Vector3 a, Vector3 b) =>
+            Mathf.Abs(Mathf.DeltaAngle(a.x, b.x)) <= Epsilon &&
+            Mathf.Abs(Mathf.DeltaAngle(a.y, b.y)) <= Epsilon &&
+            Mathf.Abs(Mathf.DeltaAngle(a.z, b.z)) <= Epsilon;
+
+        /// <summary>
         /// Resolve the linked object if needed, then upsert this instance into
         /// <c>game_engine_data</c> according to the link's sync toggles.
         /// </summary>

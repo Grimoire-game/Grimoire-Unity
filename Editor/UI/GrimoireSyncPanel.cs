@@ -12,10 +12,10 @@ namespace Grimoire.PluginV2.Editor
     public class GrimoireSyncPanel
     {
         private Vector2 _scroll;
-        private bool _syncing;
+        private bool _busy;
         private string _status;
         private string _error;
-        private int _syncGeneration;
+        private int _opGeneration;
 
         public event Action RepaintNeeded;
 
@@ -65,7 +65,6 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            // Selected linked object with no entry yet (clean) — still show live values.
             if (selectedChange == null && selectedLink != null &&
                 (selectedLink.HasKey || !string.IsNullOrEmpty(selectedLink.CachedObjectId)))
             {
@@ -125,12 +124,12 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawToolbar(GrimoireGameEngineDirtyTracker.PendingChange selectedChange)
         {
-            EditorGUILayout.BeginHorizontal();
-
             var selectedDirty = selectedChange != null && selectedChange.IsDirty;
             var dirtyTotal = GrimoireGameEngineDirtyTracker.DirtyCount;
 
-            using (new EditorGUI.DisabledScope(_syncing || !selectedDirty))
+            EditorGUILayout.BeginHorizontal();
+
+            using (new EditorGUI.DisabledScope(_busy || !selectedDirty))
             {
                 if (GUILayout.Button("Sync selected", GrimoireEditorStyles.PrimaryButtonStyle, GUILayout.Height(28)))
                 {
@@ -138,12 +137,37 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            using (new EditorGUI.DisabledScope(_syncing || dirtyTotal == 0))
+            using (new EditorGUI.DisabledScope(_busy || dirtyTotal == 0))
             {
                 var label = dirtyTotal == 0 ? "Sync all" : $"Sync all ({dirtyTotal})";
                 if (GUILayout.Button(label, GUILayout.Height(28)))
                 {
                     SyncAllDirty();
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(2);
+            EditorGUILayout.BeginHorizontal();
+
+            using (new EditorGUI.DisabledScope(_busy || !selectedDirty))
+            {
+                if (GUILayout.Button(
+                        new GUIContent("Reset selected", "Restore the selected object's transform from Grimoire."),
+                        GUILayout.Height(28)))
+                {
+                    ResetAsync(new[] { selectedChange.Link });
+                }
+            }
+
+            using (new EditorGUI.DisabledScope(_busy || dirtyTotal == 0))
+            {
+                var label = dirtyTotal == 0 ? "Reset all" : $"Reset all ({dirtyTotal})";
+                if (GUILayout.Button(
+                        new GUIContent(label, "Discard local changes and restore every pending object from Grimoire."),
+                        GUILayout.Height(28)))
+                {
+                    ResetAllDirty();
                 }
             }
 
@@ -219,11 +243,18 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUIUtility.PingObject(change.Link.gameObject);
             }
 
-            using (new EditorGUI.DisabledScope(_syncing || !change.IsDirty))
+            using (new EditorGUI.DisabledScope(_busy || !change.IsDirty))
             {
                 if (GUILayout.Button("Sync", GUILayout.Width(70)))
                 {
                     SyncAsync(new[] { change.Link });
+                }
+
+                if (GUILayout.Button(
+                        new GUIContent("Reset", "Restore transform from values saved on Grimoire."),
+                        GUILayout.Width(70)))
+                {
+                    ResetAsync(new[] { change.Link });
                 }
             }
 
@@ -279,6 +310,16 @@ namespace Grimoire.PluginV2.Editor
 
         private void SyncAllDirty()
         {
+            SyncAsync(CollectDirtyLinks());
+        }
+
+        private void ResetAllDirty()
+        {
+            ResetAsync(CollectDirtyLinks());
+        }
+
+        private static List<GrimoireObjectLink> CollectDirtyLinks()
+        {
             var links = new List<GrimoireObjectLink>();
             foreach (var change in GrimoireGameEngineDirtyTracker.GetPendingChanges())
             {
@@ -288,18 +329,18 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            SyncAsync(links);
+            return links;
         }
 
         private async void SyncAsync(IReadOnlyList<GrimoireObjectLink> links)
         {
-            if (_syncing || links == null || links.Count == 0)
+            if (_busy || links == null || links.Count == 0)
             {
                 return;
             }
 
-            var generation = ++_syncGeneration;
-            _syncing = true;
+            var generation = ++_opGeneration;
+            _busy = true;
             _error = null;
             _status = $"Syncing 0/{links.Count}…";
             RequestRepaint();
@@ -312,7 +353,7 @@ namespace Grimoire.PluginV2.Editor
 
             for (var i = 0; i < links.Count; i++)
             {
-                if (generation != _syncGeneration)
+                if (generation != _opGeneration)
                 {
                     return;
                 }
@@ -338,20 +379,80 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            if (generation != _syncGeneration)
+            if (generation != _opGeneration)
             {
                 return;
             }
 
-            _syncing = false;
+            FinishBatch(ok, failed, lastError, "Synced");
+        }
+
+        private async void ResetAsync(IReadOnlyList<GrimoireObjectLink> links)
+        {
+            if (_busy || links == null || links.Count == 0)
+            {
+                return;
+            }
+
+            var generation = ++_opGeneration;
+            _busy = true;
+            _error = null;
+            _status = $"Resetting 0/{links.Count}…";
+            RequestRepaint();
+
+            await GrimoireAuthSession.EnsureFreshTokenAsync();
+
+            var ok = 0;
+            var failed = 0;
+            string lastError = null;
+
+            for (var i = 0; i < links.Count; i++)
+            {
+                if (generation != _opGeneration)
+                {
+                    return;
+                }
+
+                var link = links[i];
+                if (link == null)
+                {
+                    continue;
+                }
+
+                _status = $"Resetting {i + 1}/{links.Count}: {link.gameObject.name}…";
+                RequestRepaint();
+
+                var result = await GrimoireGameEngineSync.ResetTransformFromGrimoireAsync(link);
+                if (result.Success)
+                {
+                    ok++;
+                }
+                else
+                {
+                    failed++;
+                    lastError = result.Error;
+                }
+            }
+
+            if (generation != _opGeneration)
+            {
+                return;
+            }
+
+            FinishBatch(ok, failed, lastError, "Reset");
+        }
+
+        private void FinishBatch(int ok, int failed, string lastError, string verb)
+        {
+            _busy = false;
             if (failed == 0)
             {
-                _status = ok == 1 ? "Synced 1 object." : $"Synced {ok} objects.";
+                _status = ok == 1 ? $"{verb} 1 object." : $"{verb} {ok} objects.";
                 _error = null;
             }
             else
             {
-                _status = $"Synced {ok}, failed {failed}.";
+                _status = $"{verb} {ok}, failed {failed}.";
                 _error = lastError;
             }
 

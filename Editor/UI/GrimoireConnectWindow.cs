@@ -73,6 +73,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireSettings.Changed += OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded += Repaint;
             GrimoireGameEngineSync.DocumentUpdated += OnGameEngineDocumentUpdated;
+            GrimoireGameEngineDirtyTracker.Changed += OnGameEngineDirtyChanged;
 
             _userTasksPanel.Activate();
             if (_selectedTab == TabSync)
@@ -96,7 +97,16 @@ namespace Grimoire.PluginV2.Editor
             GrimoireSettings.Changed -= OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded -= Repaint;
             GrimoireGameEngineSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
+            GrimoireGameEngineDirtyTracker.Changed -= OnGameEngineDirtyChanged;
             _syncPanel?.Deactivate();
+        }
+
+        private void OnGameEngineDirtyChanged()
+        {
+            if (_selectedTab == TabObject || _selectedTab == TabSync)
+            {
+                ScheduleRepaint();
+            }
         }
 
         private void OnGameEngineDocumentUpdated(ObjectViewDocument document)
@@ -449,7 +459,7 @@ namespace Grimoire.PluginV2.Editor
         private void DrawObjectGameEngineTab()
         {
             _gameEngineScroll = EditorGUILayout.BeginScrollView(_gameEngineScroll);
-            GrimoireGameEngineDataRenderer.Draw(_document);
+            GrimoireGameEngineDataRenderer.Draw(_document, _link);
             EditorGUILayout.EndScrollView();
         }
 
