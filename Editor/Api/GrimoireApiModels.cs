@@ -183,12 +183,35 @@ namespace Grimoire.PluginV2.Editor
         public string resolved;
     }
 
+    public class GameEngineVector3
+    {
+        public double x;
+        public double y;
+        public double z;
+
+        public override string ToString() => $"({FormatComponent(x)}, {FormatComponent(y)}, {FormatComponent(z)})";
+
+        private static string FormatComponent(double value) =>
+            Math.Abs(value % 1) < 0.0001 ? value.ToString("0") : value.ToString("0.###");
+    }
+
+    public class GameEngineInstance
+    {
+        public string id;
+        public string engine_instance_id;
+        public string scene;
+        public GameEngineVector3 location;
+        public GameEngineVector3 rotation;
+        public GameEngineVector3 scale;
+    }
+
     public class ObjectViewDocument
     {
         public string schema_version;
         public ObjectSummary @object;
         public ViewLocale locale;
         public ViewSection[] sections;
+        public GameEngineInstance[] game_engine_data;
         public GrimoireTask[] tasks;
     }
 

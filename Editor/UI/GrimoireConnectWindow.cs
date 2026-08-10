@@ -12,7 +12,11 @@ namespace Grimoire.PluginV2.Editor
         private const int TabTasks = 0;
         private const int TabObject = 1;
 
+        private const int ObjectTabInfo = 0;
+        private const int ObjectTabGameEngine = 1;
+
         private static readonly string[] TabLabels = { "Tasks", "Object" };
+        private static readonly string[] ObjectTabLabels = { "Info", "Game Engine Data" };
 
         private GrimoireObjectLink _link;
         private ObjectViewDocument _document;
@@ -21,7 +25,9 @@ namespace Grimoire.PluginV2.Editor
         private bool _loading;
         private bool _settingsOpen;
         private Vector2 _objectScroll;
+        private Vector2 _gameEngineScroll;
         private int _selectedTab;
+        private int _selectedObjectTab;
 
         private int _loadGeneration;
 
@@ -363,11 +369,33 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
+            _selectedObjectTab = GrimoireEditorStyles.DrawTabBar(_selectedObjectTab, ObjectTabLabels);
+
+            switch (_selectedObjectTab)
+            {
+                case ObjectTabInfo:
+                    DrawObjectInfoTab();
+                    break;
+                case ObjectTabGameEngine:
+                    DrawObjectGameEngineTab();
+                    break;
+            }
+        }
+
+        private void DrawObjectInfoTab()
+        {
             _objectScroll = EditorGUILayout.BeginScrollView(_objectScroll);
 
             GrimoireObjectViewRenderer.Draw(_document);
             _objectTasksPanel.Draw(GrimoireSettings.GameId, _document.tasks);
 
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawObjectGameEngineTab()
+        {
+            _gameEngineScroll = EditorGUILayout.BeginScrollView(_gameEngineScroll);
+            GrimoireGameEngineDataRenderer.Draw(_document);
             EditorGUILayout.EndScrollView();
         }
 
