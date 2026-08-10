@@ -49,14 +49,59 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>Raised when async work finished and the window should repaint.</summary>
         public event Action RepaintNeeded;
 
-        public void Draw(string gameId, GrimoireTask[] tasks, bool showHeader = true, string sectionId = "object-tasks")
+        /// <summary>Whether a task status counts as done/closed for this game.</summary>
+        public static bool IsTaskDone(string gameId, string statusKey)
+        {
+            if (string.IsNullOrEmpty(statusKey) ||
+                !StatusCache.TryGetValue(gameId, out var statuses) ||
+                statuses == null)
+            {
+                return false;
+            }
+
+            var done = PickDoneStatus(statuses);
+            return done != null && done.key == statusKey;
+        }
+
+        /// <summary>Workflow statuses cached for the game, or null if not loaded yet.</summary>
+        public static WorkflowStatusEntry[] GetCachedStatuses(string gameId)
+        {
+            return StatusCache.TryGetValue(gameId, out var statuses) ? statuses : null;
+        }
+
+        /// <summary>Non-done workflow statuses for filters and dropdowns.</summary>
+        public static WorkflowStatusEntry[] GetOpenWorkflowStatuses(string gameId)
+        {
+            var statuses = GetCachedStatuses(gameId);
+            if (statuses == null || statuses.Length == 0)
+            {
+                return Array.Empty<WorkflowStatusEntry>();
+            }
+
+            var done = PickDoneStatus(statuses);
+            return statuses
+                .Where(status => done == null || status.key != done.key)
+                .OrderBy(status => status.order)
+                .ToArray();
+        }
+
+        /// <summary>Loads workflow statuses outside the current IMGUI pass.</summary>
+        public void ScheduleStatusLoad(string gameId)
+        {
+            EnsureStatusesScheduled(gameId);
+        }
+
+        public void Draw(
+            string gameId,
+            GrimoireTask[] tasks,
+            bool showHeader = true,
+            string sectionId = "object-tasks",
+            string emptyMessage = null)
         {
             if (showHeader)
             {
-                var openCount = tasks?.Count(task => task.is_task && !IsDone(gameId, task.status)) ?? 0;
-                var title = tasks == null || tasks.Length == 0
-                    ? "Tasks"
-                    : $"Tasks ({tasks.Length}, {openCount} open)";
+                var count = tasks?.Length ?? 0;
+                var title = count == 0 ? "Tasks" : $"Tasks ({count})";
 
                 if (!GrimoireEditorStyles.BeginCollapsibleSection(sectionId, title, defaultExpanded: true))
                 {
@@ -66,11 +111,11 @@ namespace Grimoire.PluginV2.Editor
 
             if (tasks == null || tasks.Length == 0)
             {
-                EditorGUILayout.LabelField(
-                    showHeader
-                        ? "No tasks or notes are attached to this object."
-                        : "No tasks match the current filter.",
-                    GrimoireEditorStyles.MiniSecondaryStyle);
+                var message = emptyMessage ??
+                              (showHeader
+                                  ? "No tasks or notes are attached to this object."
+                                  : "No tasks match the current filter.");
+                EditorGUILayout.LabelField(message, GrimoireEditorStyles.MiniSecondaryStyle);
                 if (showHeader)
                 {
                     GrimoireEditorStyles.EndCollapsibleSection();
@@ -141,7 +186,7 @@ namespace Grimoire.PluginV2.Editor
 
             if (!string.IsNullOrEmpty(task.due_by) && DateTime.TryParse(task.due_by, out var dueBy))
             {
-                var overdue = task.is_task && !IsDone(gameId, task.status) && dueBy < DateTime.Now;
+                var overdue = task.is_task && !IsTaskDone(gameId, task.status) && dueBy < DateTime.Now;
                 var style = new GUIStyle(EditorStyles.miniLabel);
                 if (overdue)
                 {
@@ -306,18 +351,6 @@ namespace Grimoire.PluginV2.Editor
             return statuses.FirstOrDefault(status => status.key == "done")
                 ?? statuses.FirstOrDefault(status => status.locked)
                 ?? statuses.OrderBy(status => status.order).LastOrDefault();
-        }
-
-        private bool IsDone(string gameId, string statusKey)
-        {
-            var statuses = GetStatuses(gameId);
-            if (statuses == null)
-            {
-                return false;
-            }
-
-            var done = PickDoneStatus(statuses);
-            return done != null && done.key == statusKey;
         }
 
         private WorkflowStatusEntry[] GetStatuses(string gameId)

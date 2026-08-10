@@ -16,14 +16,13 @@ namespace Grimoire.PluginV2.Editor
         public static readonly Color TextSecondary = new Color(0.42f, 0.45f, 0.50f);
         public static readonly Color SectionBorder = new Color(0.82f, 0.84f, 0.87f);
         public static readonly Color SectionBackground = new Color(0.99f, 0.99f, 1f);
-        public static readonly Color TabInactiveBackground = new Color(0.94f, 0.95f, 0.97f);
 
         private static readonly Dictionary<string, bool> SectionExpanded = new Dictionary<string, bool>();
 
         private static Texture2D _purpleTexture;
         private static Texture2D _purpleHoverTexture;
-        private static Texture2D _whiteTexture;
         private static Texture2D _tabInactiveTexture;
+        private static Texture2D _tabInactiveHoverTexture;
 
         private static GUIStyle _tabActiveStyle;
         private static GUIStyle _tabInactiveStyle;
@@ -38,15 +37,18 @@ namespace Grimoire.PluginV2.Editor
 
         public static void EnsureStyles()
         {
-            _whiteTexture ??= MakeSolidTexture(Color.white);
             _purpleTexture ??= MakeSolidTexture(Purple);
             _purpleHoverTexture ??= MakeSolidTexture(Purple * 1.08f);
             _tabInactiveTexture ??= MakeSolidTexture(TabInactiveBackground);
+            _tabInactiveHoverTexture ??= MakeSolidTexture(TabInactiveHoverBackground);
 
             if (_tabActiveStyle != null)
             {
                 return;
             }
+
+            var inactiveText = TabInactiveText;
+            var inactiveTextHover = TabInactiveTextHover;
 
             _tabActiveStyle = new GUIStyle(GUI.skin.button)
             {
@@ -70,10 +72,10 @@ namespace Grimoire.PluginV2.Editor
                 fixedHeight = 32f,
                 margin = new RectOffset(2, 2, 0, 0),
                 padding = new RectOffset(16, 16, 6, 6),
-                normal = { background = _tabInactiveTexture, textColor = TextSecondary },
-                hover = { background = _whiteTexture, textColor = TextPrimary },
-                active = { background = _whiteTexture, textColor = TextPrimary },
-                focused = { background = _tabInactiveTexture, textColor = TextSecondary },
+                normal = { background = _tabInactiveTexture, textColor = inactiveText },
+                hover = { background = _tabInactiveHoverTexture, textColor = inactiveTextHover },
+                active = { background = _tabInactiveHoverTexture, textColor = inactiveTextHover },
+                focused = { background = _tabInactiveTexture, textColor = inactiveText },
             };
 
             _sectionHeaderStyle = new GUIStyle(EditorStyles.foldout)
@@ -331,6 +333,26 @@ namespace Grimoire.PluginV2.Editor
             EditorGUI.DrawRect(new Rect(rect.x, rect.y, thickness, rect.height), color);
             EditorGUI.DrawRect(new Rect(rect.xMax - thickness, rect.y, thickness, rect.height), color);
         }
+
+        private static Color TabInactiveBackground =>
+            EditorGUIUtility.isProSkin
+                ? new Color(0.24f, 0.24f, 0.24f)
+                : new Color(0.94f, 0.95f, 0.97f);
+
+        private static Color TabInactiveHoverBackground =>
+            EditorGUIUtility.isProSkin
+                ? new Color(0.30f, 0.30f, 0.30f)
+                : new Color(0.88f, 0.89f, 0.91f);
+
+        private static Color TabInactiveText =>
+            EditorGUIUtility.isProSkin
+                ? new Color(0.62f, 0.64f, 0.68f)
+                : TextSecondary;
+
+        private static Color TabInactiveTextHover =>
+            EditorGUIUtility.isProSkin
+                ? new Color(0.82f, 0.84f, 0.88f)
+                : TextPrimary;
 
         private static Texture2D MakeSolidTexture(Color color)
         {

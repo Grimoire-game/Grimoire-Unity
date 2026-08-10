@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -13,6 +14,7 @@ namespace Grimoire.PluginV2.Editor
     {
         private const string AllAssigneesKey = "";
         private const string MyTasksKey = "__me__";
+        private const string AllOpenStatusesKey = "";
 
         private readonly GrimoireTasksPanel _tasksPanel = new GrimoireTasksPanel();
 
@@ -20,7 +22,10 @@ namespace Grimoire.PluginV2.Editor
         private UserDirectoryEntry[] _users = Array.Empty<UserDirectoryEntry>();
         private string[] _assigneeKeys = Array.Empty<string>();
         private string[] _assigneeLabels = Array.Empty<string>();
+        private string[] _statusFilterKeys = Array.Empty<string>();
+        private string[] _statusFilterLabels = Array.Empty<string>();
         private int _assigneeFilterIndex;
+        private int _statusFilterIndex;
         private bool _loading;
         private bool _usersLoading;
         private string _error;
@@ -44,6 +49,7 @@ namespace Grimoire.PluginV2.Editor
             _tasks = Array.Empty<GrimoireTask>();
             _users = Array.Empty<UserDirectoryEntry>();
             _assigneeFilterIndex = 0;
+            _statusFilterIndex = 0;
             _loading = false;
             _usersLoading = false;
             _error = null;
@@ -52,6 +58,7 @@ namespace Grimoire.PluginV2.Editor
             _usersFetchedForGameId = null;
             _fetchGeneration++;
             BuildAssigneeFilterOptions();
+            BuildStatusFilterOptions();
             _tasksPanel.ResetStatusFetchState();
         }
 
@@ -96,8 +103,39 @@ namespace Grimoire.PluginV2.Editor
             }
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            _tasksPanel.Draw(GrimoireSettings.GameId, _tasks, showHeader: true, sectionId: "user-tasks");
+            var visibleTasks = GetVisibleTasks();
+            _tasksPanel.Draw(
+                GrimoireSettings.GameId,
+                visibleTasks,
+                showHeader: true,
+                sectionId: "user-tasks",
+                emptyMessage: "No open tasks match the current filter.");
             EditorGUILayout.EndScrollView();
+        }
+
+        private GrimoireTask[] GetVisibleTasks()
+        {
+            var gameId = GrimoireSettings.GameId;
+            IEnumerable<GrimoireTask> visible = _tasks.Where(task =>
+                task.is_task && !GrimoireTasksPanel.IsTaskDone(gameId, task.status));
+
+            var statusKey = GetSelectedStatusKey();
+            if (!string.IsNullOrEmpty(statusKey))
+            {
+                visible = visible.Where(task => task.status == statusKey);
+            }
+
+            return visible.ToArray();
+        }
+
+        private string GetSelectedStatusKey()
+        {
+            if (_statusFilterIndex < 0 || _statusFilterIndex >= _statusFilterKeys.Length)
+            {
+                return AllOpenStatusesKey;
+            }
+
+            return _statusFilterKeys[_statusFilterIndex] ?? AllOpenStatusesKey;
         }
 
         private void DrawFilterBar()
@@ -106,6 +144,8 @@ namespace Grimoire.PluginV2.Editor
             {
                 return;
             }
+
+            BuildStatusFilterOptions();
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Assignee", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(56));
@@ -116,6 +156,20 @@ namespace Grimoire.PluginV2.Editor
                 if (EditorGUI.EndChangeCheck())
                 {
                     RequestTasksRefresh();
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Status", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(56));
+            using (new EditorGUI.DisabledScope(_statusFilterLabels.Length == 0))
+            {
+                EditorGUI.BeginChangeCheck();
+                _statusFilterIndex = EditorGUILayout.Popup(_statusFilterIndex, _statusFilterLabels);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    RequestRepaint();
                 }
             }
 
@@ -147,6 +201,7 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
+            _tasksPanel.ScheduleStatusLoad(gameId);
             RequestTasksIfNeeded(force: false);
         }
 
@@ -265,6 +320,30 @@ namespace Grimoire.PluginV2.Editor
             _assigneeFilterIndex = restoredIndex >= 0 ? restoredIndex : 0;
         }
 
+        private void BuildStatusFilterOptions()
+        {
+            var gameId = GrimoireSettings.GameId;
+            var openStatuses = string.IsNullOrEmpty(gameId)
+                ? Array.Empty<WorkflowStatusEntry>()
+                : GrimoireTasksPanel.GetOpenWorkflowStatuses(gameId);
+
+            var keys = new System.Collections.Generic.List<string> { AllOpenStatusesKey };
+            var labels = new System.Collections.Generic.List<string> { "All open statuses" };
+
+            foreach (var status in openStatuses)
+            {
+                keys.Add(status.key);
+                labels.Add(status.label ?? status.key);
+            }
+
+            var previousKey = GetSelectedStatusKey();
+            _statusFilterKeys = keys.ToArray();
+            _statusFilterLabels = labels.ToArray();
+
+            var restoredIndex = Array.IndexOf(_statusFilterKeys, previousKey);
+            _statusFilterIndex = restoredIndex >= 0 ? restoredIndex : 0;
+        }
+
         private async void FetchTasks(bool force)
         {
             var gameId = GrimoireSettings.GameId;
@@ -323,6 +402,7 @@ namespace Grimoire.PluginV2.Editor
             _tasks = result.Data ?? Array.Empty<GrimoireTask>();
             _loadedGameId = gameId;
             _loadedAssigneeKey = assigneeKey;
+            BuildStatusFilterOptions();
             RequestRepaint();
         }
 
