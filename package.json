@@ -2,7 +2,7 @@
   "name": "com.grimoire.plugin",
   "version": "0.1.0",
   "displayName": "Grimoire Plugin",
-  "description": "Link Unity GameObjects to Grimoire objects by key (code_id), inspect their data in an editor widget, and view or complete attached tasks. Built on the Grimoire Public API v1.",
+  "description": "Link Unity GameObjects to Grimoire objects, inspect data and tasks in the editor, sync game_engine_data, and optionally import Unity exports for offline logic, translations, and variables at runtime.",
   "unity": "2021.3",
   "documentationUrl": "https://api.usegrimoire.com/api/v1/docs",
   "dependencies": {
@@ -12,7 +12,9 @@
     "grimoire",
     "narrative",
     "game-data",
-    "tasks"
+    "tasks",
+    "export",
+    "localization"
   ],
   "author": {
     "name": "Grimoire"

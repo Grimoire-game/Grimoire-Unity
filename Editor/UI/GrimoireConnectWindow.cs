@@ -5,13 +5,14 @@ namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
     /// Grimoire Connect: sign in, pick company and game, then browse tasks,
-    /// inspect linked objects, or sync game engine data changes.
+    /// inspect linked objects, sync game engine data, or download exports.
     /// </summary>
     public class GrimoireConnectWindow : EditorWindow
     {
         private const int TabTasks = 0;
         private const int TabObject = 1;
         private const int TabSync = 2;
+        private const int TabExport = 3;
 
         private const int ObjectTabInfo = 0;
         private const int ObjectTabGameEngine = 1;
@@ -35,6 +36,7 @@ namespace Grimoire.PluginV2.Editor
         private GrimoireUserTasksPanel _userTasksPanel;
         private GrimoireSetupPanel _setupQueue;
         private GrimoireSyncPanel _syncPanel;
+        private GrimoireExportPanel _exportPanel;
 
         [MenuItem("Window/Grimoire/Grimoire Connect")]
         public static void Open()
@@ -42,6 +44,16 @@ namespace Grimoire.PluginV2.Editor
             var window = GetWindow<GrimoireConnectWindow>("Grimoire Connect");
             window.minSize = new Vector2(420, 520);
             window.Show();
+        }
+
+        [MenuItem("Window/Grimoire/Export Importer")]
+        public static void OpenExportImporter()
+        {
+            Open();
+            var window = GetWindow<GrimoireConnectWindow>();
+            window._selectedTab = TabExport;
+            window._exportPanel?.Activate();
+            window.Repaint();
         }
 
         public static void ShowAndLoad(GrimoireObjectLink link)
@@ -68,6 +80,9 @@ namespace Grimoire.PluginV2.Editor
             _syncPanel = new GrimoireSyncPanel();
             _syncPanel.RepaintNeeded += ScheduleRepaint;
 
+            _exportPanel = new GrimoireExportPanel();
+            _exportPanel.RepaintNeeded += ScheduleRepaint;
+
             Selection.selectionChanged += OnSelectionChanged;
             GrimoireAuthSession.Changed += OnAuthChanged;
             GrimoireSettings.Changed += OnSettingsChanged;
@@ -79,6 +94,10 @@ namespace Grimoire.PluginV2.Editor
             if (_selectedTab == TabSync)
             {
                 _syncPanel.Activate();
+            }
+            else if (_selectedTab == TabExport)
+            {
+                _exportPanel.Activate();
             }
 
             OnSelectionChanged();
@@ -149,6 +168,11 @@ namespace Grimoire.PluginV2.Editor
             _objectTasksPanel.ResetStatusFetchState();
             _userTasksPanel.Reset();
             _userTasksPanel.Activate();
+            if (_selectedTab == TabExport)
+            {
+                _exportPanel?.Activate();
+            }
+
             Repaint();
         }
 
@@ -157,6 +181,11 @@ namespace Grimoire.PluginV2.Editor
             _error = null;
             _userTasksPanel.Reset();
             _userTasksPanel.Activate();
+            if (_selectedTab == TabExport)
+            {
+                _exportPanel?.Activate();
+            }
+
             ReloadCurrent();
         }
 
@@ -365,6 +394,9 @@ namespace Grimoire.PluginV2.Editor
                 case TabSync:
                     DrawSyncTab();
                     break;
+                case TabExport:
+                    DrawExportTab();
+                    break;
             }
 
             GrimoireEditorStyles.EndContentArea();
@@ -374,7 +406,7 @@ namespace Grimoire.PluginV2.Editor
         {
             var dirty = GrimoireGameEngineDirtyTracker.DirtyCount;
             var syncLabel = dirty > 0 ? $"Sync ({dirty})" : "Sync";
-            var labels = new[] { "Tasks", "Object", syncLabel };
+            var labels = new[] { "Tasks", "Object", syncLabel, "Export" };
 
             var picked = GrimoireEditorStyles.DrawTabBar(_selectedTab, labels);
             if (picked != _selectedTab)
@@ -397,6 +429,10 @@ namespace Grimoire.PluginV2.Editor
                 {
                     _syncPanel?.Activate();
                 }
+                else if (_selectedTab == TabExport)
+                {
+                    _exportPanel?.Activate();
+                }
             }
         }
 
@@ -408,6 +444,11 @@ namespace Grimoire.PluginV2.Editor
         private void DrawSyncTab()
         {
             _syncPanel?.Draw();
+        }
+
+        private void DrawExportTab()
+        {
+            _exportPanel?.Draw();
         }
 
         private void DrawObjectTab()

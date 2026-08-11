@@ -333,6 +333,30 @@ namespace Grimoire.PluginV2.Editor
     }
 
     // ---------------------------------------------------------------------
+    // Export versions (legacy /api/exports route; used by Export tab)
+    // ---------------------------------------------------------------------
+
+    public class ExportVersion
+    {
+        public string id;
+        public string game_id;
+        public string game_name;
+        public string company_id;
+        public string version_name;
+        public string platform;
+        public string template_name;
+        public string storage_path;
+        public long file_size;
+        public string file_type;
+        public string created_at;
+        public string created_by;
+        public int download_count;
+        public string last_downloaded_at;
+        public bool is_public;
+        public string download_url;
+    }
+
+    // ---------------------------------------------------------------------
     // Schema versioning
     // ---------------------------------------------------------------------
 

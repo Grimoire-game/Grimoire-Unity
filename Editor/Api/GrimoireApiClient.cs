@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using UnityEditor;
+using UnityEngine;
 using UnityEngine.Networking;
 
 namespace Grimoire.PluginV2.Editor
@@ -245,6 +248,92 @@ namespace Grimoire.PluginV2.Editor
             return result.Success
                 ? ApiResult<AuthSessionData>.Ok(result.Data.data)
                 : ApiResult<AuthSessionData>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
+        // -----------------------------------------------------------------
+        // Export versions (legacy route under /api/exports)
+        // -----------------------------------------------------------------
+
+        /// <summary>GET /api/exports/versions — list downloadable Unity export ZIPs for a game.</summary>
+        public static async Task<ApiResult<ExportVersion[]>> ListExportVersionsAsync(string gameId)
+        {
+            var url = BuildUrl("/api/exports/versions", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+            });
+
+            var result = await SendAsync<ListEnvelope<ExportVersion>>("GET", url, null, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<ExportVersion[]>.Ok(result.Data.data ?? Array.Empty<ExportVersion>())
+                : ApiResult<ExportVersion[]>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
+        /// <summary>
+        /// Download an export ZIP to the Unity temp cache. Invokes
+        /// <paramref name="onProgress"/> with (message, progress 0–1) on the
+        /// main thread while the transfer runs.
+        /// </summary>
+        public static Task<ApiResult<string>> DownloadExportZipAsync(
+            string downloadUrl, Action<string, float> onProgress = null)
+        {
+            if (string.IsNullOrWhiteSpace(downloadUrl))
+            {
+                return Task.FromResult(ApiResult<string>.Fail("Invalid download URL.", "invalid_url"));
+            }
+
+            var tempPath = Path.Combine(Application.temporaryCachePath, "grimoire_download.zip");
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+
+            onProgress?.Invoke("Downloading...", 0f);
+
+            var completion = new TaskCompletionSource<ApiResult<string>>();
+            var request = UnityWebRequest.Get(downloadUrl);
+            request.downloadHandler = new DownloadHandlerFile(tempPath);
+            request.timeout = 0;
+
+            var operation = request.SendWebRequest();
+
+            void OnUpdate()
+            {
+                onProgress?.Invoke("Downloading...", operation.progress);
+                if (!operation.isDone)
+                {
+                    return;
+                }
+
+                EditorApplication.update -= OnUpdate;
+
+                try
+                {
+                    if (request.result != UnityWebRequest.Result.Success)
+                    {
+                        if (File.Exists(tempPath))
+                        {
+                            try { File.Delete(tempPath); } catch (Exception) { /* ignore */ }
+                        }
+
+                        completion.TrySetResult(ApiResult<string>.Fail(
+                            $"Download failed: {request.error}",
+                            "download_failed",
+                            request.responseCode));
+                    }
+                    else
+                    {
+                        onProgress?.Invoke("Download complete", 1f);
+                        completion.TrySetResult(ApiResult<string>.Ok(tempPath, request.responseCode));
+                    }
+                }
+                finally
+                {
+                    request.Dispose();
+                }
+            }
+
+            EditorApplication.update += OnUpdate;
+            return completion.Task;
         }
 
         // -----------------------------------------------------------------

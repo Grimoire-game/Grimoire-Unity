@@ -1,17 +1,19 @@
 # Grimoire Plugin (Unity)
 
-Editor-only Unity plugin built on the **Grimoire Public API v1**.
+Unity plugin built on the **Grimoire Public API v1**, with an optional export
+workflow for offline logic, translations, variables, and objects.
 
 - Link any GameObject to a Grimoire object through its key (`code_id`) with the
   `GrimoireObjectLink` component.
 - Open **Grimoire Connect** to sign in, pick your company and game, then browse
-  tasks or inspect linked objects from the scene.
-- Tasks and notes attached to an object are listed on the Object tab. Update
-  task workflow statuses directly from Unity.
+  tasks, inspect linked objects, or sync engine transforms.
+- Optionally download a Unity export ZIP into `Assets/Grimoire/` and use
+  `GrimoireBootstrap` at runtime for language, variables, objects, and logic.
 
-Nothing in this package ships in player builds: the runtime assembly contains
-only the serialized link component; all networking and UI live in the editor
-assembly.
+Connect networking and UI are editor-only. The runtime assembly ships
+`GrimoireObjectLink` plus optional components (`GrimoireBootstrap`,
+`GrimoireSessionTracker`) for projects that import an export. Skip the Export
+tab if you only use Connect.
 
 ## Requirements
 
@@ -85,6 +87,25 @@ every task and note attached to that object.
 Use **Change workspace** in the toolbar to switch company or game for this Unity
 project.
 
+### Export tab (optional)
+
+Use the **Export** tab in Grimoire Connect (or `Window > Grimoire > Export Importer`)
+to list Unity export versions for the selected game, download a ZIP, and extract
+it to `Assets/Grimoire/`.
+
+After an import:
+
+1. Add **Grimoire > Grimoire Bootstrap** to a GameObject in your first scene to
+   initialize language, variables, objects, and logic from the generated C#.
+2. Optionally add **Grimoire > Grimoire Session Tracker** to stream playthrough
+   events to the platform.
+3. Open `Window > Grimoire > Database Browser` to explore the imported C# data.
+4. In Play Mode, open `Window > Grimoire > Runtime Inspector` to inspect live
+   variables, objects, dialogs, and logic.
+
+Projects that only use Connect can ignore this entirely—no export folder or
+Bootstrap component is required.
+
 ## API endpoints used
 
 | Endpoint | Purpose |
@@ -98,3 +119,4 @@ project.
 | `PATCH /api/v1/objects/{id}` | Replace `game_engine_data` (engine instance sync) |
 | `GET /api/v1/statuses?domain=tasks` | Valid task workflow statuses |
 | `PATCH /api/v1/tasks/{id}` | Update a task's status |
+| `GET /api/exports/versions` | List Unity export ZIPs for a game |
