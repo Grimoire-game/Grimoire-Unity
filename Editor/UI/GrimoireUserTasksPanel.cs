@@ -63,6 +63,21 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>
+        /// Re-fetch users, workflow statuses, and tasks from the server, keeping current filters.
+        /// </summary>
+        public void Refresh()
+        {
+            if (!GrimoireSettings.IsConfigured)
+            {
+                return;
+            }
+
+            _usersFetchedForGameId = null;
+            _tasksPanel.ResetStatusFetchState();
+            RequestTasksRefresh();
+        }
+
+        /// <summary>
         /// Schedule loading users and tasks outside the current IMGUI pass.
         /// </summary>
         public void Activate()

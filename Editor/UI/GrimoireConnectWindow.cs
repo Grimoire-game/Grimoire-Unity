@@ -240,6 +240,23 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
+        /// <summary>Re-fetch everything from the server: tasks, the current object, and exports.</summary>
+        private void RefreshAll()
+        {
+            _objectTasksPanel.ResetStatusFetchState();
+            _userTasksPanel.Refresh();
+            _exportPanel.Refresh();
+            RefreshObject();
+            Repaint();
+        }
+
+        /// <summary>Re-fetch only the currently linked object from the server.</summary>
+        private void RefreshObject()
+        {
+            GrimoireObjectKeyResolver.InvalidateCache(GrimoireSettings.GameId);
+            ReloadCurrent();
+        }
+
         private async void LoadLink(GrimoireObjectLink link, bool force = false)
         {
             _link = link;
@@ -471,8 +488,15 @@ namespace Grimoire.PluginV2.Editor
                         "Select a GameObject with a Grimoire Object Link component to view its Grimoire data.");
                 }
 
+                if (_link != null && !_loading)
+                {
+                    DrawObjectRefreshRow();
+                }
+
                 return;
             }
+
+            DrawObjectRefreshRow();
 
             _selectedObjectTab = GrimoireEditorStyles.DrawTabBar(_selectedObjectTab, ObjectTabLabels);
 
@@ -485,6 +509,25 @@ namespace Grimoire.PluginV2.Editor
                     DrawObjectGameEngineTab();
                     break;
             }
+        }
+
+        private void DrawObjectRefreshRow()
+        {
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+
+            using (new EditorGUI.DisabledScope(_link == null || _loading))
+            {
+                if (GUILayout.Button(
+                        new GUIContent("Refresh object", "Re-fetch this object from the Grimoire server."),
+                        GUILayout.Width(110)))
+                {
+                    RefreshObject();
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(2);
         }
 
         private void DrawObjectInfoTab()
@@ -535,15 +578,11 @@ namespace Grimoire.PluginV2.Editor
 
             if (GrimoireSettings.IsConfigured)
             {
-                if (_selectedTab == TabObject)
+                using (new EditorGUI.DisabledScope(_loading))
                 {
-                    using (new EditorGUI.DisabledScope(_link == null || _loading))
+                    if (GrimoireEditorStyles.ToolbarButton("Refresh"))
                     {
-                        if (GrimoireEditorStyles.ToolbarButton("Refresh"))
-                        {
-                            GrimoireObjectKeyResolver.InvalidateCache(GrimoireSettings.GameId);
-                            ReloadCurrent();
-                        }
+                        RefreshAll();
                     }
                 }
 

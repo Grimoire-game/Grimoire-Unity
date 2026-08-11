@@ -34,6 +34,15 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
+        /// <summary>Re-fetch export versions from the server.</summary>
+        public void Refresh()
+        {
+            if (GrimoireSettings.IsConfigured && !_loading && !_downloading)
+            {
+                RefreshAsync();
+            }
+        }
+
         public void Draw()
         {
             if (!GrimoireSettings.IsConfigured)
