@@ -10,10 +10,25 @@ namespace Grimoire.PluginV2.Editor
     /// <summary>
     /// Upserts / removes this Unity GameObject in a Grimoire object's
     /// <c>game_engine_data</c> array via PATCH (full-array replace).
+    /// Editor-only — never mutate engine data while Play Mode is active.
     /// </summary>
     public static class GrimoireGameEngineSync
     {
         public static event Action<ObjectViewDocument> DocumentUpdated;
+
+        /// <summary>
+        /// True while Play Mode (or transitioning) — engine-data mutations must not run.
+        /// </summary>
+        public static bool IsPlayModeBlocked =>
+            EditorApplication.isPlayingOrWillChangePlaymode;
+
+        /// <summary>
+        /// Fail result used when a caller tries to mutate <c>game_engine_data</c> in Play Mode.
+        /// </summary>
+        public static ApiResult<T> PlayModeBlockedResult<T>() =>
+            ApiResult<T>.Fail(
+                "Game engine data sync is editor-only. Exit Play Mode to update engine data.",
+                "play_mode_blocked");
 
         /// <summary>
         /// Snapshot of a linked instance used when the component is already
@@ -297,6 +312,11 @@ namespace Grimoire.PluginV2.Editor
         public static async Task<ApiResult<EngineCommitQueuedData>> UpsertAsync(
             GrimoireObjectLink link, string title = null, string description = null)
         {
+            if (IsPlayModeBlocked)
+            {
+                return PlayModeBlockedResult<EngineCommitQueuedData>();
+            }
+
             if (link == null)
             {
                 return ApiResult<EngineCommitQueuedData>.Fail("No Grimoire Object Link.", "missing_link");
@@ -349,6 +369,11 @@ namespace Grimoire.PluginV2.Editor
         public static async Task<ApiResult<GameEngineInstance[]>> BuildUpsertedGameEngineDataAsync(
             GrimoireObjectLink link)
         {
+            if (IsPlayModeBlocked)
+            {
+                return PlayModeBlockedResult<GameEngineInstance[]>();
+            }
+
             if (link == null)
             {
                 return ApiResult<GameEngineInstance[]>.Fail("No Grimoire Object Link.", "missing_link");
@@ -398,6 +423,11 @@ namespace Grimoire.PluginV2.Editor
         public static async Task<ApiResult<EngineCommitQueuedData>> RemoveAsync(
             GrimoireObjectLink link, LinkIdentity? identity = null)
         {
+            if (IsPlayModeBlocked)
+            {
+                return PlayModeBlockedResult<EngineCommitQueuedData>();
+            }
+
             var snap = identity ?? (link != null ? CaptureIdentity(link) : default);
 
             if (string.IsNullOrEmpty(snap.GameId) ||

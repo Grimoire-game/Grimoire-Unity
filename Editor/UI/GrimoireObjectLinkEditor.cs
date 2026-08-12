@@ -72,38 +72,48 @@ namespace Grimoire.PluginV2.Editor
                 MessageType.None);
 
             EditorGUI.BeginChangeCheck();
-            var syncPosition = EditorGUILayout.Toggle(
-                new GUIContent("Position", "World position → location"),
-                link.SyncPosition);
-            var syncRotation = EditorGUILayout.Toggle(
-                new GUIContent("Rotation", "World euler angles → rotation"),
-                link.SyncRotation);
-            var syncScale = EditorGUILayout.Toggle(
-                new GUIContent("Scale", "Local scale → scale"),
-                link.SyncScale);
-            var syncIdName = EditorGUILayout.Toggle(
-                new GUIContent("Id / Name", "Unity GlobalObjectId and GameObject name → engine_instance_id"),
-                link.SyncIdName);
-
-            if (EditorGUI.EndChangeCheck())
+            using (new EditorGUI.DisabledScope(Application.isPlaying))
             {
-                Undo.RecordObject(link, "Change Grimoire sync fields");
-                link.SyncPosition = syncPosition;
-                link.SyncRotation = syncRotation;
-                link.SyncScale = syncScale;
-                link.SyncIdName = syncIdName;
-                EditorUtility.SetDirty(link);
+                var syncPosition = EditorGUILayout.Toggle(
+                    new GUIContent("Position", "World position → location"),
+                    link.SyncPosition);
+                var syncRotation = EditorGUILayout.Toggle(
+                    new GUIContent("Rotation", "World euler angles → rotation"),
+                    link.SyncRotation);
+                var syncScale = EditorGUILayout.Toggle(
+                    new GUIContent("Scale", "Local scale → scale"),
+                    link.SyncScale);
+                var syncIdName = EditorGUILayout.Toggle(
+                    new GUIContent("Id / Name", "Unity GlobalObjectId and GameObject name → engine_instance_id"),
+                    link.SyncIdName);
 
-                if (link.HasKey || !string.IsNullOrEmpty(link.CachedObjectId))
+                if (EditorGUI.EndChangeCheck())
                 {
-                    SyncUpsert(link, "Updated game_engine_data sync fields (queued for review).");
+                    Undo.RecordObject(link, "Change Grimoire sync fields");
+                    link.SyncPosition = syncPosition;
+                    link.SyncRotation = syncRotation;
+                    link.SyncScale = syncScale;
+                    link.SyncIdName = syncIdName;
+                    EditorUtility.SetDirty(link);
+
+                    if (link.HasKey || !string.IsNullOrEmpty(link.CachedObjectId))
+                    {
+                        SyncUpsert(link, "Updated game_engine_data sync fields (queued for review).");
+                    }
                 }
+            }
+
+            if (Application.isPlaying)
+            {
+                EditorGUILayout.HelpBox(
+                    "Game engine data sync is editor-only. Exit Play Mode to update engine data.",
+                    MessageType.Info);
             }
 
             EditorGUILayout.Space(4);
             EditorGUILayout.BeginHorizontal();
 
-            using (new EditorGUI.DisabledScope(_syncing))
+            using (new EditorGUI.DisabledScope(_syncing || Application.isPlaying))
             {
                 if (GUILayout.Button("Pick from Grimoire..."))
                 {
@@ -168,9 +178,16 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
-            using (new EditorGUI.DisabledScope(_syncing || (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))))
+            using (new EditorGUI.DisabledScope(
+                       _syncing || Application.isPlaying ||
+                       (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))))
             {
-                if (GUILayout.Button("Sync now"))
+                if (GUILayout.Button(
+                        new GUIContent(
+                            "Sync now",
+                            Application.isPlaying
+                                ? "Exit Play Mode to sync game engine data."
+                                : "Queue this object's transform into game_engine_data for review.")))
                 {
                     SyncUpsert(link, "Queued game_engine_data for review in Grimoire.");
                 }
@@ -393,6 +410,14 @@ namespace Grimoire.PluginV2.Editor
         {
             if (_syncing || link == null)
             {
+                return;
+            }
+
+            if (GrimoireGameEngineSync.IsPlayModeBlocked)
+            {
+                _validationMessage = "Game engine data sync is editor-only. Exit Play Mode first.";
+                _validationType = MessageType.Warning;
+                Repaint();
                 return;
             }
 

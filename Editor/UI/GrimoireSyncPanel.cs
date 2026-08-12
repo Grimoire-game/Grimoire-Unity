@@ -51,6 +51,13 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
+            if (GrimoireGameEngineSync.IsPlayModeBlocked)
+            {
+                GrimoireEditorStyles.DrawInfoBox(
+                    "Game engine data sync is editor-only. Exit Play Mode to queue transform changes. " +
+                    "Editable field commits can still be prepared after Play.");
+            }
+
             var entries = BuildEntries(out var selectedEntry, out var others);
             var dirtyTotal = CountDirtyEntries(entries);
 
@@ -561,7 +568,7 @@ namespace Grimoire.PluginV2.Editor
                 _commitTitle,
                 _commitDescription,
                 links,
-                includeEngineData: true,
+                includeEngineData: !GrimoireGameEngineSync.IsPlayModeBlocked,
                 includeEditableFields: true);
 
             if (generation != _opGeneration)

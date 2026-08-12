@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using UnityEditor;
 using UnityEngine;
 
 namespace Grimoire.PluginV2.Editor
@@ -16,6 +17,7 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>
         /// Queue transform and/or editable-field changes for the given links as
         /// one titled commit. Marks local dirty state clean on success.
+        /// Game engine data is never included while Play Mode is active.
         /// </summary>
         public static async Task<ApiResult<EngineCommitCreatedData>> CommitAsync(
             string title,
@@ -43,6 +45,16 @@ namespace Grimoire.PluginV2.Editor
                 return ApiResult<EngineCommitCreatedData>.Fail(
                     "No objects to commit.",
                     "missing_parameter");
+            }
+
+            // Play Mode must never push live transforms into game_engine_data.
+            if (includeEngineData && GrimoireGameEngineSync.IsPlayModeBlocked)
+            {
+                includeEngineData = false;
+                if (!includeEditableFields)
+                {
+                    return GrimoireGameEngineSync.PlayModeBlockedResult<EngineCommitCreatedData>();
+                }
             }
 
             await GrimoireAuthSession.EnsureFreshTokenAsync();
