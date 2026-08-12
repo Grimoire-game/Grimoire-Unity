@@ -15,9 +15,10 @@ namespace Grimoire.PluginV2.Editor
         private const int TabExport = 3;
 
         private const int ObjectTabInfo = 0;
-        private const int ObjectTabGameEngine = 1;
+        private const int ObjectTabEditable = 1;
+        private const int ObjectTabGameEngine = 2;
 
-        private static readonly string[] ObjectTabLabels = { "Info", "Game Engine Data" };
+        private static readonly string[] ObjectTabLabels = { "Info", "Editable", "Game Engine Data" };
 
         private GrimoireObjectLink _link;
         private ObjectViewDocument _document;
@@ -26,6 +27,7 @@ namespace Grimoire.PluginV2.Editor
         private bool _loading;
         private bool _settingsOpen;
         private Vector2 _objectScroll;
+        private Vector2 _editableScroll;
         private Vector2 _gameEngineScroll;
         private int _selectedTab;
         private int _selectedObjectTab;
@@ -88,6 +90,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireSettings.Changed += OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded += Repaint;
             GrimoireGameEngineSync.DocumentUpdated += OnGameEngineDocumentUpdated;
+            GrimoireFieldSync.DocumentUpdated += OnGameEngineDocumentUpdated;
             GrimoireGameEngineDirtyTracker.Changed += OnGameEngineDirtyChanged;
 
             _userTasksPanel.Activate();
@@ -116,6 +119,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireSettings.Changed -= OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded -= Repaint;
             GrimoireGameEngineSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
+            GrimoireFieldSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
             GrimoireGameEngineDirtyTracker.Changed -= OnGameEngineDirtyChanged;
             _syncPanel?.Deactivate();
         }
@@ -146,6 +150,7 @@ namespace Grimoire.PluginV2.Editor
             _error = null;
             _loading = false;
             _statusMessage = null;
+            GrimoireEditableFieldsRenderer.ClearBuffers();
             Repaint();
         }
 
@@ -360,6 +365,7 @@ namespace Grimoire.PluginV2.Editor
             _document = view.Data;
             _loading = false;
             _statusMessage = null;
+            GrimoireEditableFieldsRenderer.ClearBuffers();
             Repaint();
         }
 
@@ -505,6 +511,9 @@ namespace Grimoire.PluginV2.Editor
                 case ObjectTabInfo:
                     DrawObjectInfoTab();
                     break;
+                case ObjectTabEditable:
+                    DrawObjectEditableTab();
+                    break;
                 case ObjectTabGameEngine:
                     DrawObjectGameEngineTab();
                     break;
@@ -537,6 +546,13 @@ namespace Grimoire.PluginV2.Editor
             GrimoireObjectViewRenderer.Draw(_document);
             _objectTasksPanel.Draw(GrimoireSettings.GameId, _document.tasks);
 
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawObjectEditableTab()
+        {
+            _editableScroll = EditorGUILayout.BeginScrollView(_editableScroll);
+            GrimoireEditableFieldsRenderer.Draw(_document);
             EditorGUILayout.EndScrollView();
         }
 

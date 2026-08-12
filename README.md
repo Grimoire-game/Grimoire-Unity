@@ -81,8 +81,14 @@ and a status dropdown for other workflow moves.
 ### Object tab
 
 With Grimoire Connect open, select a linked GameObject in the Hierarchy. The
-**Object** tab fetches the object's view document and draws it, followed by
-every task and note attached to that object.
+**Object** tab fetches the object's view document and exposes three sub-tabs:
+
+- **Info** — object overview, informational fields
+  (`hints.game_engine_editable: false`), and attached tasks/notes
+- **Editable** — game-engine fields (`hints.game_engine_editable: true`) with
+  editors; use **Sync to Grimoire** to push changes back so the web app stays
+  aligned
+- **Game Engine Data** — linked scene instance transforms
 
 Use **Change workspace** in the toolbar to switch company or game for this Unity
 project.
@@ -116,7 +122,7 @@ Bootstrap component is required.
 | `GET /api/v1/tasks` | List tasks for a game (optional assignee filter) |
 | `GET /api/v1/objects` | Object picker + key (`code_id`) resolution |
 | `GET /api/v1/objects/{id}` | Object View Document incl. attached tasks |
-| `PATCH /api/v1/objects/{id}` | Replace `game_engine_data` (engine instance sync) |
+| `PATCH /api/v1/objects/{id}` | Replace `game_engine_data`, or update `game_engine_editable` field values |
 | `GET /api/v1/statuses?domain=tasks` | Valid task workflow statuses |
 | `PATCH /api/v1/tasks/{id}` | Update a task's status |
 | `GET /api/exports/versions` | List Unity export ZIPs for a game |

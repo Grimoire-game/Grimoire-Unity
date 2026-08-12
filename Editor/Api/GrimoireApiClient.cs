@@ -194,6 +194,40 @@ namespace Grimoire.PluginV2.Editor
             return ApiResult<ObjectViewDocument>.Ok(result.Data.data);
         }
 
+        /// <summary>
+        /// PATCH /api/v1/objects/{id} — update values of
+        /// <c>hints.game_engine_editable</c> fields. Returns the updated
+        /// Object View Document.
+        /// </summary>
+        public static async Task<ApiResult<ObjectViewDocument>> PatchObjectFieldsAsync(
+            string gameId, string objectId, FieldValueUpdate[] fields)
+        {
+            if (fields == null || fields.Length == 0)
+            {
+                return ApiResult<ObjectViewDocument>.Fail(
+                    "No field updates to send.",
+                    "missing_parameter");
+            }
+
+            var url = BuildUrl($"/api/v1/objects/{UnityWebRequest.EscapeURL(objectId)}", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+            });
+
+            var body = JsonConvert.SerializeObject(
+                new Dictionary<string, object> { ["fields"] = fields },
+                new JsonSerializerSettings { NullValueHandling = NullValueHandling.Include });
+
+            var result = await SendAsync<SingleEnvelope<ObjectViewDocument>>("PATCH", url, body, ApiAuth.Bearer);
+            if (!result.Success)
+            {
+                return ApiResult<ObjectViewDocument>.Fail(result.Error, result.Code, result.HttpStatus);
+            }
+
+            ObjectViewSchema.WarnOnVersionMismatch(result.Data.data?.schema_version);
+            return ApiResult<ObjectViewDocument>.Ok(result.Data.data);
+        }
+
         /// <summary>POST /api/v1/auth/login — session or 2FA challenge.</summary>
         public static async Task<ApiResult<AuthSessionData>> LoginAsync(string email, string password)
         {

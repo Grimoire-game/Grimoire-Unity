@@ -25,7 +25,12 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>Raised when an async thumbnail arrives, so the window can repaint.</summary>
         public static event Action RepaintNeeded;
 
-        /// <summary>Draws the document header and sections. Tasks are drawn by <see cref="GrimoireTasksPanel"/>.</summary>
+        /// <summary>
+        /// Draws the document header and Info fields
+        /// (<c>hints.game_engine_editable == false</c>). Game-engine-editable
+        /// fields live on the Editable tab. Tasks are drawn by
+        /// <see cref="GrimoireTasksPanel"/>.
+        /// </summary>
         public static void Draw(ObjectViewDocument document)
         {
             if (document == null)
@@ -43,9 +48,19 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
+            var drewAnyInfoField = false;
             foreach (var section in document.sections)
             {
-                DrawSection(section);
+                if (DrawSection(section, infoFieldsOnly: true))
+                {
+                    drewAnyInfoField = true;
+                }
+            }
+
+            if (!drewAnyInfoField)
+            {
+                GrimoireEditorStyles.DrawInfoBox(
+                    "No informational fields on this object. Game-engine-editable fields are on the Editable tab.");
             }
         }
 
@@ -127,12 +142,45 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndHorizontal();
         }
 
-        private static void DrawSection(ViewSection section)
+        /// <returns>True when at least one field was drawn.</returns>
+        private static bool DrawSection(ViewSection section, bool infoFieldsOnly)
         {
-            var sectionId = $"section:{section.title}";
+            if (section?.fields == null || section.fields.Length == 0)
+            {
+                return false;
+            }
+
+            var fieldsToDraw = new List<ViewField>();
+            foreach (var field in section.fields)
+            {
+                if (field == null)
+                {
+                    continue;
+                }
+
+                var isEngineEditable = field.hints != null && field.hints.game_engine_editable;
+                if (infoFieldsOnly && isEngineEditable)
+                {
+                    continue;
+                }
+
+                if (!infoFieldsOnly && !isEngineEditable)
+                {
+                    continue;
+                }
+
+                fieldsToDraw.Add(field);
+            }
+
+            if (fieldsToDraw.Count == 0)
+            {
+                return false;
+            }
+
+            var sectionId = infoFieldsOnly ? $"section:{section.title}" : $"editable-section:{section.title}";
             if (!GrimoireEditorStyles.BeginCollapsibleSection(sectionId, section.title, defaultExpanded: true))
             {
-                return;
+                return true;
             }
 
             if (!string.IsNullOrEmpty(section.documentation))
@@ -141,15 +189,13 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUILayout.Space(2);
             }
 
-            if (section.fields != null)
+            foreach (var field in fieldsToDraw)
             {
-                foreach (var field in section.fields)
-                {
-                    DrawField(field);
-                }
+                DrawField(field);
             }
 
             GrimoireEditorStyles.EndCollapsibleSection();
+            return true;
         }
 
         private static void DrawField(ViewField field)
@@ -189,6 +235,11 @@ namespace Grimoire.PluginV2.Editor
             if (field.hints.read_only)
             {
                 tooltip += " — read-only for your role";
+            }
+
+            if (field.hints.game_engine_editable)
+            {
+                tooltip += " — game engine editable";
             }
 
             if (!string.IsNullOrEmpty(field.hints.documentation))

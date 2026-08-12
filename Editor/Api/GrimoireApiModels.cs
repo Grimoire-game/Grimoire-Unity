@@ -152,6 +152,11 @@ namespace Grimoire.PluginV2.Editor
         public bool translatable;
         public bool multiline;
         public bool read_only;
+        /// <summary>
+        /// Template Game engine / Info toggle. True = runtime-adjustable in the
+        /// engine plugin; false = informational display-only context.
+        /// </summary>
+        public bool game_engine_editable;
         public string documentation;
         public int? character_limit;
     }
@@ -167,6 +172,24 @@ namespace Grimoire.PluginV2.Editor
         public ViewValue[] values;
 
         public bool HasValues => values != null && values.Length > 0;
+
+        /// <summary>
+        /// True when the template marks this field Game engine and the caller's
+        /// role may edit it (<see cref="FieldHints.read_only"/> is false).
+        /// </summary>
+        public bool IsGameEngineEditable =>
+            hints != null && hints.game_engine_editable && !hints.read_only;
+    }
+
+    /// <summary>
+    /// One field value update for <c>PATCH /api/v1/objects/{id}</c>.
+    /// <see cref="value"/> is the stored glossary shape (string, number, bool,
+    /// vector object, or array for <c>multiple</c> fields).
+    /// </summary>
+    public class FieldValueUpdate
+    {
+        public string id;
+        public object value;
     }
 
     public class ViewSection
