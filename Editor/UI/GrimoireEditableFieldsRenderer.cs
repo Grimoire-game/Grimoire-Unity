@@ -7,16 +7,16 @@ namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
     /// Draws <c>hints.game_engine_editable</c> fields with editors and Reset.
-    /// Pending edits are committed from the Sync tab.
+    /// Values are stored on the bound <see cref="GrimoireObjectLink"/> so they
+    /// survive scene saves; deviations from Grimoire are committed from Sync.
     /// </summary>
     public static class GrimoireEditableFieldsRenderer
     {
         private const float LabelWidth = 150f;
 
-        private static string _documentKey;
+        private static GrimoireObjectLink _link;
         private static ObjectViewDocument _document;
-        private static readonly Dictionary<string, string> EditBuffers = new Dictionary<string, string>();
-        private static readonly Dictionary<string, string> BaselineBuffers = new Dictionary<string, string>();
+        private static string _documentKey;
         private static string _statusMessage;
         private static string _error;
 
@@ -31,41 +31,255 @@ namespace Grimoire.PluginV2.Editor
             public string Current;
         }
 
-        public static void Draw(ObjectViewDocument document)
+        public static void Draw(ObjectViewDocument document, GrimoireObjectLink link = null)
         {
-            if (document == null)
+            if (document == null && link == null)
             {
                 GrimoireEditorStyles.DrawInfoBox("No object loaded.");
                 return;
             }
 
-            EnsureBuffers(document);
-
-            var editable = CollectEditableFields(document);
-            if (editable.Count == 0)
+            if (link != null)
             {
-                GrimoireEditorStyles.DrawInfoBox(
-                    "No game-engine-editable fields on this object. " +
-                    "Mark fields as Game engine on the template in Grimoire to edit them here.");
+                EnsureBound(link, document);
+            }
+            else if (document != null)
+            {
+                BindDocument(document);
+            }
+
+            if (_link != null)
+            {
+                DrawFromLink(_link);
                 return;
             }
 
-            DrawToolbar(document, editable);
+            GrimoireEditorStyles.DrawInfoBox(
+                "No Grimoire Object Link selected. Select a linked GameObject to edit fields.");
+        }
+
+        public static void ClearBuffers()
+        {
+            _link = null;
+            _document = null;
+            _documentKey = null;
+            _statusMessage = null;
+            _error = null;
+            NotifyDirtyChanged();
+        }
+
+        /// <summary>
+        /// Bind a scene link and optional freshly loaded document. When a document
+        /// is provided, field metadata and Grimoire baselines are reconciled onto
+        /// the link while preserving local edits.
+        /// </summary>
+        public static void Bind(GrimoireObjectLink link, ObjectViewDocument document)
+        {
+            EnsureBound(link, document, forceApply: true);
+        }
+
+        /// <summary>
+        /// Keep edit state aligned with the loaded object view when no link is
+        /// available (rare field-only flows). Prefer <see cref="Bind"/>.
+        /// </summary>
+        public static void BindDocument(ObjectViewDocument document)
+        {
+            EnsureBound(_link, document, forceApply: document != null);
+        }
+
+        private static void EnsureBound(
+            GrimoireObjectLink link,
+            ObjectViewDocument document,
+            bool forceApply = false)
+        {
+            _link = link;
+            if (document == null)
+            {
+                _document = null;
+                return;
+            }
+
+            var key = DocumentKey(document);
+            var documentChanged = key != _documentKey || forceApply;
+            _document = document;
+            _documentKey = key;
+
+            if (link != null && documentChanged)
+            {
+                GrimoireLinkedFieldStore.ApplyFromDocument(link, document, preserveLocalEdits: true);
+                _statusMessage = null;
+                _error = null;
+                NotifyDirtyChanged();
+            }
+        }
+
+        private static string DocumentKey(ObjectViewDocument document) =>
+            $"{document.@object?.id}:{document.@object?.updated_at}:{document.schema_version}";
+
+        /// <summary>Object id for the document/link currently backing edits, if any.</summary>
+        public static string LoadedObjectId =>
+            !string.IsNullOrEmpty(_link?.CachedObjectId)
+                ? _link.CachedObjectId
+                : _document?.@object?.id;
+
+        /// <summary>True when any editable field on the bound link diverges from Grimoire.</summary>
+        public static bool HasDirtyEdits =>
+            _link != null && GrimoireLinkedFieldStore.HasDeviations(_link);
+
+        /// <summary>
+        /// True when the given object's linked fields diverge from Grimoire.
+        /// Looks up the scene link by cached object id.
+        /// </summary>
+        public static bool HasDirtyEditsForObject(string objectId)
+        {
+            if (string.IsNullOrEmpty(objectId))
+            {
+                return false;
+            }
+
+            if (_link != null &&
+                string.Equals(_link.CachedObjectId, objectId, StringComparison.Ordinal))
+            {
+                return GrimoireLinkedFieldStore.HasDeviations(_link);
+            }
+
+            var link = FindSceneLinkByObjectId(objectId);
+            return link != null && GrimoireLinkedFieldStore.HasDeviations(link);
+        }
+
+        public static bool HasDirtyEditsForLink(GrimoireObjectLink link) =>
+            GrimoireLinkedFieldStore.HasDeviations(link);
+
+        public static List<DirtyFieldChange> GetDirtyFieldChanges()
+        {
+            return ToRendererChanges(GrimoireLinkedFieldStore.GetDeviations(_link));
+        }
+
+        public static List<DirtyFieldChange> GetDirtyFieldChanges(GrimoireObjectLink link)
+        {
+            return ToRendererChanges(GrimoireLinkedFieldStore.GetDeviations(link));
+        }
+
+        /// <summary>
+        /// Discard local editable-field edits for the bound link.
+        /// </summary>
+        public static bool ResetDirtyFields()
+        {
+            if (_link == null || !GrimoireLinkedFieldStore.HasDeviations(_link))
+            {
+                return false;
+            }
+
+            if (!GrimoireLinkedFieldStore.ResetToGrimoire(_link))
+            {
+                return false;
+            }
+
+            _statusMessage = "Local edits discarded.";
+            _error = null;
+            GUI.FocusControl(null);
+            NotifyDirtyChanged();
+            return true;
+        }
+
+        public static bool ResetDirtyFields(GrimoireObjectLink link)
+        {
+            if (!GrimoireLinkedFieldStore.ResetToGrimoire(link))
+            {
+                return false;
+            }
+
+            if (_link == link)
+            {
+                _statusMessage = "Local edits discarded.";
+                _error = null;
+            }
+
+            NotifyDirtyChanged();
+            return true;
+        }
+
+        /// <summary>
+        /// Build stored glossary values for every dirty editable field, including
+        /// <c>base_value</c> from the cached Grimoire baseline on the link.
+        /// </summary>
+        public static bool TryBuildDirtyFieldChanges(
+            out List<FieldValueUpdate> updates, out string error)
+        {
+            return GrimoireLinkedFieldStore.TryBuildDirtyFieldChanges(_link, out updates, out error);
+        }
+
+        public static bool TryBuildDirtyFieldChanges(
+            GrimoireObjectLink link,
+            out List<FieldValueUpdate> updates,
+            out string error)
+        {
+            return GrimoireLinkedFieldStore.TryBuildDirtyFieldChanges(link, out updates, out error);
+        }
+
+        /// <summary>
+        /// Treat the current local values as the new Grimoire baseline after a
+        /// commit was queued (object values are not updated until review).
+        /// </summary>
+        public static void AcceptSubmittedEdits()
+        {
+            if (_link == null)
+            {
+                return;
+            }
+
+            GrimoireLinkedFieldStore.AcceptSubmitted(_link);
+            _statusMessage = "Queued for review in Grimoire.";
+            _error = null;
+            NotifyDirtyChanged();
+        }
+
+        public static void AcceptSubmittedEdits(GrimoireObjectLink link)
+        {
+            GrimoireLinkedFieldStore.AcceptSubmitted(link);
+            if (_link == link)
+            {
+                _statusMessage = "Queued for review in Grimoire.";
+                _error = null;
+            }
+
+            NotifyDirtyChanged();
+        }
+
+        private static void DrawFromLink(GrimoireObjectLink link)
+        {
+            var fields = link.LinkedFields;
+            if (fields == null || fields.Count == 0)
+            {
+                GrimoireEditorStyles.DrawInfoBox(
+                    "No game-engine-editable fields on this object. " +
+                    "Mark fields as Game engine on the template in Grimoire, then refresh.");
+                return;
+            }
+
+            DrawToolbar(link);
             EditorGUILayout.Space(4);
 
             string currentSection = null;
-            foreach (var entry in editable)
+            for (var i = 0; i < fields.Count; i++)
             {
-                if (entry.SectionTitle != currentSection)
+                var field = fields[i];
+                if (field == null)
+                {
+                    continue;
+                }
+
+                var sectionTitle = string.IsNullOrEmpty(field.SectionTitle) ? "Fields" : field.SectionTitle;
+                if (sectionTitle != currentSection)
                 {
                     if (currentSection != null)
                     {
                         GrimoireEditorStyles.EndCollapsibleSection();
                     }
 
-                    currentSection = entry.SectionTitle;
-                    var sectionId = $"editable-section:{entry.SectionId ?? entry.SectionTitle}";
-                    if (!GrimoireEditorStyles.BeginCollapsibleSection(sectionId, entry.SectionTitle, defaultExpanded: true))
+                    currentSection = sectionTitle;
+                    var sectionId = $"editable-section:{field.SectionId ?? sectionTitle}";
+                    if (!GrimoireEditorStyles.BeginCollapsibleSection(sectionId, sectionTitle, defaultExpanded: true))
                     {
                         currentSection = null;
                         continue;
@@ -77,7 +291,7 @@ namespace Grimoire.PluginV2.Editor
                     continue;
                 }
 
-                DrawEditableField(entry.Field);
+                DrawLinkedField(link, field);
             }
 
             if (currentSection != null)
@@ -86,202 +300,10 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
-        public static void ClearBuffers()
+        private static void DrawToolbar(GrimoireObjectLink link)
         {
-            EditBuffers.Clear();
-            BaselineBuffers.Clear();
-            _documentKey = null;
-            _document = null;
-            _statusMessage = null;
-            _error = null;
-            NotifyDirtyChanged();
-        }
-
-        /// <summary>
-        /// Keep edit buffers aligned with the loaded object view. Resets buffers
-        /// when the document identity changes; no-ops when already bound.
-        /// </summary>
-        public static void BindDocument(ObjectViewDocument document)
-        {
-            if (document == null)
-            {
-                ClearBuffers();
-                return;
-            }
-
-            EnsureBuffers(document);
-        }
-
-        /// <summary>Object id for the document currently backing edit buffers, if any.</summary>
-        public static string LoadedObjectId => _document?.@object?.id;
-
-        /// <summary>True when any editable field buffer diverges from its Grimoire baseline.</summary>
-        public static bool HasDirtyEdits => CountAllDirty() > 0;
-
-        /// <summary>
-        /// True when the currently loaded object's editable field buffers diverge
-        /// from the last loaded Grimoire values.
-        /// </summary>
-        public static bool HasDirtyEditsForObject(string objectId)
-        {
-            if (string.IsNullOrEmpty(objectId) || string.IsNullOrEmpty(LoadedObjectId))
-            {
-                return false;
-            }
-
-            if (!string.Equals(LoadedObjectId, objectId, StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            return HasDirtyEdits;
-        }
-
-        public static List<DirtyFieldChange> GetDirtyFieldChanges()
-        {
-            var list = new List<DirtyFieldChange>();
-            if (_document == null)
-            {
-                return list;
-            }
-
-            foreach (var entry in CollectEditableFields(_document))
-            {
-                var field = entry.Field;
-                if (field?.hints != null && field.hints.read_only)
-                {
-                    continue;
-                }
-
-                if (!IsDirty(field.id))
-                {
-                    continue;
-                }
-
-                BaselineBuffers.TryGetValue(field.id, out var baseline);
-                list.Add(new DirtyFieldChange
-                {
-                    FieldId = field.id,
-                    Label = string.IsNullOrEmpty(field.label) ? field.id : field.label,
-                    Previous = baseline ?? "",
-                    Current = GetBuffer(field.id),
-                });
-            }
-
-            return list;
-        }
-
-        /// <summary>
-        /// Discard local editable-field edits for the loaded object.
-        /// </summary>
-        public static bool ResetDirtyFields()
-        {
-            if (_document == null || !HasDirtyEdits)
-            {
-                return false;
-            }
-
-            ResetBuffers(CollectEditableFields(_document));
-            _statusMessage = "Local edits discarded.";
-            _error = null;
-            GUI.FocusControl(null);
-            NotifyDirtyChanged();
-            return true;
-        }
-
-        /// <summary>
-        /// Build stored glossary values for every dirty editable field, including
-        /// <c>base_value</c> from the last loaded Grimoire baseline.
-        /// </summary>
-        public static bool TryBuildDirtyFieldChanges(
-            out List<FieldValueUpdate> updates, out string error)
-        {
-            updates = new List<FieldValueUpdate>();
-            error = null;
-
-            if (_document == null)
-            {
-                error = "No object loaded.";
-                return false;
-            }
-
-            foreach (var entry in CollectEditableFields(_document))
-            {
-                var field = entry.Field;
-                if (!IsDirty(field.id))
-                {
-                    continue;
-                }
-
-                if (field.hints != null && field.hints.read_only)
-                {
-                    continue;
-                }
-
-                if (!GrimoireFieldSync.IsSupportedEditKind(GrimoireFieldSync.ResolveEditKind(field)))
-                {
-                    continue;
-                }
-
-                if (!GrimoireFieldSync.TryBuildStoredValue(field, GetBuffer(field.id), out var value, out var buildError))
-                {
-                    error = $"{field.label}: {buildError}";
-                    updates = null;
-                    return false;
-                }
-
-                object baseValue = null;
-                if (BaselineBuffers.TryGetValue(field.id, out var baseline) &&
-                    !string.IsNullOrEmpty(baseline))
-                {
-                    if (!GrimoireFieldSync.TryBuildStoredValue(field, baseline, out baseValue, out _))
-                    {
-                        baseValue = null;
-                    }
-                }
-
-                updates.Add(new FieldValueUpdate
-                {
-                    id = field.id,
-                    value = value,
-                    base_value = baseValue,
-                });
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// Treat the current edit buffers as the new local baseline after a
-        /// commit was queued (object values are not updated until review).
-        /// </summary>
-        public static void AcceptSubmittedEdits()
-        {
-            if (_document == null)
-            {
-                return;
-            }
-
-            foreach (var entry in CollectEditableFields(_document))
-            {
-                var id = entry.Field?.id;
-                if (string.IsNullOrEmpty(id) || !EditBuffers.TryGetValue(id, out var current))
-                {
-                    continue;
-                }
-
-                BaselineBuffers[id] = current;
-            }
-
-            _statusMessage = "Queued for review in Grimoire.";
-            _error = null;
-            NotifyDirtyChanged();
-        }
-
-        private static void DrawToolbar(ObjectViewDocument document, List<EditableEntry> editable)
-        {
-            _ = document;
-            var dirtyCount = CountDirty(editable);
+            var dirtyCount = GrimoireLinkedFieldStore.CountDeviations(link);
+            var fieldCount = link.LinkedFields?.Count ?? 0;
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(
@@ -294,14 +316,11 @@ namespace Grimoire.PluginV2.Editor
             using (new EditorGUI.DisabledScope(dirtyCount == 0))
             {
                 if (GUILayout.Button(
-                        new GUIContent("Reset", "Discard local edits and restore values from the loaded Grimoire document."),
+                        new GUIContent("Reset", "Discard local edits and restore values from the cached Grimoire baselines."),
                         GUILayout.Width(60)))
                 {
-                    ResetBuffers(editable);
-                    _statusMessage = "Local edits discarded.";
-                    _error = null;
+                    ResetDirtyFields(link);
                     GUI.FocusControl(null);
-                    NotifyDirtyChanged();
                 }
             }
 
@@ -311,7 +330,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 EditorGUILayout.Space(2);
                 EditorGUILayout.LabelField(
-                    "Commit pending changes from the Sync tab (title + description required).",
+                    "Local values are saved on the Object Link. Commit pending changes from the Sync tab.",
                     GrimoireEditorStyles.MiniSecondaryStyle);
             }
 
@@ -325,44 +344,51 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
-        private static void DrawEditableField(ViewField field)
+        private static void DrawLinkedField(GrimoireObjectLink link, GrimoireLinkedField field)
         {
             EditorGUILayout.BeginHorizontal();
 
-            var label = field.hints != null && field.hints.required ? $"{field.label} *" : field.label;
+            var label = field.ReadOnly ? field.DisplayLabel : field.DisplayLabel;
+            if (!field.ReadOnly && field.IsDeviated)
+            {
+                label += " •";
+            }
+
             EditorGUILayout.LabelField(
                 new GUIContent(label, Tooltip(field)),
                 GUILayout.Width(LabelWidth));
 
             EditorGUILayout.BeginVertical();
 
-            var readOnly = field.hints != null && field.hints.read_only;
-            var editKind = GrimoireFieldSync.ResolveEditKind(field);
+            var editKind = string.IsNullOrEmpty(field.Kind) ? ObjectViewKinds.Text : field.Kind;
 
-            EditorGUI.BeginDisabledGroup(readOnly);
+            EditorGUI.BeginDisabledGroup(field.ReadOnly);
 
             if (!GrimoireFieldSync.IsSupportedEditKind(editKind))
             {
-                EditorGUILayout.LabelField(field.plain ?? "Not set", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField(
+                    string.IsNullOrEmpty(field.LocalValue) ? "Not set" : field.LocalValue,
+                    EditorStyles.miniLabel);
                 EditorGUILayout.LabelField(
                     "This kind cannot be edited from the plugin.",
                     EditorStyles.miniLabel);
             }
             else if (editKind == ObjectViewKinds.Boolean)
             {
-                var current = string.Equals(GetBuffer(field.id), "true", System.StringComparison.OrdinalIgnoreCase);
+                var current = string.Equals(field.LocalValue, "true", StringComparison.OrdinalIgnoreCase);
                 var toggled = EditorGUILayout.Toggle(current);
-                if (!readOnly && toggled != current)
+                if (!field.ReadOnly && toggled != current)
                 {
-                    SetBuffer(field.id, toggled ? "true" : "false");
+                    GrimoireLinkedFieldStore.SetLocalValue(link, field.FieldId, toggled ? "true" : "false");
+                    _statusMessage = null;
+                    _error = null;
                 }
             }
             else
             {
-                var multiline = field.hints != null && field.hints.multiline;
-                var buffer = GetBuffer(field.id);
+                var buffer = field.LocalValue ?? "";
                 string next;
-                if (multiline)
+                if (field.Multiline)
                 {
                     next = EditorGUILayout.TextArea(buffer, GUILayout.MinHeight(48));
                 }
@@ -371,22 +397,25 @@ namespace Grimoire.PluginV2.Editor
                     next = EditorGUILayout.TextField(buffer);
                 }
 
-                if (!readOnly && next != buffer)
+                if (!field.ReadOnly && next != buffer)
                 {
-                    if (field.hints?.character_limit is int limit && limit > 0 && next.Length > limit)
-                    {
-                        next = next.Substring(0, limit);
-                    }
-
-                    SetBuffer(field.id, next);
+                    GrimoireLinkedFieldStore.SetLocalValue(link, field.FieldId, next);
+                    _statusMessage = null;
+                    _error = null;
                 }
             }
 
             EditorGUI.EndDisabledGroup();
 
-            if (readOnly)
+            if (field.ReadOnly)
             {
                 EditorGUILayout.LabelField("Read-only for your role", EditorStyles.miniLabel);
+            }
+            else if (field.IsDeviated)
+            {
+                EditorGUILayout.LabelField(
+                    $"Grimoire: {FormatPreview(field.GrimoireValue)}",
+                    GrimoireEditorStyles.MiniSecondaryStyle);
             }
 
             EditorGUILayout.EndVertical();
@@ -394,126 +423,53 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.Space(2);
         }
 
-        private static void EnsureBuffers(ObjectViewDocument document)
+        private static string FormatPreview(string value)
         {
-            var key = $"{document.@object?.id}:{document.@object?.updated_at}:{document.schema_version}";
-            if (key == _documentKey)
+            if (string.IsNullOrEmpty(value))
             {
-                _document = document;
-                return;
+                return "(empty)";
             }
 
-            EditBuffers.Clear();
-            BaselineBuffers.Clear();
-            _documentKey = key;
-            _document = document;
-            _statusMessage = null;
-            _error = null;
-
-            foreach (var entry in CollectEditableFields(document))
-            {
-                var buffer = GrimoireFieldSync.BufferFromField(entry.Field);
-                EditBuffers[entry.Field.id] = buffer;
-                BaselineBuffers[entry.Field.id] = buffer;
-            }
-
-            NotifyDirtyChanged();
+            return value.Length <= 80 ? value : value.Substring(0, 77) + "…";
         }
 
-        private static void ResetBuffers(List<EditableEntry> editable)
+        private static List<DirtyFieldChange> ToRendererChanges(
+            List<GrimoireLinkedFieldStore.DirtyFieldChange> source)
         {
-            foreach (var entry in editable)
-            {
-                if (BaselineBuffers.TryGetValue(entry.Field.id, out var baseline))
-                {
-                    EditBuffers[entry.Field.id] = baseline;
-                }
-            }
-        }
-
-        private static List<EditableEntry> CollectEditableFields(ObjectViewDocument document)
-        {
-            var list = new List<EditableEntry>();
-            if (document.sections == null)
+            var list = new List<DirtyFieldChange>(source?.Count ?? 0);
+            if (source == null)
             {
                 return list;
             }
 
-            foreach (var section in document.sections)
+            foreach (var item in source)
             {
-                if (section?.fields == null)
+                list.Add(new DirtyFieldChange
                 {
-                    continue;
-                }
-
-                foreach (var field in section.fields)
-                {
-                    if (field?.hints == null || !field.hints.game_engine_editable)
-                    {
-                        continue;
-                    }
-
-                    list.Add(new EditableEntry
-                    {
-                        SectionId = section.id,
-                        SectionTitle = string.IsNullOrEmpty(section.title) ? "Fields" : section.title,
-                        Field = field,
-                    });
-                }
+                    FieldId = item.FieldId,
+                    Label = item.Label,
+                    Previous = item.Previous,
+                    Current = item.Current,
+                });
             }
 
             return list;
         }
 
-        private static int CountDirty(List<EditableEntry> editable)
+        private static GrimoireObjectLink FindSceneLinkByObjectId(string objectId)
         {
-            var count = 0;
-            foreach (var entry in editable)
+            var scratch = new List<GrimoireObjectLink>();
+            GrimoireGameEngineDirtyTracker.CollectSceneLinks(scratch);
+            foreach (var candidate in scratch)
             {
-                if (entry.Field.hints != null && entry.Field.hints.read_only)
+                if (candidate != null &&
+                    string.Equals(candidate.CachedObjectId, objectId, StringComparison.Ordinal))
                 {
-                    continue;
-                }
-
-                if (IsDirty(entry.Field.id))
-                {
-                    count++;
+                    return candidate;
                 }
             }
 
-            return count;
-        }
-
-        private static int CountAllDirty()
-        {
-            if (_document == null)
-            {
-                return 0;
-            }
-
-            return CountDirty(CollectEditableFields(_document));
-        }
-
-        private static bool IsDirty(string fieldId)
-        {
-            if (!EditBuffers.TryGetValue(fieldId, out var current))
-            {
-                return false;
-            }
-
-            BaselineBuffers.TryGetValue(fieldId, out var baseline);
-            return !string.Equals(current ?? "", baseline ?? "", StringComparison.Ordinal);
-        }
-
-        private static string GetBuffer(string fieldId) =>
-            EditBuffers.TryGetValue(fieldId, out var value) ? value ?? "" : "";
-
-        private static void SetBuffer(string fieldId, string value)
-        {
-            EditBuffers[fieldId] = value ?? "";
-            _statusMessage = null;
-            _error = null;
-            NotifyDirtyChanged();
+            return null;
         }
 
         private static void NotifyDirtyChanged()
@@ -521,27 +477,22 @@ namespace Grimoire.PluginV2.Editor
             Changed?.Invoke();
         }
 
-        private static string Tooltip(ViewField field)
+        private static string Tooltip(GrimoireLinkedField field)
         {
-            if (field.hints == null)
+            var kind = string.IsNullOrEmpty(field.Kind) ? "field" : field.Kind;
+            var type = string.IsNullOrEmpty(field.FieldType) ? kind : field.FieldType;
+            var tooltip = $"{type} ({kind}) · game engine editable";
+            if (field.IsDeviated)
             {
-                return field.kind;
-            }
-
-            var tooltip = $"{field.hints.field_type} ({field.kind}) · game engine editable";
-            if (!string.IsNullOrEmpty(field.hints.documentation))
-            {
-                tooltip += $"\n{field.hints.documentation}";
+                tooltip += "\nChanged locally — pending sync to Grimoire.";
             }
 
             return tooltip;
         }
 
-        private struct EditableEntry
+        static GrimoireEditableFieldsRenderer()
         {
-            public string SectionId;
-            public string SectionTitle;
-            public ViewField Field;
+            GrimoireLinkedFieldStore.Changed += () => Changed?.Invoke();
         }
     }
 }

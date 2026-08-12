@@ -7,14 +7,29 @@ namespace Grimoire.PluginV2.Editor
     /// <summary>
     /// Inspector for <see cref="GrimoireObjectLink"/>: pick an object from
     /// Grimoire, choose which transform fields sync into
-    /// <c>game_engine_data</c>, and open the object in Connect.
+    /// <c>game_engine_data</c>, edit linked fields, and open the object in Connect.
     /// </summary>
     [CustomEditor(typeof(GrimoireObjectLink))]
     public class GrimoireObjectLinkEditor : UnityEditor.Editor
     {
+        private const float FieldLabelWidth = 140f;
+
         private string _validationMessage;
         private MessageType _validationType = MessageType.None;
         private bool _syncing;
+        private bool _fieldsFoldout = true;
+
+        private void OnEnable()
+        {
+            GrimoireLinkedFieldStore.Changed += OnLinkedFieldsChanged;
+        }
+
+        private void OnDisable()
+        {
+            GrimoireLinkedFieldStore.Changed -= OnLinkedFieldsChanged;
+        }
+
+        private void OnLinkedFieldsChanged() => Repaint();
 
         public override void OnInspectorGUI()
         {
@@ -84,6 +99,7 @@ namespace Grimoire.PluginV2.Editor
                             Undo.RecordObject(link, "Pick Grimoire object");
                             link.ObjectKey = summary.code_id ?? "";
                             link.CachedObjectId = summary.id;
+                            link.ClearLinkedFields();
                             GrimoireObjectKeyResolver.Remember(GrimoireSettings.GameId, summary.code_id, summary.id);
                             GrimoireObjectKeyResolver.RememberSummary(GrimoireSettings.GameId, summary);
                             EditorUtility.SetDirty(link);
@@ -106,11 +122,11 @@ namespace Grimoire.PluginV2.Editor
                             if (!string.IsNullOrEmpty(previous.ObjectId) &&
                                 previous.ObjectId != summary.id)
                             {
-                                RemovePreviousThenUpsert(link, previous);
+                                RemovePreviousThenUpsert(link, previous, refreshFields: true);
                             }
                             else
                             {
-                                SyncUpsert(link, _validationMessage);
+                                SyncUpsert(link, _validationMessage, refreshFields: true);
                             }
 
                             Repaint();
@@ -145,6 +161,8 @@ namespace Grimoire.PluginV2.Editor
 
             EditorGUILayout.EndHorizontal();
 
+            DrawEditableFieldsSection(link);
+
             if (_syncing)
             {
                 EditorGUILayout.HelpBox("Syncing with Grimoire…", MessageType.Info);
@@ -155,17 +173,185 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
-        private async void SyncUpsert(GrimoireObjectLink link, string successMessage)
+        private void DrawEditableFieldsSection(GrimoireObjectLink link)
+        {
+            EditorGUILayout.Space(10);
+
+            var deviationCount = link.FieldDeviationCount;
+            var title = deviationCount > 0
+                ? $"Editable fields ({deviationCount} to sync)"
+                : "Editable fields";
+
+            _fieldsFoldout = EditorGUILayout.Foldout(_fieldsFoldout, title, true, EditorStyles.foldoutHeader);
+            if (!_fieldsFoldout)
+            {
+                return;
+            }
+
+            EditorGUILayout.HelpBox(
+                "These values live on this Object Link and persist with the scene. " +
+                "A • marks fields that differ from Grimoire — commit them from the Sync tab.",
+                MessageType.None);
+
+            EditorGUILayout.BeginHorizontal();
+            using (new EditorGUI.DisabledScope(
+                       _syncing || (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))))
+            {
+                if (GUILayout.Button(
+                        new GUIContent(
+                            "Refresh from Grimoire",
+                            "Pull field definitions and Grimoire baselines. Local edits are kept."),
+                        GUILayout.Height(22)))
+                {
+                    RefreshLinkedFields(link, preserveLocalEdits: true);
+                }
+            }
+
+            using (new EditorGUI.DisabledScope(deviationCount == 0))
+            {
+                if (GUILayout.Button(
+                        new GUIContent("Reset to Grimoire", "Discard local field edits."),
+                        GUILayout.Width(120),
+                        GUILayout.Height(22)))
+                {
+                    if (GrimoireLinkedFieldStore.ResetToGrimoire(link))
+                    {
+                        _validationMessage = "Local field edits discarded.";
+                        _validationType = MessageType.Info;
+                    }
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(4);
+
+            var fields = link.LinkedFields;
+            if (fields == null || fields.Count == 0)
+            {
+                EditorGUILayout.LabelField(
+                    "No editable fields cached yet. Link an object and refresh from Grimoire.",
+                    EditorStyles.miniLabel);
+                return;
+            }
+
+            string currentSection = null;
+            for (var i = 0; i < fields.Count; i++)
+            {
+                var field = fields[i];
+                if (field == null)
+                {
+                    continue;
+                }
+
+                var section = string.IsNullOrEmpty(field.SectionTitle) ? "Fields" : field.SectionTitle;
+                if (section != currentSection)
+                {
+                    currentSection = section;
+                    EditorGUILayout.Space(4);
+                    EditorGUILayout.LabelField(section, EditorStyles.boldLabel);
+                }
+
+                DrawLinkedField(link, field);
+            }
+        }
+
+        private static void DrawLinkedField(GrimoireObjectLink link, GrimoireLinkedField field)
+        {
+            EditorGUILayout.BeginHorizontal();
+
+            var label = field.DisplayLabel;
+            if (!field.ReadOnly && field.IsDeviated)
+            {
+                label += " •";
+            }
+
+            EditorGUILayout.LabelField(
+                new GUIContent(
+                    label,
+                    field.IsDeviated
+                        ? $"Differs from Grimoire ({field.GrimoireValue})"
+                        : $"{field.FieldType} ({field.Kind})"),
+                GUILayout.Width(FieldLabelWidth));
+
+            EditorGUILayout.BeginVertical();
+            EditorGUI.BeginDisabledGroup(field.ReadOnly);
+
+            var kind = string.IsNullOrEmpty(field.Kind) ? ObjectViewKinds.Text : field.Kind;
+            if (!GrimoireFieldSync.IsSupportedEditKind(kind))
+            {
+                EditorGUILayout.LabelField(
+                    string.IsNullOrEmpty(field.LocalValue) ? "Not set" : field.LocalValue,
+                    EditorStyles.miniLabel);
+            }
+            else if (kind == ObjectViewKinds.Boolean)
+            {
+                var current = string.Equals(field.LocalValue, "true", StringComparison.OrdinalIgnoreCase);
+                var toggled = EditorGUILayout.Toggle(current);
+                if (!field.ReadOnly && toggled != current)
+                {
+                    GrimoireLinkedFieldStore.SetLocalValue(link, field.FieldId, toggled ? "true" : "false");
+                }
+            }
+            else if (field.Multiline)
+            {
+                var buffer = field.LocalValue ?? "";
+                var next = EditorGUILayout.TextArea(buffer, GUILayout.MinHeight(40));
+                if (!field.ReadOnly && next != buffer)
+                {
+                    GrimoireLinkedFieldStore.SetLocalValue(link, field.FieldId, next);
+                }
+            }
+            else
+            {
+                var buffer = field.LocalValue ?? "";
+                var next = EditorGUILayout.TextField(buffer);
+                if (!field.ReadOnly && next != buffer)
+                {
+                    GrimoireLinkedFieldStore.SetLocalValue(link, field.FieldId, next);
+                }
+            }
+
+            EditorGUI.EndDisabledGroup();
+
+            if (field.ReadOnly)
+            {
+                EditorGUILayout.LabelField("Read-only", EditorStyles.miniLabel);
+            }
+            else if (field.IsDeviated)
+            {
+                var preview = string.IsNullOrEmpty(field.GrimoireValue) ? "(empty)" : field.GrimoireValue;
+                if (preview.Length > 60)
+                {
+                    preview = preview.Substring(0, 57) + "…";
+                }
+
+                EditorGUILayout.LabelField($"Grimoire: {preview}", EditorStyles.miniLabel);
+            }
+
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(2);
+        }
+
+        private async void RefreshLinkedFields(GrimoireObjectLink link, bool preserveLocalEdits)
         {
             if (_syncing || link == null)
             {
                 return;
             }
 
+            if (!GrimoireSettings.IsConfigured)
+            {
+                _validationMessage = "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).";
+                _validationType = MessageType.Warning;
+                Repaint();
+                return;
+            }
+
             _syncing = true;
             Repaint();
 
-            var result = await GrimoireGameEngineSync.UpsertAsync(link);
+            var result = await GrimoireLinkedFieldStore.RefreshFromGrimoireAsync(link, preserveLocalEdits);
 
             _syncing = false;
             if (link == null)
@@ -175,8 +361,11 @@ namespace Grimoire.PluginV2.Editor
 
             if (result.Success)
             {
-                GrimoireGameEngineSyncHooks.Remember(link);
-                _validationMessage = successMessage;
+                var count = link.LinkedFields?.Count ?? 0;
+                var dirty = link.FieldDeviationCount;
+                _validationMessage = dirty > 0
+                    ? $"Loaded {count} editable field{(count == 1 ? "" : "s")} · {dirty} differ from Grimoire."
+                    : $"Loaded {count} editable field{(count == 1 ? "" : "s")}.";
                 _validationType = MessageType.Info;
             }
             else
@@ -188,8 +377,63 @@ namespace Grimoire.PluginV2.Editor
             Repaint();
         }
 
+        private async void SyncUpsert(
+            GrimoireObjectLink link, string successMessage, bool refreshFields = false)
+        {
+            if (_syncing || link == null)
+            {
+                return;
+            }
+
+            _syncing = true;
+            Repaint();
+
+            var result = await GrimoireGameEngineSync.UpsertAsync(link);
+
+            if (link == null)
+            {
+                _syncing = false;
+                return;
+            }
+
+            if (result.Success)
+            {
+                GrimoireGameEngineSyncHooks.Remember(link);
+                _validationMessage = successMessage;
+                _validationType = MessageType.Info;
+
+                if (refreshFields)
+                {
+                    var fields = await GrimoireLinkedFieldStore.RefreshFromGrimoireAsync(
+                        link, preserveLocalEdits: false);
+                    if (fields.Success)
+                    {
+                        var count = link.LinkedFields?.Count ?? 0;
+                        _validationMessage =
+                            $"{successMessage} Loaded {count} editable field{(count == 1 ? "" : "s")}.";
+                    }
+                    else if (!string.IsNullOrEmpty(fields.Error))
+                    {
+                        _validationMessage =
+                            $"{successMessage} Field refresh failed: {fields.Error}";
+                        _validationType = MessageType.Warning;
+                    }
+                }
+            }
+            else
+            {
+                _validationMessage = result.Error;
+                _validationType = MessageType.Error;
+            }
+
+            _syncing = false;
+            Repaint();
+        }
+
         private async void RemovePreviousThenUpsert(
-            GrimoireObjectLink link, GrimoireGameEngineSync.LinkIdentity previous)
+            GrimoireObjectLink link,
+            GrimoireGameEngineSync.LinkIdentity previous,
+            bool refreshFields = false)
         {
             if (_syncing || link == null)
             {
@@ -207,9 +451,9 @@ namespace Grimoire.PluginV2.Editor
 
             var result = await GrimoireGameEngineSync.UpsertAsync(link);
 
-            _syncing = false;
             if (link == null)
             {
+                _syncing = false;
                 return;
             }
 
@@ -221,6 +465,19 @@ namespace Grimoire.PluginV2.Editor
                     _validationMessage = "Linked and queued game_engine_data for review.";
                     _validationType = MessageType.Info;
                 }
+
+                if (refreshFields)
+                {
+                    var fields = await GrimoireLinkedFieldStore.RefreshFromGrimoireAsync(
+                        link, preserveLocalEdits: false);
+                    if (fields.Success)
+                    {
+                        var count = link.LinkedFields?.Count ?? 0;
+                        _validationMessage =
+                            $"Linked and loaded {count} editable field{(count == 1 ? "" : "s")}.";
+                        _validationType = MessageType.Info;
+                    }
+                }
             }
             else
             {
@@ -228,6 +485,7 @@ namespace Grimoire.PluginV2.Editor
                 _validationType = MessageType.Error;
             }
 
+            _syncing = false;
             Repaint();
         }
 
@@ -248,7 +506,9 @@ namespace Grimoire.PluginV2.Editor
             Undo.RecordObject(link, "Unlink Grimoire object");
             link.ObjectKey = "";
             link.CachedObjectId = "";
+            link.ClearLinkedFields();
             EditorUtility.SetDirty(link);
+            GrimoireLinkedFieldStore.NotifyExternalChange();
             GrimoireGameEngineSyncHooks.Forget(link);
             GrimoireGameEngineDirtyTracker.Forget(link);
 

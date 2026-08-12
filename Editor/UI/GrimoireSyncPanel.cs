@@ -30,6 +30,8 @@ namespace Grimoire.PluginV2.Editor
             GrimoireGameEngineDirtyTracker.Changed += OnDirtyChanged;
             GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
             GrimoireEditableFieldsRenderer.Changed += OnDirtyChanged;
+            GrimoireLinkedFieldStore.Changed -= OnDirtyChanged;
+            GrimoireLinkedFieldStore.Changed += OnDirtyChanged;
             RequestRepaint();
         }
 
@@ -37,6 +39,7 @@ namespace Grimoire.PluginV2.Editor
         {
             GrimoireGameEngineDirtyTracker.Changed -= OnDirtyChanged;
             GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
+            GrimoireLinkedFieldStore.Changed -= OnDirtyChanged;
         }
 
         public void Draw()
@@ -367,7 +370,7 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            MaybeAddFieldOnlyEntry(byLink, ordered, selectedLink);
+            MaybeAddFieldOnlyEntries(byLink, ordered, selectedLink);
 
             foreach (var entry in ordered)
             {
@@ -386,61 +389,30 @@ namespace Grimoire.PluginV2.Editor
             return ordered;
         }
 
-        private static void MaybeAddFieldOnlyEntry(
+        private static void MaybeAddFieldOnlyEntries(
             Dictionary<int, SyncEntry> byLink,
             List<SyncEntry> ordered,
             GrimoireObjectLink selectedLink)
         {
-            if (!GrimoireEditableFieldsRenderer.HasDirtyEdits)
-            {
-                return;
-            }
-
-            var objectId = GrimoireEditableFieldsRenderer.LoadedObjectId;
-            if (string.IsNullOrEmpty(objectId))
-            {
-                return;
-            }
-
-            foreach (var existing in ordered)
-            {
-                if (string.Equals(existing.Engine.ObjectId, objectId, StringComparison.Ordinal))
-                {
-                    AttachFieldState(existing);
-                    return;
-                }
-            }
-
-            var link = FindLinkByObjectId(objectId, selectedLink);
-            if (link == null)
-            {
-                return;
-            }
-
-            var entry = UpsertEntry(byLink, ordered, BuildLiveOnly(link));
-            AttachFieldState(entry);
-        }
-
-        private static GrimoireObjectLink FindLinkByObjectId(
-            string objectId, GrimoireObjectLink preferred)
-        {
-            if (preferred != null &&
-                string.Equals(preferred.CachedObjectId, objectId, StringComparison.Ordinal))
-            {
-                return preferred;
-            }
-
+            _ = selectedLink;
             GrimoireGameEngineDirtyTracker.CollectSceneLinks(LinkScratch);
             foreach (var link in LinkScratch)
             {
-                if (link != null &&
-                    string.Equals(link.CachedObjectId, objectId, StringComparison.Ordinal))
+                if (link == null || !GrimoireLinkedFieldStore.HasDeviations(link))
                 {
-                    return link;
+                    continue;
                 }
-            }
 
-            return null;
+                var id = link.GetInstanceID();
+                if (byLink.TryGetValue(id, out var existing))
+                {
+                    AttachFieldState(existing);
+                    continue;
+                }
+
+                var entry = UpsertEntry(byLink, ordered, BuildLiveOnly(link));
+                AttachFieldState(entry);
+            }
         }
 
         private static SyncEntry UpsertEntry(
@@ -468,9 +440,9 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            entry.FieldsDirty = GrimoireEditableFieldsRenderer.HasDirtyEditsForObject(entry.Engine.ObjectId);
+            entry.FieldsDirty = GrimoireEditableFieldsRenderer.HasDirtyEditsForLink(entry.Link);
             entry.FieldChanges = entry.FieldsDirty
-                ? GrimoireEditableFieldsRenderer.GetDirtyFieldChanges()
+                ? GrimoireEditableFieldsRenderer.GetDirtyFieldChanges(entry.Link)
                 : new List<GrimoireEditableFieldsRenderer.DirtyFieldChange>();
         }
 
@@ -512,28 +484,24 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>Pending objects across game-engine transforms and editable fields.</summary>
         public static int TotalPendingCount()
         {
-            var count = GrimoireGameEngineDirtyTracker.DirtyCount;
-            if (!GrimoireEditableFieldsRenderer.HasDirtyEdits)
-            {
-                return count;
-            }
+            var engineDirty = GrimoireGameEngineDirtyTracker.DirtyCount;
+            var fieldOnly = 0;
 
-            var objectId = GrimoireEditableFieldsRenderer.LoadedObjectId;
-            if (string.IsNullOrEmpty(objectId))
+            GrimoireGameEngineDirtyTracker.CollectSceneLinks(LinkScratch);
+            foreach (var link in LinkScratch)
             {
-                return count;
-            }
-
-            foreach (var change in GrimoireGameEngineDirtyTracker.GetPendingChanges())
-            {
-                if (change.IsDirty &&
-                    string.Equals(change.ObjectId, objectId, StringComparison.Ordinal))
+                if (link == null || !GrimoireLinkedFieldStore.HasDeviations(link))
                 {
-                    return count;
+                    continue;
+                }
+
+                if (!GrimoireGameEngineDirtyTracker.IsGameEngineDirty(link))
+                {
+                    fieldOnly++;
                 }
             }
 
-            return count + 1;
+            return engineDirty + fieldOnly;
         }
 
         private void CommitAllDirty()
@@ -675,7 +643,7 @@ namespace Grimoire.PluginV2.Editor
 
                 if (entry.FieldsDirty)
                 {
-                    if (!GrimoireEditableFieldsRenderer.ResetDirtyFields())
+                    if (!GrimoireEditableFieldsRenderer.ResetDirtyFields(entry.Link))
                     {
                         objectOk = false;
                         lastError = "Could not reset editable field edits.";

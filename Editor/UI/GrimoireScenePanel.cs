@@ -34,6 +34,8 @@ namespace Grimoire.PluginV2.Editor
             GrimoireGameEngineDirtyTracker.Changed += OnDirtyChanged;
             GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
             GrimoireEditableFieldsRenderer.Changed += OnDirtyChanged;
+            GrimoireLinkedFieldStore.Changed -= OnDirtyChanged;
+            GrimoireLinkedFieldStore.Changed += OnDirtyChanged;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             EditorApplication.hierarchyChanged += OnHierarchyChanged;
             Selection.selectionChanged -= OnSelectionChanged;
@@ -48,6 +50,7 @@ namespace Grimoire.PluginV2.Editor
         {
             GrimoireGameEngineDirtyTracker.Changed -= OnDirtyChanged;
             GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
+            GrimoireLinkedFieldStore.Changed -= OnDirtyChanged;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             Selection.selectionChanged -= OnSelectionChanged;
         }
@@ -127,7 +130,7 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.BeginHorizontal();
             EditorGUI.BeginChangeCheck();
             _changedOnly = EditorGUILayout.ToggleLeft(
-                new GUIContent("Changed only", "Show only objects with unsynced game-engine or editable field changes."),
+                new GUIContent("Changed only", "Show only objects with unsynced game-engine or editable field deviations."),
                 _changedOnly);
             if (EditorGUI.EndChangeCheck())
             {
@@ -205,7 +208,7 @@ namespace Grimoire.PluginV2.Editor
                 DrawBadge(
                     "Fields",
                     GrimoireEditorStyles.Purple,
-                    "Unsaved editable field changes in the Object tab.");
+                    "Editable fields on the Object Link differ from Grimoire and need sync.");
             }
 
             if (GUILayout.Button(
@@ -306,7 +309,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             var geDirty = GrimoireGameEngineDirtyTracker.IsGameEngineDirty(link);
-            var fieldsDirty = GrimoireEditableFieldsRenderer.HasDirtyEditsForObject(link.CachedObjectId);
+            var fieldsDirty = GrimoireEditableFieldsRenderer.HasDirtyEditsForLink(link);
 
             return new SceneRow
             {

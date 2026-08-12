@@ -86,10 +86,10 @@ namespace Grimoire.PluginV2.Editor
                 }
 
                 if (includeFieldsForLoaded &&
-                    GrimoireEditableFieldsRenderer.HasDirtyEditsForObject(objectId.Data))
+                    GrimoireEditableFieldsRenderer.HasDirtyEditsForLink(link))
                 {
                     if (!GrimoireEditableFieldsRenderer.TryBuildDirtyFieldChanges(
-                            out var fieldChanges, out var fieldError))
+                            link, out var fieldChanges, out var fieldError))
                     {
                         return ApiResult<EngineCommitCreatedData>.Fail(
                             fieldError ?? "Could not build field changes.",
@@ -143,11 +143,11 @@ namespace Grimoire.PluginV2.Editor
                 {
                     GrimoireGameEngineDirtyTracker.MarkClean(link);
                 }
-            }
 
-            if (includeFieldsForLoaded)
-            {
-                GrimoireEditableFieldsRenderer.AcceptSubmittedEdits();
+                if (includeFieldsForLoaded)
+                {
+                    GrimoireEditableFieldsRenderer.AcceptSubmittedEdits(link);
+                }
             }
 
             Committed?.Invoke();

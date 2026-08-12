@@ -178,7 +178,7 @@ namespace Grimoire.PluginV2.Editor
                 GrimoireObjectKeyResolver.RememberSummary(GrimoireSettings.GameId, _document.@object);
             }
 
-            GrimoireEditableFieldsRenderer.BindDocument(_document);
+            GrimoireEditableFieldsRenderer.Bind(_link, _document);
             Repaint();
         }
 
@@ -410,7 +410,7 @@ namespace Grimoire.PluginV2.Editor
                 GrimoireObjectKeyResolver.RememberSummary(gameId, _document.@object);
             }
 
-            GrimoireEditableFieldsRenderer.BindDocument(_document);
+            GrimoireEditableFieldsRenderer.Bind(_link, _document);
             Repaint();
         }
 
@@ -627,7 +627,7 @@ namespace Grimoire.PluginV2.Editor
         private void DrawObjectEditableTab()
         {
             _editableScroll = EditorGUILayout.BeginScrollView(_editableScroll);
-            GrimoireEditableFieldsRenderer.Draw(_document);
+            GrimoireEditableFieldsRenderer.Draw(_document, _link);
             EditorGUILayout.EndScrollView();
         }
 
