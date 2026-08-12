@@ -1,14 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Draws <c>hints.game_engine_editable</c> fields with editors and Commit /
-    /// Reset controls. Commits are queued for review via engine-commits.
+    /// Draws <c>hints.game_engine_editable</c> fields with editors and Reset.
+    /// Pending edits are committed from the Sync tab.
     /// </summary>
     public static class GrimoireEditableFieldsRenderer
     {
@@ -20,9 +19,6 @@ namespace Grimoire.PluginV2.Editor
         private static readonly Dictionary<string, string> BaselineBuffers = new Dictionary<string, string>();
         private static string _statusMessage;
         private static string _error;
-        private static bool _syncing;
-        private static string _commitTitle = "";
-        private static string _commitDescription = "";
 
         /// <summary>Raised when editable field dirty state or buffers change.</summary>
         public static event Action Changed;
@@ -98,9 +94,6 @@ namespace Grimoire.PluginV2.Editor
             _document = null;
             _statusMessage = null;
             _error = null;
-            _syncing = false;
-            _commitTitle = "";
-            _commitDescription = "";
             NotifyDirtyChanged();
         }
 
@@ -285,23 +278,9 @@ namespace Grimoire.PluginV2.Editor
             NotifyDirtyChanged();
         }
 
-        /// <summary>
-        /// Queue dirty editable-field values for review via
-        /// <c>POST /api/v1/engine-commits</c>.
-        /// </summary>
-        public static async Task<ApiResult<EngineCommitCreatedData>> SyncDirtyFieldsAsync(
-            string title, string description)
-        {
-            if (_document == null)
-            {
-                return ApiResult<EngineCommitCreatedData>.Fail("No object loaded.", "missing_parameter");
-            }
-
-            return await GrimoireEngineCommit.CommitLoadedFieldsAsync(title, description);
-        }
-
         private static void DrawToolbar(ObjectViewDocument document, List<EditableEntry> editable)
         {
+            _ = document;
             var dirtyCount = CountDirty(editable);
 
             EditorGUILayout.BeginHorizontal();
@@ -312,7 +291,7 @@ namespace Grimoire.PluginV2.Editor
 
             GUILayout.FlexibleSpace();
 
-            using (new EditorGUI.DisabledScope(_syncing || dirtyCount == 0))
+            using (new EditorGUI.DisabledScope(dirtyCount == 0))
             {
                 if (GUILayout.Button(
                         new GUIContent("Reset", "Discard local edits and restore values from the loaded Grimoire document."),
@@ -330,32 +309,10 @@ namespace Grimoire.PluginV2.Editor
 
             if (dirtyCount > 0)
             {
-                EditorGUILayout.Space(4);
-                EditorGUILayout.LabelField("Commit", EditorStyles.miniBoldLabel);
+                EditorGUILayout.Space(2);
                 EditorGUILayout.LabelField(
-                    "Changes are queued for review in Grimoire (Engine Sync).",
+                    "Commit pending changes from the Sync tab (title + description required).",
                     GrimoireEditorStyles.MiniSecondaryStyle);
-                _commitTitle = EditorGUILayout.TextField(
-                    new GUIContent("Title", "Required. Shown to the reviewer on the Engine Sync tab."),
-                    _commitTitle ?? "");
-                EditorGUILayout.LabelField("Description (optional)", GrimoireEditorStyles.MiniSecondaryStyle);
-                _commitDescription = EditorGUILayout.TextArea(
-                    _commitDescription ?? "",
-                    GUILayout.MinHeight(40));
-
-                using (new EditorGUI.DisabledScope(
-                           _syncing || string.IsNullOrWhiteSpace(_commitTitle)))
-                {
-                    if (GUILayout.Button(
-                            new GUIContent(
-                                "Commit to Grimoire",
-                                "Queue edited field values for review via POST /engine-commits."),
-                            GrimoireEditorStyles.PrimaryButtonStyle,
-                            GUILayout.Height(28)))
-                    {
-                        CommitAsync(document, editable);
-                    }
-                }
             }
 
             if (!string.IsNullOrEmpty(_error))
@@ -435,50 +392,6 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndVertical();
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.Space(2);
-        }
-
-        private static async void CommitAsync(ObjectViewDocument document, List<EditableEntry> editable)
-        {
-            _ = document;
-            _ = editable;
-
-            if (string.IsNullOrWhiteSpace(_commitTitle))
-            {
-                _error = "Enter a commit title before pushing changes.";
-                _statusMessage = null;
-                return;
-            }
-
-            _syncing = true;
-            _error = null;
-            _statusMessage = "Queuing commit…";
-
-            var result = await GrimoireEngineCommit.CommitLoadedFieldsAsync(
-                _commitTitle, _commitDescription);
-            _syncing = false;
-
-            if (!result.Success)
-            {
-                _error = result.Error ?? "Commit failed.";
-                _statusMessage = null;
-                return;
-            }
-
-            var conflict = GrimoireEngineCommit.FormatConflictSummary(result.Data?.changes);
-            var changeCount = result.Data?.changes?.Length ?? 0;
-            _statusMessage = changeCount == 1
-                ? "Queued 1 change for review in Grimoire."
-                : $"Queued {changeCount} changes for review in Grimoire.";
-            if (!string.IsNullOrEmpty(conflict))
-            {
-                _statusMessage += " " + conflict;
-            }
-
-            _error = null;
-            _commitTitle = "";
-            _commitDescription = "";
-            GUI.FocusControl(null);
-            NotifyDirtyChanged();
         }
 
         private static void EnsureBuffers(ObjectViewDocument document)
