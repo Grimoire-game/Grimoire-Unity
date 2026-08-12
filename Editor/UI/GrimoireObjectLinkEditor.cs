@@ -17,7 +17,6 @@ namespace Grimoire.PluginV2.Editor
         private string _validationMessage;
         private MessageType _validationType = MessageType.None;
         private bool _syncing;
-        private bool _fieldsFoldout = true;
 
         private void OnEnable()
         {
@@ -181,9 +180,9 @@ namespace Grimoire.PluginV2.Editor
             var title = deviationCount > 0
                 ? $"Editable fields ({deviationCount} to sync)"
                 : "Editable fields";
+            var sectionId = $"object-link-fields:{link.GetInstanceID()}";
 
-            _fieldsFoldout = EditorGUILayout.Foldout(_fieldsFoldout, title, true, EditorStyles.foldoutHeader);
-            if (!_fieldsFoldout)
+            if (!GrimoireEditorStyles.BeginCollapsibleSection(sectionId, title, defaultExpanded: true))
             {
                 return;
             }
@@ -231,6 +230,7 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUILayout.LabelField(
                     "No editable fields cached yet. Link an object and refresh from Grimoire.",
                     EditorStyles.miniLabel);
+                GrimoireEditorStyles.EndCollapsibleSection();
                 return;
             }
 
@@ -253,6 +253,8 @@ namespace Grimoire.PluginV2.Editor
 
                 DrawLinkedField(link, field);
             }
+
+            GrimoireEditorStyles.EndCollapsibleSection();
         }
 
         private static void DrawLinkedField(GrimoireObjectLink link, GrimoireLinkedField field)
