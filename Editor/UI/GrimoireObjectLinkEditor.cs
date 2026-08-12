@@ -17,6 +17,8 @@ namespace Grimoire.PluginV2.Editor
         private string _validationMessage;
         private MessageType _validationType = MessageType.None;
         private bool _syncing;
+        private bool _syncFoldout = true;
+        private bool _fieldsFoldout = true;
 
         private void OnEnable()
         {
@@ -41,8 +43,29 @@ namespace Grimoire.PluginV2.Editor
                     link.ObjectKey);
             }
 
+            DrawSyncSection(link);
+            DrawEditableFieldsSection(link);
+
+            if (_syncing)
+            {
+                EditorGUILayout.HelpBox("Syncing with Grimoire…", MessageType.Info);
+            }
+            else if (!string.IsNullOrEmpty(_validationMessage))
+            {
+                EditorGUILayout.HelpBox(_validationMessage, _validationType);
+            }
+        }
+
+        private void DrawSyncSection(GrimoireObjectLink link)
+        {
             EditorGUILayout.Space(6);
-            EditorGUILayout.LabelField("Sync to game engine data", EditorStyles.boldLabel);
+            _syncFoldout = EditorGUILayout.Foldout(
+                _syncFoldout, "Sync to game engine data", true, EditorStyles.foldoutHeader);
+            if (!_syncFoldout)
+            {
+                return;
+            }
+
             EditorGUILayout.HelpBox(
                 "When linked, selected fields are queued into this object's game_engine_data for review in Grimoire. " +
                 "Removing the link or this component queues removal of the entry.",
@@ -159,17 +182,6 @@ namespace Grimoire.PluginV2.Editor
             }
 
             EditorGUILayout.EndHorizontal();
-
-            DrawEditableFieldsSection(link);
-
-            if (_syncing)
-            {
-                EditorGUILayout.HelpBox("Syncing with Grimoire…", MessageType.Info);
-            }
-            else if (!string.IsNullOrEmpty(_validationMessage))
-            {
-                EditorGUILayout.HelpBox(_validationMessage, _validationType);
-            }
         }
 
         private void DrawEditableFieldsSection(GrimoireObjectLink link)
@@ -180,9 +192,9 @@ namespace Grimoire.PluginV2.Editor
             var title = deviationCount > 0
                 ? $"Editable fields ({deviationCount} to sync)"
                 : "Editable fields";
-            var sectionId = $"object-link-fields:{link.GetInstanceID()}";
 
-            if (!GrimoireEditorStyles.BeginCollapsibleSection(sectionId, title, defaultExpanded: true))
+            _fieldsFoldout = EditorGUILayout.Foldout(_fieldsFoldout, title, true, EditorStyles.foldoutHeader);
+            if (!_fieldsFoldout)
             {
                 return;
             }
@@ -230,7 +242,6 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUILayout.LabelField(
                     "No editable fields cached yet. Link an object and refresh from Grimoire.",
                     EditorStyles.miniLabel);
-                GrimoireEditorStyles.EndCollapsibleSection();
                 return;
             }
 
@@ -253,8 +264,6 @@ namespace Grimoire.PluginV2.Editor
 
                 DrawLinkedField(link, field);
             }
-
-            GrimoireEditorStyles.EndCollapsibleSection();
         }
 
         private static void DrawLinkedField(GrimoireObjectLink link, GrimoireLinkedField field)
