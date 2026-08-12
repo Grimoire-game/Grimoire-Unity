@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using UnityEditor;
@@ -13,30 +14,28 @@ namespace Grimoire.PluginV2.Editor
     /// </summary>
     public class GrimoireRuntimePanel
     {
-        private enum Tab { Variables, Dialogs, Objects, Logic, Scene }
+        private enum Tab { Objects, Variables, Dialogs, Logic, Scene }
 
         /// <summary>Detected primitive kind of a variable — used to pick the right input widget.</summary>
         private enum VarKind { String, Int, Float, Bool, Other }
 
         // ── UI state ──────────────────────────────────────────────────────────
-        private Tab _tab = Tab.Variables;
+        private Tab _tab = Tab.Objects;
         private Vector2 _scroll;
         private string _filter = "";
-        private bool _autoRefresh = true;
-        private float _refreshInterval = 0.5f;
-        private double _lastRefreshTime;
         private bool _showDefaults = true;
         private bool _highlightChanged = true;
         private bool _active;
         private bool _setupExpanded = true;
         private bool _wasSetupReady;
+        private bool _snapshotPending;
         private string _sessionIdDraft = "";
 
         private string _status = "";
         private MessageType _statusType = MessageType.Info;
         private bool _grimoireTypesFound;
 
-        // ── Edit state (keyed by variable Path, survives auto-refresh) ────────
+        // ── Edit state (keyed by variable Path, survives manual refresh) ──────
         /// <summary>Text currently typed into an edit field but not yet applied.</summary>
         private readonly Dictionary<string, string> _editBuffers = new Dictionary<string, string>();
         /// <summary>Last setter error message per variable path.</summary>
@@ -72,12 +71,11 @@ namespace Grimoire.PluginV2.Editor
             }
 
             _active = true;
-            EditorApplication.update += OnEditorUpdate;
             EditorApplication.playModeStateChanged += OnPlayModeChanged;
             SyncSessionDraftFromScene();
             if (EditorApplication.isPlaying)
             {
-                RefreshData();
+                ScheduleSnapshot();
             }
 
             RequestRepaint();
@@ -91,8 +89,9 @@ namespace Grimoire.PluginV2.Editor
             }
 
             _active = false;
-            EditorApplication.update -= OnEditorUpdate;
+            _snapshotPending = false;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+            EditorApplication.delayCall -= TakeSnapshotIfPlaying;
         }
 
         private void RequestRepaint() => RepaintNeeded?.Invoke();
@@ -102,11 +101,12 @@ namespace Grimoire.PluginV2.Editor
             if (state == PlayModeStateChange.EnteredPlayMode)
             {
                 ClearData();
-                _lastRefreshTime = 0;
                 SyncSessionDraftFromScene();
+                ScheduleSnapshot();
             }
             else if (state == PlayModeStateChange.ExitingPlayMode)
             {
+                _snapshotPending = false;
                 ClearData();
             }
 
@@ -127,17 +127,43 @@ namespace Grimoire.PluginV2.Editor
             _grimoireTypesFound = false;
         }
 
-        private void OnEditorUpdate()
+        /// <summary>
+        /// Capture values once after Bootstrap has had a chance to initialize.
+        /// No continuous polling — Refresh is manual after that.
+        /// </summary>
+        private void ScheduleSnapshot()
         {
-            if (!_active || !_autoRefresh || !EditorApplication.isPlaying) return;
-
-            double now = EditorApplication.timeSinceStartup;
-            if (now - _lastRefreshTime >= _refreshInterval)
+            if (!EditorApplication.isPlaying || _snapshotPending)
             {
-                _lastRefreshTime = now;
-                RefreshData();
-                RequestRepaint();
+                return;
             }
+
+            _snapshotPending = true;
+            _status = "Loading scene snapshot…";
+            _statusType = MessageType.Info;
+            EditorApplication.delayCall -= TakeSnapshotIfPlaying;
+            EditorApplication.delayCall += TakeSnapshotIfPlaying;
+        }
+
+        private void TakeSnapshotIfPlaying()
+        {
+            if (!_active || !EditorApplication.isPlaying)
+            {
+                _snapshotPending = false;
+                return;
+            }
+
+            // Wait until Bootstrap has finished (or isn't in the scene).
+            var bootstrap = FindSceneComponent<GrimoireBootstrap>();
+            if (bootstrap != null && !bootstrap.IsInitialized)
+            {
+                EditorApplication.delayCall += TakeSnapshotIfPlaying;
+                return;
+            }
+
+            _snapshotPending = false;
+            RefreshData();
+            RequestRepaint();
         }
 
         // ─────────────────────────────────────────────────── Draw ────────────
@@ -180,9 +206,9 @@ namespace Grimoire.PluginV2.Editor
 
             _tab = (Tab)GUILayout.Toolbar((int)_tab, new[]
             {
+                $"Objects ({_objects.Count(o => o.InScene)}/{_objects.Count})",
                 $"Variables ({_variables.Count})",
                 $"Dialogs ({_dialogs.Count})",
-                $"Objects ({_objects.Count})",
                 $"Logic ({_logicEntries.Count})",
                 $"Scene ({_sceneComponents.Count})"
             });
@@ -193,9 +219,9 @@ namespace Grimoire.PluginV2.Editor
 
             switch (_tab)
             {
+                case Tab.Objects:   DrawObjectsTab();   break;
                 case Tab.Variables: DrawVariablesTab(); break;
                 case Tab.Dialogs:   DrawDialogsTab();   break;
-                case Tab.Objects:   DrawObjectsTab();   break;
                 case Tab.Logic:     DrawLogicTab();     break;
                 case Tab.Scene:     DrawSceneTab();     break;
             }
@@ -210,11 +236,103 @@ namespace Grimoire.PluginV2.Editor
             out GrimoireBootstrap bootstrap,
             out GrimoireSessionTracker tracker)
         {
-            hasExport = HasGrimoireExportTypes();
+            hasExport = HasImportedExport();
             bootstrap = FindSceneComponent<GrimoireBootstrap>();
             tracker = FindSceneComponent<GrimoireSessionTracker>();
             // Export + Bootstrap are required; Session Tracker is optional.
             return hasExport && bootstrap != null;
+        }
+
+        /// <summary>
+        /// True when Assets/Grimoire contains a usable export (database + runtime),
+        /// or when those types are already loaded in the AppDomain.
+        /// </summary>
+        private static bool HasImportedExport()
+        {
+            if (HasGrimoireExportOnDisk())
+            {
+                return true;
+            }
+
+            return HasGrimoireExportTypes();
+        }
+
+        private static bool HasGrimoireExportOnDisk()
+        {
+            var root = GrimoireExportImporterService.ExtractPath;
+            if (!Directory.Exists(root))
+            {
+                return false;
+            }
+
+            string[] csFiles;
+            try
+            {
+                csFiles = Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (csFiles.Length == 0)
+            {
+                return false;
+            }
+
+            var hasDatabase = false;
+            var hasVariableRuntime = false;
+            var hasObjectRuntime = false;
+
+            foreach (var path in csFiles)
+            {
+                var name = Path.GetFileName(path);
+                if (name.Equals("VariableRuntime.cs", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasVariableRuntime = true;
+                }
+                else if (name.Equals("ObjectRuntime.cs", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasObjectRuntime = true;
+                }
+
+                // Main database: nested Library or runtime Dictionary Library.
+                if (!hasDatabase
+                    && !name.Contains("DialogDatabase", StringComparison.OrdinalIgnoreCase)
+                    && !name.Contains("DialogVariables", StringComparison.OrdinalIgnoreCase)
+                    && !name.Contains("Variables", StringComparison.OrdinalIgnoreCase)
+                    && !name.Contains("Types", StringComparison.OrdinalIgnoreCase)
+                    && !name.Contains("Tags", StringComparison.OrdinalIgnoreCase)
+                    && !name.Contains("TranslationKeys", StringComparison.OrdinalIgnoreCase)
+                    && !name.Contains("VariableRuntime", StringComparison.OrdinalIgnoreCase)
+                    && !name.Contains("ObjectRuntime", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        // Only read a prefix — enough to spot Library markers.
+                        var text = File.ReadAllText(path);
+                        if (text.IndexOf("public static class Library", StringComparison.Ordinal) >= 0
+                            || text.IndexOf("IReadOnlyDictionary<string, Template> Library", StringComparison.Ordinal) >= 0
+                            || text.IndexOf("Dictionary<string, Template>", StringComparison.Ordinal) >= 0)
+                        {
+                            hasDatabase = true;
+                        }
+                    }
+                    catch
+                    {
+                        // Unreadable file — skip.
+                    }
+                }
+
+                if (hasDatabase && hasVariableRuntime && hasObjectRuntime)
+                {
+                    return true;
+                }
+            }
+
+            // Database is the required signal; runtimes are strongly preferred but
+            // older exports may name them differently — accept database alone.
+            return hasDatabase;
         }
 
         private static bool HasGrimoireExportTypes()
@@ -225,13 +343,23 @@ namespace Grimoire.PluginV2.Editor
                 {
                     foreach (var t in asm.GetTypes())
                     {
-                        if (t.Namespace != "Grimoire")
+                        var ns = t.Namespace ?? "";
+                        if (!(ns == "Grimoire" || ns.StartsWith("Grimoire.", StringComparison.Ordinal)))
                         {
                             continue;
                         }
 
-                        if (t.Name == "Database" || t.Name == "VariableRuntime" || t.Name == "ObjectRuntime")
+                        if (t.Name == "Database"
+                            || t.Name.EndsWith("Database", StringComparison.Ordinal)
+                            || t.Name == "VariableRuntime"
+                            || t.Name == "ObjectRuntime")
                         {
+                            // Prefer Database / *Database that isn't DialogDatabase.
+                            if (t.Name.IndexOf("Dialog", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                continue;
+                            }
+
                             return true;
                         }
                     }
@@ -285,7 +413,7 @@ namespace Grimoire.PluginV2.Editor
                 done: hasExport,
                 title: "1. Import a Unity export",
                 detail: hasExport
-                    ? "Grimoire types found in this project."
+                    ? "Found in Assets/Grimoire/."
                     : "Download an export from the Versions tab into Assets/Grimoire/.",
                 actionLabel: hasExport ? null : "Open Versions",
                 onAction: () => OpenVersionsRequested?.Invoke());
@@ -507,26 +635,25 @@ namespace Grimoire.PluginV2.Editor
         private void DrawInspectorHeader()
         {
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Live values", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Scene snapshot", EditorStyles.boldLabel);
             GUILayout.FlexibleSpace();
 
-            _autoRefresh = GUILayout.Toggle(_autoRefresh, "Auto", EditorStyles.miniButton);
-
-            GUI.enabled = !_autoRefresh;
-            if (GUILayout.Button("Refresh", EditorStyles.miniButton, GUILayout.Width(55)))
+            using (new EditorGUI.DisabledScope(_snapshotPending))
             {
-                RefreshData();
-                RequestRepaint();
+                if (GUILayout.Button(
+                        new GUIContent("Refresh", "Re-read current values from the running scene (manual)."),
+                        EditorStyles.miniButton,
+                        GUILayout.Width(70)))
+                {
+                    RefreshData();
+                    RequestRepaint();
+                }
             }
-            GUI.enabled = true;
 
             EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Refresh rate (s):", EditorStyles.miniLabel, GUILayout.Width(100));
-            _refreshInterval = EditorGUILayout.Slider(_refreshInterval, 0.1f, 5f);
-            EditorGUILayout.EndHorizontal();
-
+            EditorGUILayout.LabelField(
+                "Values are captured when Play starts. Press Refresh to update.",
+                GrimoireEditorStyles.MiniSecondaryStyle);
             GUILayout.Space(4);
         }
 
@@ -784,18 +911,53 @@ namespace Grimoire.PluginV2.Editor
             {
                 EditorGUILayout.HelpBox(
                     "No Library object entries found.\n\n" +
-                    "This tab reflects static Database.Library data at runtime. " +
+                    "This tab reflects Database.Library data captured when Play started. " +
                     "Ensure your Grimoire export is imported and contains a Database class with a Library.",
                     MessageType.Info);
                 return;
             }
 
             string filt = NormaliseFilter();
+            var sceneObjects = _objects
+                .Where(o => o.InScene && MatchesFilter(filt, o.Key, o.TypeName, o.SceneObjectName))
+                .OrderBy(o => o.SceneObjectName ?? o.Key)
+                .ToList();
+            var otherObjects = _objects
+                .Where(o => !o.InScene && MatchesFilter(filt, o.Key, o.TypeName))
+                .OrderBy(o => o.Key)
+                .ToList();
 
-            foreach (var obj in _objects)
+            if (sceneObjects.Count > 0)
             {
-                if (!MatchesFilter(filt, obj.Key, obj.TypeName)) continue;
+                EditorGUILayout.LabelField(
+                    $"In this scene ({sceneObjects.Count})",
+                    EditorStyles.boldLabel);
+                EditorGUILayout.LabelField(
+                    "Linked GameObjects and their current values.",
+                    GrimoireEditorStyles.MiniSecondaryStyle);
+                EditorGUILayout.Space(2);
 
+                foreach (var obj in sceneObjects)
+                {
+                    DrawObjectEntry(obj);
+                    GUILayout.Space(3);
+                }
+
+                if (otherObjects.Count > 0)
+                {
+                    EditorGUILayout.Space(8);
+                    EditorGUILayout.LabelField(
+                        $"Library ({otherObjects.Count})",
+                        EditorStyles.boldLabel);
+                    EditorGUILayout.LabelField(
+                        "Other Database.Library entries not linked in this scene.",
+                        GrimoireEditorStyles.MiniSecondaryStyle);
+                    EditorGUILayout.Space(2);
+                }
+            }
+
+            foreach (var obj in otherObjects)
+            {
                 DrawObjectEntry(obj);
                 GUILayout.Space(3);
             }
@@ -809,7 +971,10 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.BeginVertical();
 
-            bool newExp = EditorGUILayout.Foldout(exp, $"{obj.Key}  [{obj.TypeName}]", true);
+            var title = obj.InScene && !string.IsNullOrEmpty(obj.SceneObjectName)
+                ? $"{obj.SceneObjectName}  ·  {obj.Key}  [{obj.TypeName}]"
+                : $"{obj.Key}  [{obj.TypeName}]";
+            bool newExp = EditorGUILayout.Foldout(exp, title, true);
             ToggleExpanded(id, exp, newExp);
 
             if (newExp)
@@ -854,8 +1019,18 @@ namespace Grimoire.PluginV2.Editor
 
             EditorGUILayout.EndVertical();
 
-            if (GUILayout.Button("Copy", GUILayout.Width(44), GUILayout.Height(18)))
+            if (obj.InScene && obj.SceneGameObject != null)
+            {
+                if (GUILayout.Button("Ping", GUILayout.Width(44), GUILayout.Height(18)))
+                {
+                    EditorGUIUtility.PingObject(obj.SceneGameObject);
+                    Selection.activeGameObject = obj.SceneGameObject;
+                }
+            }
+            else if (GUILayout.Button("Copy", GUILayout.Width(44), GUILayout.Height(18)))
+            {
                 EditorGUIUtility.systemCopyBuffer = obj.Key;
+            }
 
             EditorGUILayout.EndHorizontal();
         }
@@ -1053,10 +1228,12 @@ namespace Grimoire.PluginV2.Editor
                 ScanVariables(grimoireTypes);
                 ScanDialogs(grimoireTypes);
                 ScanObjects(grimoireTypes);
+                MarkSceneLinkedObjects();
                 ScanLogic(grimoireTypes);
 
-                _status = $"Refreshed  ·  {_variables.Count} vars  ·  {_dialogs.Count} dialogs  ·  " +
-                          $"{_objects.Count} objects  ·  {_logicEntries.Count} logic  ·  {_sceneComponents.Count} scene";
+                var sceneCount = _objects.Count(o => o.InScene);
+                _status = $"Snapshot  ·  {sceneCount} in scene  ·  {_objects.Count} objects  ·  " +
+                          $"{_variables.Count} vars  ·  {_dialogs.Count} dialogs  ·  {_logicEntries.Count} logic";
                 _statusType = MessageType.Info;
             }
             catch (Exception ex)
@@ -1129,30 +1306,124 @@ namespace Grimoire.PluginV2.Editor
                     foreach (var obj in found)
                     {
                         if (!(obj is MonoBehaviour mb)) continue;
-
-                        var entry = new SceneComponentEntry
-                        {
-                            TypeName       = t.Name,
-                            GameObjectName = mb.gameObject.name,
-                            Component      = mb,
-                            InstanceId     = mb.GetInstanceID()
-                        };
-
-                        foreach (var prop in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                        {
-                            if (!prop.CanRead || prop.GetIndexParameters().Length > 0) continue;
-                            try { entry.PublicMembers[prop.Name] = FormatValue(prop.GetValue(mb)); } catch { }
-                        }
-
-                        foreach (var field in t.GetFields(BindingFlags.Public | BindingFlags.Instance))
-                        {
-                            try { entry.PublicMembers[field.Name] = FormatValue(field.GetValue(mb)); } catch { }
-                        }
-
-                        _sceneComponents.Add(entry);
+                        AddSceneComponentEntry(t, mb);
                     }
                 }
                 catch { }
+            }
+
+            // Plugin components live outside the export namespace.
+            foreach (var bootstrap in UnityEngine.Object.FindObjectsOfType<GrimoireBootstrap>(true))
+            {
+                AddSceneComponentEntry(typeof(GrimoireBootstrap), bootstrap);
+            }
+
+            foreach (var tracker in UnityEngine.Object.FindObjectsOfType<GrimoireSessionTracker>(true))
+            {
+                AddSceneComponentEntry(typeof(GrimoireSessionTracker), tracker);
+            }
+
+            foreach (var link in UnityEngine.Object.FindObjectsOfType<GrimoireObjectLink>(true))
+            {
+                if (!link.HasKey)
+                {
+                    continue;
+                }
+
+                var entry = new SceneComponentEntry
+                {
+                    TypeName       = "GrimoireObjectLink",
+                    GameObjectName = link.gameObject.name,
+                    Component      = link,
+                    InstanceId     = link.GetInstanceID()
+                };
+                entry.PublicMembers["ObjectKey"] = link.ObjectKey;
+                if (!string.IsNullOrEmpty(link.CachedObjectId))
+                {
+                    entry.PublicMembers["CachedObjectId"] = link.CachedObjectId;
+                }
+
+                _sceneComponents.Add(entry);
+            }
+        }
+
+        private void AddSceneComponentEntry(Type t, MonoBehaviour mb)
+        {
+            var entry = new SceneComponentEntry
+            {
+                TypeName       = t.Name,
+                GameObjectName = mb.gameObject.name,
+                Component      = mb,
+                InstanceId     = mb.GetInstanceID()
+            };
+
+            foreach (var prop in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!prop.CanRead || prop.GetIndexParameters().Length > 0) continue;
+                try { entry.PublicMembers[prop.Name] = FormatValue(prop.GetValue(mb)); } catch { }
+            }
+
+            foreach (var field in t.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            {
+                try { entry.PublicMembers[field.Name] = FormatValue(field.GetValue(mb)); } catch { }
+            }
+
+            _sceneComponents.Add(entry);
+        }
+
+        /// <summary>
+        /// Tag Library entries that have a matching <see cref="GrimoireObjectLink"/> in the scene.
+        /// </summary>
+        private void MarkSceneLinkedObjects()
+        {
+            var links = UnityEngine.Object.FindObjectsOfType<GrimoireObjectLink>(true);
+            if (links == null || links.Length == 0)
+            {
+                return;
+            }
+
+            foreach (var link in links)
+            {
+                if (!link.HasKey)
+                {
+                    continue;
+                }
+
+                var key = link.ObjectKey;
+                RuntimeObjectEntry match = null;
+                foreach (var obj in _objects)
+                {
+                    if (string.Equals(obj.Key, key, StringComparison.OrdinalIgnoreCase)
+                        || obj.Key.EndsWith("." + key, StringComparison.OrdinalIgnoreCase)
+                        || obj.Key.EndsWith("/" + key, StringComparison.OrdinalIgnoreCase)
+                        || key.EndsWith("/" + obj.Key, StringComparison.OrdinalIgnoreCase)
+                        || key.EndsWith("." + obj.Key, StringComparison.OrdinalIgnoreCase))
+                    {
+                        match = obj;
+                        break;
+                    }
+                }
+
+                if (match == null)
+                {
+                    // Still surface the scene link even if Library has no matching entry yet.
+                    match = new RuntimeObjectEntry
+                    {
+                        Key = key,
+                        TypeName = "ObjectLink",
+                        ObjectRuntimeAvailable = _objectRuntimeType != null,
+                    };
+                    _objects.Add(match);
+                }
+
+                match.InScene = true;
+                match.SceneObjectName = link.gameObject.name;
+                match.SceneGameObject = link.gameObject;
+
+                if (match.ObjectRuntimeAvailable && match.LibraryInstance != null)
+                {
+                    PopulateEditableFields(match);
+                }
             }
         }
 
@@ -1931,6 +2202,9 @@ namespace Grimoire.PluginV2.Editor
             public string TypeName;
             public object LibraryInstance;    // the Template object from Database.Library
             public bool   ObjectRuntimeAvailable;
+            public bool   InScene;
+            public string SceneObjectName;
+            public GameObject SceneGameObject;
             public readonly Dictionary<string, string>      Properties    = new Dictionary<string, string>();
             public readonly List<RuntimeObjectField>        EditableFields = new List<RuntimeObjectField>();
         }
