@@ -6,11 +6,13 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Sync tab: lists pending game_engine_data changes for the selected
-    /// linked object and for every other dirty linked object in open scenes.
+    /// Sync tab: lists pending game_engine_data and editable-field changes for
+    /// the selected linked object and for every other dirty linked object.
     /// </summary>
     public class GrimoireSyncPanel
     {
+        private static readonly List<GrimoireObjectLink> LinkScratch = new List<GrimoireObjectLink>();
+
         private Vector2 _scroll;
         private bool _busy;
         private string _status;
@@ -23,12 +25,15 @@ namespace Grimoire.PluginV2.Editor
         {
             GrimoireGameEngineDirtyTracker.Changed -= OnDirtyChanged;
             GrimoireGameEngineDirtyTracker.Changed += OnDirtyChanged;
+            GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
+            GrimoireEditableFieldsRenderer.Changed += OnDirtyChanged;
             RequestRepaint();
         }
 
         public void Deactivate()
         {
             GrimoireGameEngineDirtyTracker.Changed -= OnDirtyChanged;
+            GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
         }
 
         public void Draw()
@@ -40,39 +45,10 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            var pending = GrimoireGameEngineDirtyTracker.GetPendingChanges();
-            var selectedLink = Selection.activeGameObject != null
-                ? Selection.activeGameObject.GetComponent<GrimoireObjectLink>()
-                : null;
+            var entries = BuildEntries(out var selectedEntry, out var others);
+            var dirtyTotal = CountDirtyEntries(entries);
 
-            GrimoireGameEngineDirtyTracker.PendingChange selectedChange = null;
-            var others = new List<GrimoireGameEngineDirtyTracker.PendingChange>();
-
-            foreach (var change in pending)
-            {
-                if (change.Link == null)
-                {
-                    continue;
-                }
-
-                if (selectedLink != null && change.Link == selectedLink)
-                {
-                    selectedChange = change;
-                }
-                else if (change.IsDirty)
-                {
-                    others.Add(change);
-                }
-            }
-
-            if (selectedChange == null && selectedLink != null &&
-                (selectedLink.HasKey || !string.IsNullOrEmpty(selectedLink.CachedObjectId)))
-            {
-                selectedChange = GrimoireGameEngineDirtyTracker.FindPending(selectedLink)
-                                 ?? BuildLiveOnly(selectedLink);
-            }
-
-            DrawToolbar(selectedChange);
+            DrawToolbar(selectedEntry, dirtyTotal);
 
             if (!string.IsNullOrEmpty(_error))
             {
@@ -87,14 +63,14 @@ namespace Grimoire.PluginV2.Editor
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
             EditorGUILayout.LabelField("Selected object", EditorStyles.boldLabel);
-            if (selectedChange == null)
+            if (selectedEntry == null)
             {
                 GrimoireEditorStyles.DrawInfoBox(
                     "Select a GameObject with a Grimoire Object Link to see its live game engine data.");
             }
             else
             {
-                DrawChangeCard(selectedChange, isSelected: true);
+                DrawChangeCard(selectedEntry, isSelected: true);
             }
 
             EditorGUILayout.Space(12);
@@ -107,14 +83,14 @@ namespace Grimoire.PluginV2.Editor
             if (others.Count == 0)
             {
                 EditorGUILayout.LabelField(
-                    "No other linked objects have unsynced transform changes.",
+                    "No other linked objects have unsynced transform or field changes.",
                     GrimoireEditorStyles.MiniSecondaryStyle);
             }
             else
             {
-                foreach (var change in others)
+                foreach (var entry in others)
                 {
-                    DrawChangeCard(change, isSelected: false);
+                    DrawChangeCard(entry, isSelected: false);
                     EditorGUILayout.Space(4);
                 }
             }
@@ -122,10 +98,9 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndScrollView();
         }
 
-        private void DrawToolbar(GrimoireGameEngineDirtyTracker.PendingChange selectedChange)
+        private void DrawToolbar(SyncEntry selectedEntry, int dirtyTotal)
         {
-            var selectedDirty = selectedChange != null && selectedChange.IsDirty;
-            var dirtyTotal = GrimoireGameEngineDirtyTracker.DirtyCount;
+            var selectedDirty = selectedEntry != null && selectedEntry.IsDirty;
 
             EditorGUILayout.BeginHorizontal();
 
@@ -133,7 +108,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 if (GUILayout.Button("Sync selected", GrimoireEditorStyles.PrimaryButtonStyle, GUILayout.Height(28)))
                 {
-                    SyncAsync(new[] { selectedChange.Link });
+                    SyncAsync(new[] { selectedEntry });
                 }
             }
 
@@ -153,10 +128,12 @@ namespace Grimoire.PluginV2.Editor
             using (new EditorGUI.DisabledScope(_busy || !selectedDirty))
             {
                 if (GUILayout.Button(
-                        new GUIContent("Reset selected", "Restore the selected object's transform from Grimoire."),
+                        new GUIContent(
+                            "Reset selected",
+                            "Restore the selected object's transform and discard unsaved field edits."),
                         GUILayout.Height(28)))
                 {
-                    ResetAsync(new[] { selectedChange.Link });
+                    ResetAsync(new[] { selectedEntry });
                 }
             }
 
@@ -164,7 +141,9 @@ namespace Grimoire.PluginV2.Editor
             {
                 var label = dirtyTotal == 0 ? "Reset all" : $"Reset all ({dirtyTotal})";
                 if (GUILayout.Button(
-                        new GUIContent(label, "Discard local changes and restore every pending object from Grimoire."),
+                        new GUIContent(
+                            label,
+                            "Discard local transform and field changes for every pending object."),
                         GUILayout.Height(28)))
                 {
                     ResetAllDirty();
@@ -185,15 +164,16 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.Space(6);
         }
 
-        private void DrawChangeCard(GrimoireGameEngineDirtyTracker.PendingChange change, bool isSelected)
+        private void DrawChangeCard(SyncEntry entry, bool isSelected)
         {
+            var change = entry.Engine;
             var title = change.GameObjectName;
             if (!string.IsNullOrEmpty(change.ObjectKey))
             {
                 title += $"  ·  {change.ObjectKey}";
             }
 
-            if (change.IsDirty)
+            if (entry.IsDirty)
             {
                 title += "  ·  pending";
             }
@@ -203,36 +183,65 @@ namespace Grimoire.PluginV2.Editor
             }
 
             var sectionId = $"sync:{change.Link.GetInstanceID()}";
-            if (!GrimoireEditorStyles.BeginCollapsibleSection(sectionId, title, defaultExpanded: isSelected || change.IsDirty))
+            if (!GrimoireEditorStyles.BeginCollapsibleSection(
+                    sectionId, title, defaultExpanded: isSelected || entry.IsDirty))
             {
                 return;
             }
 
             EditorGUILayout.LabelField("Scene", change.Scene, GrimoireEditorStyles.MiniSecondaryStyle);
-            DrawField(
-                "Position",
-                FormatVector(change.Position),
-                change.PositionDirty ? FormatVector(change.LastPosition) : null,
-                change.PositionDirty,
-                change.Link.SyncPosition);
-            DrawField(
-                "Rotation",
-                FormatVector(change.Euler),
-                change.RotationDirty ? FormatVector(change.LastEuler) : null,
-                change.RotationDirty,
-                change.Link.SyncRotation);
-            DrawField(
-                "Scale",
-                FormatVector(change.Scale),
-                change.ScaleDirty ? FormatVector(change.LastScale) : null,
-                change.ScaleDirty,
-                change.Link.SyncScale);
-            DrawField(
-                "Id / Name",
-                change.EngineName,
-                change.IdNameDirty ? change.LastName : null,
-                change.IdNameDirty,
-                change.Link.SyncIdName);
+
+            if (entry.EngineDirty)
+            {
+                EditorGUILayout.LabelField("Game engine data", EditorStyles.miniBoldLabel);
+                DrawField(
+                    "Position",
+                    FormatVector(change.Position),
+                    change.PositionDirty ? FormatVector(change.LastPosition) : null,
+                    change.PositionDirty,
+                    change.Link.SyncPosition);
+                DrawField(
+                    "Rotation",
+                    FormatVector(change.Euler),
+                    change.RotationDirty ? FormatVector(change.LastEuler) : null,
+                    change.RotationDirty,
+                    change.Link.SyncRotation);
+                DrawField(
+                    "Scale",
+                    FormatVector(change.Scale),
+                    change.ScaleDirty ? FormatVector(change.LastScale) : null,
+                    change.ScaleDirty,
+                    change.Link.SyncScale);
+                DrawField(
+                    "Id / Name",
+                    change.EngineName,
+                    change.IdNameDirty ? change.LastName : null,
+                    change.IdNameDirty,
+                    change.Link.SyncIdName);
+            }
+            else if (isSelected)
+            {
+                EditorGUILayout.LabelField("Game engine data", EditorStyles.miniBoldLabel);
+                DrawField("Position", FormatVector(change.Position), null, false, change.Link.SyncPosition);
+                DrawField("Rotation", FormatVector(change.Euler), null, false, change.Link.SyncRotation);
+                DrawField("Scale", FormatVector(change.Scale), null, false, change.Link.SyncScale);
+                DrawField("Id / Name", change.EngineName, null, false, change.Link.SyncIdName);
+            }
+
+            if (entry.FieldsDirty)
+            {
+                EditorGUILayout.Space(4);
+                EditorGUILayout.LabelField(
+                    entry.FieldChanges.Count == 1
+                        ? "Editable fields (1 changed)"
+                        : $"Editable fields ({entry.FieldChanges.Count} changed)",
+                    EditorStyles.miniBoldLabel);
+
+                foreach (var field in entry.FieldChanges)
+                {
+                    DrawField(field.Label, field.Current, field.Previous, dirty: true, enabled: true);
+                }
+            }
 
             EditorGUILayout.Space(4);
             EditorGUILayout.BeginHorizontal();
@@ -243,18 +252,20 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUIUtility.PingObject(change.Link.gameObject);
             }
 
-            using (new EditorGUI.DisabledScope(_busy || !change.IsDirty))
+            using (new EditorGUI.DisabledScope(_busy || !entry.IsDirty))
             {
                 if (GUILayout.Button("Sync", GUILayout.Width(70)))
                 {
-                    SyncAsync(new[] { change.Link });
+                    SyncAsync(new[] { entry });
                 }
 
                 if (GUILayout.Button(
-                        new GUIContent("Reset", "Restore transform from values saved on Grimoire."),
+                        new GUIContent(
+                            "Reset",
+                            "Restore transform from Grimoire and discard unsaved field edits."),
                         GUILayout.Width(70)))
                 {
-                    ResetAsync(new[] { change.Link });
+                    ResetAsync(new[] { entry });
                 }
             }
 
@@ -287,6 +298,146 @@ namespace Grimoire.PluginV2.Editor
         private static string FormatVector(Vector3 value) =>
             $"({value.x:0.###}, {value.y:0.###}, {value.z:0.###})";
 
+        private List<SyncEntry> BuildEntries(out SyncEntry selectedEntry, out List<SyncEntry> others)
+        {
+            selectedEntry = null;
+            others = new List<SyncEntry>();
+            var byLink = new Dictionary<int, SyncEntry>();
+            var ordered = new List<SyncEntry>();
+
+            var selectedLink = Selection.activeGameObject != null
+                ? Selection.activeGameObject.GetComponent<GrimoireObjectLink>()
+                : null;
+
+            foreach (var change in GrimoireGameEngineDirtyTracker.GetPendingChanges())
+            {
+                if (change.Link == null)
+                {
+                    continue;
+                }
+
+                var entry = UpsertEntry(byLink, ordered, change);
+                AttachFieldState(entry);
+            }
+
+            if (selectedLink != null &&
+                (selectedLink.HasKey || !string.IsNullOrEmpty(selectedLink.CachedObjectId)))
+            {
+                var id = selectedLink.GetInstanceID();
+                if (!byLink.TryGetValue(id, out selectedEntry))
+                {
+                    selectedEntry = UpsertEntry(byLink, ordered, BuildLiveOnly(selectedLink));
+                    AttachFieldState(selectedEntry);
+                }
+            }
+
+            MaybeAddFieldOnlyEntry(byLink, ordered, selectedLink);
+
+            foreach (var entry in ordered)
+            {
+                if (selectedLink != null && entry.Link == selectedLink)
+                {
+                    selectedEntry = entry;
+                    continue;
+                }
+
+                if (entry.IsDirty)
+                {
+                    others.Add(entry);
+                }
+            }
+
+            return ordered;
+        }
+
+        private static void MaybeAddFieldOnlyEntry(
+            Dictionary<int, SyncEntry> byLink,
+            List<SyncEntry> ordered,
+            GrimoireObjectLink selectedLink)
+        {
+            if (!GrimoireEditableFieldsRenderer.HasDirtyEdits)
+            {
+                return;
+            }
+
+            var objectId = GrimoireEditableFieldsRenderer.LoadedObjectId;
+            if (string.IsNullOrEmpty(objectId))
+            {
+                return;
+            }
+
+            foreach (var existing in ordered)
+            {
+                if (string.Equals(existing.Engine.ObjectId, objectId, StringComparison.Ordinal))
+                {
+                    AttachFieldState(existing);
+                    return;
+                }
+            }
+
+            var link = FindLinkByObjectId(objectId, selectedLink);
+            if (link == null)
+            {
+                return;
+            }
+
+            var entry = UpsertEntry(byLink, ordered, BuildLiveOnly(link));
+            AttachFieldState(entry);
+        }
+
+        private static GrimoireObjectLink FindLinkByObjectId(
+            string objectId, GrimoireObjectLink preferred)
+        {
+            if (preferred != null &&
+                string.Equals(preferred.CachedObjectId, objectId, StringComparison.Ordinal))
+            {
+                return preferred;
+            }
+
+            GrimoireGameEngineDirtyTracker.CollectSceneLinks(LinkScratch);
+            foreach (var link in LinkScratch)
+            {
+                if (link != null &&
+                    string.Equals(link.CachedObjectId, objectId, StringComparison.Ordinal))
+                {
+                    return link;
+                }
+            }
+
+            return null;
+        }
+
+        private static SyncEntry UpsertEntry(
+            Dictionary<int, SyncEntry> byLink,
+            List<SyncEntry> ordered,
+            GrimoireGameEngineDirtyTracker.PendingChange change)
+        {
+            var id = change.Link.GetInstanceID();
+            if (byLink.TryGetValue(id, out var existing))
+            {
+                existing.Engine = change;
+                return existing;
+            }
+
+            var entry = new SyncEntry { Engine = change };
+            byLink[id] = entry;
+            ordered.Add(entry);
+            return entry;
+        }
+
+        private static void AttachFieldState(SyncEntry entry)
+        {
+            if (entry?.Link == null)
+            {
+                return;
+            }
+
+            entry.FieldsDirty = GrimoireEditableFieldsRenderer.HasDirtyEditsForObject(entry.Engine.ObjectId);
+            entry.FieldChanges = entry.FieldsDirty
+                ? GrimoireEditableFieldsRenderer.GetDirtyFieldChanges()
+                : new List<GrimoireEditableFieldsRenderer.DirtyFieldChange>();
+        }
+
         private static GrimoireGameEngineDirtyTracker.PendingChange BuildLiveOnly(GrimoireObjectLink link)
         {
             var t = link.transform;
@@ -308,33 +459,73 @@ namespace Grimoire.PluginV2.Editor
             };
         }
 
+        private static int CountDirtyEntries(List<SyncEntry> entries)
+        {
+            var count = 0;
+            foreach (var entry in entries)
+            {
+                if (entry.IsDirty)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        /// <summary>Pending objects across game-engine transforms and editable fields.</summary>
+        public static int TotalPendingCount()
+        {
+            var count = GrimoireGameEngineDirtyTracker.DirtyCount;
+            if (!GrimoireEditableFieldsRenderer.HasDirtyEdits)
+            {
+                return count;
+            }
+
+            var objectId = GrimoireEditableFieldsRenderer.LoadedObjectId;
+            if (string.IsNullOrEmpty(objectId))
+            {
+                return count;
+            }
+
+            foreach (var change in GrimoireGameEngineDirtyTracker.GetPendingChanges())
+            {
+                if (change.IsDirty &&
+                    string.Equals(change.ObjectId, objectId, StringComparison.Ordinal))
+                {
+                    return count;
+                }
+            }
+
+            return count + 1;
+        }
+
         private void SyncAllDirty()
         {
-            SyncAsync(CollectDirtyLinks());
+            SyncAsync(CollectDirtyEntries());
         }
 
         private void ResetAllDirty()
         {
-            ResetAsync(CollectDirtyLinks());
+            ResetAsync(CollectDirtyEntries());
         }
 
-        private static List<GrimoireObjectLink> CollectDirtyLinks()
+        private List<SyncEntry> CollectDirtyEntries()
         {
-            var links = new List<GrimoireObjectLink>();
-            foreach (var change in GrimoireGameEngineDirtyTracker.GetPendingChanges())
+            var entries = BuildEntries(out var selected, out var others);
+            var dirty = new List<SyncEntry>();
+            if (selected != null && selected.IsDirty)
             {
-                if (change.IsDirty && change.Link != null)
-                {
-                    links.Add(change.Link);
-                }
+                dirty.Add(selected);
             }
 
-            return links;
+            dirty.AddRange(others);
+            return dirty;
         }
 
-        private async void SyncAsync(IReadOnlyList<GrimoireObjectLink> links)
+        private async void SyncAsync(IReadOnlyList<SyncEntry> entries)
         {
-            if (_busy || links == null || links.Count == 0)
+            if (_busy || entries == null || entries.Count == 0)
             {
                 return;
             }
@@ -342,7 +533,7 @@ namespace Grimoire.PluginV2.Editor
             var generation = ++_opGeneration;
             _busy = true;
             _error = null;
-            _status = $"Syncing 0/{links.Count}…";
+            _status = $"Syncing 0/{entries.Count}…";
             RequestRepaint();
 
             await GrimoireAuthSession.EnsureFreshTokenAsync();
@@ -351,31 +542,51 @@ namespace Grimoire.PluginV2.Editor
             var failed = 0;
             string lastError = null;
 
-            for (var i = 0; i < links.Count; i++)
+            for (var i = 0; i < entries.Count; i++)
             {
                 if (generation != _opGeneration)
                 {
                     return;
                 }
 
-                var link = links[i];
-                if (link == null)
+                var entry = entries[i];
+                if (entry?.Link == null)
                 {
                     continue;
                 }
 
-                _status = $"Syncing {i + 1}/{links.Count}: {link.gameObject.name}…";
+                _status = $"Syncing {i + 1}/{entries.Count}: {entry.Link.gameObject.name}…";
                 RequestRepaint();
 
-                var result = await GrimoireGameEngineSync.UpsertAsync(link);
-                if (result.Success)
+                var objectOk = true;
+
+                if (entry.EngineDirty)
+                {
+                    var result = await GrimoireGameEngineSync.UpsertAsync(entry.Link);
+                    if (!result.Success)
+                    {
+                        objectOk = false;
+                        lastError = result.Error;
+                    }
+                }
+
+                if (entry.FieldsDirty)
+                {
+                    var result = await GrimoireEditableFieldsRenderer.SyncDirtyFieldsAsync();
+                    if (!result.Success)
+                    {
+                        objectOk = false;
+                        lastError = result.Error;
+                    }
+                }
+
+                if (objectOk)
                 {
                     ok++;
                 }
                 else
                 {
                     failed++;
-                    lastError = result.Error;
                 }
             }
 
@@ -387,9 +598,9 @@ namespace Grimoire.PluginV2.Editor
             FinishBatch(ok, failed, lastError, "Synced");
         }
 
-        private async void ResetAsync(IReadOnlyList<GrimoireObjectLink> links)
+        private async void ResetAsync(IReadOnlyList<SyncEntry> entries)
         {
-            if (_busy || links == null || links.Count == 0)
+            if (_busy || entries == null || entries.Count == 0)
             {
                 return;
             }
@@ -397,7 +608,7 @@ namespace Grimoire.PluginV2.Editor
             var generation = ++_opGeneration;
             _busy = true;
             _error = null;
-            _status = $"Resetting 0/{links.Count}…";
+            _status = $"Resetting 0/{entries.Count}…";
             RequestRepaint();
 
             await GrimoireAuthSession.EnsureFreshTokenAsync();
@@ -406,31 +617,50 @@ namespace Grimoire.PluginV2.Editor
             var failed = 0;
             string lastError = null;
 
-            for (var i = 0; i < links.Count; i++)
+            for (var i = 0; i < entries.Count; i++)
             {
                 if (generation != _opGeneration)
                 {
                     return;
                 }
 
-                var link = links[i];
-                if (link == null)
+                var entry = entries[i];
+                if (entry?.Link == null)
                 {
                     continue;
                 }
 
-                _status = $"Resetting {i + 1}/{links.Count}: {link.gameObject.name}…";
+                _status = $"Resetting {i + 1}/{entries.Count}: {entry.Link.gameObject.name}…";
                 RequestRepaint();
 
-                var result = await GrimoireGameEngineSync.ResetTransformFromGrimoireAsync(link);
-                if (result.Success)
+                var objectOk = true;
+
+                if (entry.EngineDirty)
+                {
+                    var result = await GrimoireGameEngineSync.ResetTransformFromGrimoireAsync(entry.Link);
+                    if (!result.Success)
+                    {
+                        objectOk = false;
+                        lastError = result.Error;
+                    }
+                }
+
+                if (entry.FieldsDirty)
+                {
+                    if (!GrimoireEditableFieldsRenderer.ResetDirtyFields())
+                    {
+                        objectOk = false;
+                        lastError = "Could not reset editable field edits.";
+                    }
+                }
+
+                if (objectOk)
                 {
                     ok++;
                 }
                 else
                 {
                     failed++;
-                    lastError = result.Error;
                 }
             }
 
@@ -462,5 +692,17 @@ namespace Grimoire.PluginV2.Editor
         private void OnDirtyChanged() => RequestRepaint();
 
         private void RequestRepaint() => RepaintNeeded?.Invoke();
+
+        private sealed class SyncEntry
+        {
+            public GrimoireGameEngineDirtyTracker.PendingChange Engine;
+            public bool FieldsDirty;
+            public List<GrimoireEditableFieldsRenderer.DirtyFieldChange> FieldChanges =
+                new List<GrimoireEditableFieldsRenderer.DirtyFieldChange>();
+
+            public GrimoireObjectLink Link => Engine?.Link;
+            public bool EngineDirty => Engine != null && Engine.IsDirty;
+            public bool IsDirty => EngineDirty || FieldsDirty;
+        }
     }
 }

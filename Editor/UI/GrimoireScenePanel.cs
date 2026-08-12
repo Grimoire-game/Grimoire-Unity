@@ -32,6 +32,8 @@ namespace Grimoire.PluginV2.Editor
         {
             GrimoireGameEngineDirtyTracker.Changed -= OnDirtyChanged;
             GrimoireGameEngineDirtyTracker.Changed += OnDirtyChanged;
+            GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
+            GrimoireEditableFieldsRenderer.Changed += OnDirtyChanged;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             EditorApplication.hierarchyChanged += OnHierarchyChanged;
             Selection.selectionChanged -= OnSelectionChanged;
@@ -45,6 +47,7 @@ namespace Grimoire.PluginV2.Editor
         public void Deactivate()
         {
             GrimoireGameEngineDirtyTracker.Changed -= OnDirtyChanged;
+            GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             Selection.selectionChanged -= OnSelectionChanged;
         }

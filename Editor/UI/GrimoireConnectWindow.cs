@@ -98,6 +98,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireGameEngineSync.DocumentUpdated += OnGameEngineDocumentUpdated;
             GrimoireFieldSync.DocumentUpdated += OnGameEngineDocumentUpdated;
             GrimoireGameEngineDirtyTracker.Changed += OnGameEngineDirtyChanged;
+            GrimoireEditableFieldsRenderer.Changed += OnGameEngineDirtyChanged;
 
             _userTasksPanel.Activate();
             if (_selectedTab == TabScene)
@@ -131,16 +132,14 @@ namespace Grimoire.PluginV2.Editor
             GrimoireGameEngineSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
             GrimoireFieldSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
             GrimoireGameEngineDirtyTracker.Changed -= OnGameEngineDirtyChanged;
+            GrimoireEditableFieldsRenderer.Changed -= OnGameEngineDirtyChanged;
             _scenePanel?.Deactivate();
             _syncPanel?.Deactivate();
         }
 
         private void OnGameEngineDirtyChanged()
         {
-            if (_selectedTab == TabObject || _selectedTab == TabSync || _selectedTab == TabScene)
-            {
-                ScheduleRepaint();
-            }
+            ScheduleRepaint();
         }
 
         private void OnSceneOpenObjectRequested(GrimoireObjectLink link)
@@ -177,7 +176,7 @@ namespace Grimoire.PluginV2.Editor
                 GrimoireObjectKeyResolver.RememberSummary(GrimoireSettings.GameId, _document.@object);
             }
 
-            GrimoireEditableFieldsRenderer.ClearBuffers();
+            GrimoireEditableFieldsRenderer.BindDocument(_document);
             Repaint();
         }
 
@@ -405,7 +404,7 @@ namespace Grimoire.PluginV2.Editor
                 GrimoireObjectKeyResolver.RememberSummary(gameId, _document.@object);
             }
 
-            GrimoireEditableFieldsRenderer.ClearBuffers();
+            GrimoireEditableFieldsRenderer.BindDocument(_document);
             Repaint();
         }
 
@@ -470,7 +469,7 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawTabBar()
         {
-            var dirty = GrimoireGameEngineDirtyTracker.DirtyCount;
+            var dirty = GrimoireSyncPanel.TotalPendingCount();
             var syncLabel = dirty > 0 ? $"Sync ({dirty})" : "Sync";
             var labels = new[] { "Tasks", "Scene", "Object", syncLabel, "Versions" };
 
@@ -552,13 +551,13 @@ namespace Grimoire.PluginV2.Editor
 
                 if (_link != null && !_loading)
                 {
-                    DrawObjectRefreshRow();
+                    DrawObjectHeader();
                 }
 
                 return;
             }
 
-            DrawObjectRefreshRow();
+            DrawObjectHeader();
 
             _selectedObjectTab = GrimoireEditorStyles.DrawTabBar(_selectedObjectTab, ObjectTabLabels);
 
@@ -576,10 +575,24 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
-        private void DrawObjectRefreshRow()
+        private void DrawObjectHeader()
         {
+            var objectName = _document?.@object?.name;
+            if (string.IsNullOrEmpty(objectName) && _link != null && _link.HasKey)
+            {
+                objectName = _link.ObjectKey;
+            }
+
             EditorGUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace();
+
+            if (!string.IsNullOrEmpty(objectName))
+            {
+                EditorGUILayout.LabelField(objectName, GrimoireEditorStyles.TitleStyle);
+            }
+            else
+            {
+                GUILayout.FlexibleSpace();
+            }
 
             using (new EditorGUI.DisabledScope(_link == null || _loading))
             {

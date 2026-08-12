@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
@@ -13,11 +15,23 @@ namespace Grimoire.PluginV2.Editor
         private const float LabelWidth = 150f;
 
         private static string _documentKey;
+        private static ObjectViewDocument _document;
         private static readonly Dictionary<string, string> EditBuffers = new Dictionary<string, string>();
         private static readonly Dictionary<string, string> BaselineBuffers = new Dictionary<string, string>();
         private static string _statusMessage;
         private static string _error;
         private static bool _syncing;
+
+        /// <summary>Raised when editable field dirty state or buffers change.</summary>
+        public static event Action Changed;
+
+        public sealed class DirtyFieldChange
+        {
+            public string FieldId;
+            public string Label;
+            public string Previous;
+            public string Current;
+        }
 
         public static void Draw(ObjectViewDocument document)
         {
@@ -79,10 +93,33 @@ namespace Grimoire.PluginV2.Editor
             EditBuffers.Clear();
             BaselineBuffers.Clear();
             _documentKey = null;
+            _document = null;
             _statusMessage = null;
             _error = null;
             _syncing = false;
+            NotifyDirtyChanged();
         }
+
+        /// <summary>
+        /// Keep edit buffers aligned with the loaded object view. Resets buffers
+        /// when the document identity changes; no-ops when already bound.
+        /// </summary>
+        public static void BindDocument(ObjectViewDocument document)
+        {
+            if (document == null)
+            {
+                ClearBuffers();
+                return;
+            }
+
+            EnsureBuffers(document);
+        }
+
+        /// <summary>Object id for the document currently backing edit buffers, if any.</summary>
+        public static string LoadedObjectId => _document?.@object?.id;
+
+        /// <summary>True when any editable field buffer diverges from its Grimoire baseline.</summary>
+        public static bool HasDirtyEdits => CountAllDirty() > 0;
 
         /// <summary>
         /// True when the currently loaded object's editable field buffers diverge
@@ -90,26 +127,83 @@ namespace Grimoire.PluginV2.Editor
         /// </summary>
         public static bool HasDirtyEditsForObject(string objectId)
         {
-            if (string.IsNullOrEmpty(objectId) || string.IsNullOrEmpty(_documentKey))
+            if (string.IsNullOrEmpty(objectId) || string.IsNullOrEmpty(LoadedObjectId))
             {
                 return false;
             }
 
-            if (!_documentKey.StartsWith(objectId + ":", System.StringComparison.Ordinal))
+            if (!string.Equals(LoadedObjectId, objectId, StringComparison.Ordinal))
             {
                 return false;
             }
 
-            foreach (var pair in EditBuffers)
+            return HasDirtyEdits;
+        }
+
+        public static List<DirtyFieldChange> GetDirtyFieldChanges()
+        {
+            var list = new List<DirtyFieldChange>();
+            if (_document == null)
             {
-                BaselineBuffers.TryGetValue(pair.Key, out var baseline);
-                if (!string.Equals(pair.Value ?? "", baseline ?? "", System.StringComparison.Ordinal))
+                return list;
+            }
+
+            foreach (var entry in CollectEditableFields(_document))
+            {
+                var field = entry.Field;
+                if (field?.hints != null && field.hints.read_only)
                 {
-                    return true;
+                    continue;
                 }
+
+                if (!IsDirty(field.id))
+                {
+                    continue;
+                }
+
+                BaselineBuffers.TryGetValue(field.id, out var baseline);
+                list.Add(new DirtyFieldChange
+                {
+                    FieldId = field.id,
+                    Label = string.IsNullOrEmpty(field.label) ? field.id : field.label,
+                    Previous = baseline ?? "",
+                    Current = GetBuffer(field.id),
+                });
             }
 
-            return false;
+            return list;
+        }
+
+        /// <summary>
+        /// Discard local editable-field edits for the loaded object.
+        /// </summary>
+        public static bool ResetDirtyFields()
+        {
+            if (_document == null || !HasDirtyEdits)
+            {
+                return false;
+            }
+
+            ResetBuffers(CollectEditableFields(_document));
+            _statusMessage = "Local edits discarded.";
+            _error = null;
+            GUI.FocusControl(null);
+            NotifyDirtyChanged();
+            return true;
+        }
+
+        /// <summary>
+        /// Push dirty editable-field values for the loaded object to Grimoire.
+        /// </summary>
+        public static async Task<ApiResult<ObjectViewDocument>> SyncDirtyFieldsAsync()
+        {
+            if (_document == null)
+            {
+                return ApiResult<ObjectViewDocument>.Fail("No object loaded.", "missing_parameter");
+            }
+
+            var editable = CollectEditableFields(_document);
+            return await PushUpdatesAsync(_document, editable);
         }
 
         private static void DrawToolbar(ObjectViewDocument document, List<EditableEntry> editable)
@@ -134,6 +228,7 @@ namespace Grimoire.PluginV2.Editor
                     _statusMessage = "Local edits discarded.";
                     _error = null;
                     GUI.FocusControl(null);
+                    NotifyDirtyChanged();
                 }
 
                 if (GUILayout.Button(
@@ -227,12 +322,18 @@ namespace Grimoire.PluginV2.Editor
 
         private static async void SyncAsync(ObjectViewDocument document, List<EditableEntry> editable)
         {
-            var objectId = document.@object?.id;
+            await PushUpdatesAsync(document, editable);
+        }
+
+        private static async Task<ApiResult<ObjectViewDocument>> PushUpdatesAsync(
+            ObjectViewDocument document, List<EditableEntry> editable)
+        {
+            var objectId = document?.@object?.id;
             var gameId = GrimoireSettings.GameId;
             if (string.IsNullOrEmpty(objectId) || string.IsNullOrEmpty(gameId))
             {
                 _error = "Missing object or game id.";
-                return;
+                return ApiResult<ObjectViewDocument>.Fail(_error, "missing_parameter");
             }
 
             var updates = new List<FieldValueUpdate>();
@@ -257,7 +358,7 @@ namespace Grimoire.PluginV2.Editor
                 if (!GrimoireFieldSync.TryBuildStoredValue(field, GetBuffer(field.id), out var value, out var error))
                 {
                     _error = $"{field.label}: {error}";
-                    return;
+                    return ApiResult<ObjectViewDocument>.Fail(_error, "invalid_value");
                 }
 
                 updates.Add(new FieldValueUpdate { id = field.id, value = value });
@@ -266,7 +367,7 @@ namespace Grimoire.PluginV2.Editor
             if (updates.Count == 0)
             {
                 _statusMessage = "Nothing to sync.";
-                return;
+                return ApiResult<ObjectViewDocument>.Fail("Nothing to sync.", "missing_parameter");
             }
 
             _syncing = true;
@@ -280,13 +381,15 @@ namespace Grimoire.PluginV2.Editor
             {
                 _error = result.Error ?? "Sync failed.";
                 _statusMessage = null;
-                return;
+                return result;
             }
 
             EnsureBuffers(result.Data);
             _statusMessage = $"Synced {updates.Count} field{(updates.Count == 1 ? "" : "s")} to Grimoire.";
             _error = null;
             GUI.FocusControl(null);
+            NotifyDirtyChanged();
+            return result;
         }
 
         private static void EnsureBuffers(ObjectViewDocument document)
@@ -294,12 +397,14 @@ namespace Grimoire.PluginV2.Editor
             var key = $"{document.@object?.id}:{document.@object?.updated_at}:{document.schema_version}";
             if (key == _documentKey)
             {
+                _document = document;
                 return;
             }
 
             EditBuffers.Clear();
             BaselineBuffers.Clear();
             _documentKey = key;
+            _document = document;
             _statusMessage = null;
             _error = null;
 
@@ -309,6 +414,8 @@ namespace Grimoire.PluginV2.Editor
                 EditBuffers[entry.Field.id] = buffer;
                 BaselineBuffers[entry.Field.id] = buffer;
             }
+
+            NotifyDirtyChanged();
         }
 
         private static void ResetBuffers(List<EditableEntry> editable)
@@ -375,6 +482,16 @@ namespace Grimoire.PluginV2.Editor
             return count;
         }
 
+        private static int CountAllDirty()
+        {
+            if (_document == null)
+            {
+                return 0;
+            }
+
+            return CountDirty(CollectEditableFields(_document));
+        }
+
         private static bool IsDirty(string fieldId)
         {
             if (!EditBuffers.TryGetValue(fieldId, out var current))
@@ -383,7 +500,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             BaselineBuffers.TryGetValue(fieldId, out var baseline);
-            return !string.Equals(current ?? "", baseline ?? "", System.StringComparison.Ordinal);
+            return !string.Equals(current ?? "", baseline ?? "", StringComparison.Ordinal);
         }
 
         private static string GetBuffer(string fieldId) =>
@@ -394,6 +511,12 @@ namespace Grimoire.PluginV2.Editor
             EditBuffers[fieldId] = value ?? "";
             _statusMessage = null;
             _error = null;
+            NotifyDirtyChanged();
+        }
+
+        private static void NotifyDirtyChanged()
+        {
+            Changed?.Invoke();
         }
 
         private static string Tooltip(ViewField field)
