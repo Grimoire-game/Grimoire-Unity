@@ -429,7 +429,7 @@ namespace Grimoire.PluginV2.Editor
         {
             var dirty = GrimoireGameEngineDirtyTracker.DirtyCount;
             var syncLabel = dirty > 0 ? $"Sync ({dirty})" : "Sync";
-            var labels = new[] { "Tasks", "Object", syncLabel, "Export" };
+            var labels = new[] { "Tasks", "Object", syncLabel, "Versions" };
 
             var picked = GrimoireEditorStyles.DrawTabBar(_selectedTab, labels);
             if (picked != _selectedTab)
