@@ -84,6 +84,34 @@ namespace Grimoire.PluginV2.Editor
             _syncing = false;
         }
 
+        /// <summary>
+        /// True when the currently loaded object's editable field buffers diverge
+        /// from the last loaded Grimoire values.
+        /// </summary>
+        public static bool HasDirtyEditsForObject(string objectId)
+        {
+            if (string.IsNullOrEmpty(objectId) || string.IsNullOrEmpty(_documentKey))
+            {
+                return false;
+            }
+
+            if (!_documentKey.StartsWith(objectId + ":", System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            foreach (var pair in EditBuffers)
+            {
+                BaselineBuffers.TryGetValue(pair.Key, out var baseline);
+                if (!string.Equals(pair.Value ?? "", baseline ?? "", System.StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static void DrawToolbar(ObjectViewDocument document, List<EditableEntry> editable)
         {
             var dirtyCount = CountDirty(editable);

@@ -25,6 +25,12 @@ namespace Grimoire.PluginV2.Editor
             public readonly Dictionary<string, string> IdByCodeId =
                 new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+            public readonly Dictionary<string, ObjectSummary> SummaryById =
+                new Dictionary<string, ObjectSummary>(StringComparer.Ordinal);
+
+            public readonly Dictionary<string, ObjectSummary> SummaryByCodeId =
+                new Dictionary<string, ObjectSummary>(StringComparer.OrdinalIgnoreCase);
+
             public DateTime BuiltAtUtc;
             public bool Complete;
         }
@@ -62,10 +68,7 @@ namespace Grimoire.PluginV2.Editor
 
                 foreach (var summary in page.Data)
                 {
-                    if (!string.IsNullOrEmpty(summary.code_id))
-                    {
-                        cache.IdByCodeId[summary.code_id] = summary.id;
-                    }
+                    RememberInto(cache, summary);
                 }
 
                 if (page.Data.Length < PageSize)
@@ -111,6 +114,109 @@ namespace Grimoire.PluginV2.Editor
             }
 
             cache.IdByCodeId[codeId.Trim()] = objectId;
+        }
+
+        /// <summary>Cache a full object summary (template name, etc.) for scene browsing.</summary>
+        public static void RememberSummary(string gameId, ObjectSummary summary)
+        {
+            if (string.IsNullOrWhiteSpace(gameId) || summary == null || string.IsNullOrEmpty(summary.id))
+            {
+                return;
+            }
+
+            if (!Caches.TryGetValue(gameId, out var cache))
+            {
+                cache = new GameCache { BuiltAtUtc = DateTime.UtcNow };
+                Caches[gameId] = cache;
+            }
+
+            RememberInto(cache, summary);
+        }
+
+        /// <summary>
+        /// Ensures the object library for <paramref name="gameId"/> is fully
+        /// paged into the cache so template lookups for scene links work.
+        /// </summary>
+        public static async Task EnsureLibraryCachedAsync(string gameId)
+        {
+            if (string.IsNullOrWhiteSpace(gameId))
+            {
+                return;
+            }
+
+            if (Caches.TryGetValue(gameId, out var existing) &&
+                existing.Complete &&
+                DateTime.UtcNow - existing.BuiltAtUtc <= CacheLifetime)
+            {
+                return;
+            }
+
+            var cache = new GameCache { BuiltAtUtc = DateTime.UtcNow };
+            var offset = 0;
+
+            while (true)
+            {
+                var page = await GrimoireApiClient.ListObjectsAsync(gameId, limit: PageSize, offset: offset);
+                if (!page.Success)
+                {
+                    return;
+                }
+
+                foreach (var summary in page.Data)
+                {
+                    RememberInto(cache, summary);
+                }
+
+                if (page.Data.Length < PageSize)
+                {
+                    cache.Complete = true;
+                    break;
+                }
+
+                offset += PageSize;
+            }
+
+            Caches[gameId] = cache;
+        }
+
+        public static bool TryGetSummary(string gameId, string objectId, string codeId, out ObjectSummary summary)
+        {
+            summary = null;
+            if (string.IsNullOrWhiteSpace(gameId) ||
+                !Caches.TryGetValue(gameId, out var cache) ||
+                DateTime.UtcNow - cache.BuiltAtUtc > CacheLifetime)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(objectId) &&
+                cache.SummaryById.TryGetValue(objectId, out summary))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(codeId) &&
+                cache.SummaryByCodeId.TryGetValue(codeId, out summary))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void RememberInto(GameCache cache, ObjectSummary summary)
+        {
+            if (summary == null || string.IsNullOrEmpty(summary.id))
+            {
+                return;
+            }
+
+            cache.SummaryById[summary.id] = summary;
+            if (!string.IsNullOrEmpty(summary.code_id))
+            {
+                cache.IdByCodeId[summary.code_id] = summary.id;
+                cache.SummaryByCodeId[summary.code_id] = summary;
+            }
         }
 
         public static void InvalidateCache(string gameId = null)

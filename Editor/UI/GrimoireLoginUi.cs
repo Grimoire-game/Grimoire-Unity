@@ -163,13 +163,16 @@ namespace Grimoire.PluginV2.Editor
             using (new EditorGUI.DisabledScope(busy))
             {
                 y = DrawFieldLabel(content, y, "Company");
-                companyIndex = DrawPopup(content, y, companyIndex, companyLabels);
+                companyIndex = DrawPopup(content, y, companyIndex, companyLabels, "Select a company...");
                 y += FieldHeight + FieldSpacing;
 
                 y = DrawFieldLabel(content, y, "Game");
-                using (new EditorGUI.DisabledScope(!gamesEnabled || gameLabels.Length == 0))
+                using (new EditorGUI.DisabledScope(companyIndex < 0 || (!gamesEnabled && gameLabels.Length == 0)))
                 {
-                    gameIndex = DrawPopup(content, y, gameIndex, gameLabels);
+                    var gamePlaceholder = companyIndex < 0
+                        ? "Select a company first..."
+                        : "Select a game...";
+                    gameIndex = DrawPopup(content, y, gameIndex, gameLabels, gamePlaceholder);
                 }
 
                 y += FieldHeight + 18f;
@@ -220,18 +223,49 @@ namespace Grimoire.PluginV2.Editor
             return y + 18f;
         }
 
-        private static int DrawPopup(Rect content, float y, int selectedIndex, string[] options)
+        private static int DrawPopup(
+            Rect content,
+            float y,
+            int selectedIndex,
+            string[] options,
+            string placeholder = null)
         {
-            if (options == null || options.Length == 0)
+            options ??= Array.Empty<string>();
+            var rect = FieldRect(content, y);
+            AddFieldCursor(rect);
+
+            if (options.Length == 0)
             {
+                var emptyLabels = new[] { string.IsNullOrEmpty(placeholder) ? "None available" : placeholder };
+                EditorGUI.Popup(rect, 0, emptyLabels, _popupStyle);
+                DrawBorder(rect, InputBorder);
                 return -1;
             }
 
-            selectedIndex = Mathf.Clamp(selectedIndex, 0, options.Length - 1);
-            var rect = FieldRect(content, y);
-            AddFieldCursor(rect);
-            var picked = EditorGUI.Popup(rect, selectedIndex, options, _popupStyle);
+            string[] displayOptions;
+            int displayIndex;
+            if (selectedIndex < 0 || selectedIndex >= options.Length)
+            {
+                displayOptions = new string[options.Length + 1];
+                displayOptions[0] = string.IsNullOrEmpty(placeholder) ? "Select..." : placeholder;
+                Array.Copy(options, 0, displayOptions, 1, options.Length);
+                displayIndex = 0;
+            }
+            else
+            {
+                displayOptions = options;
+                displayIndex = selectedIndex;
+            }
+
+            var picked = EditorGUI.Popup(rect, displayIndex, displayOptions, _popupStyle);
             DrawBorder(rect, InputBorder);
+
+            if (displayOptions.Length != options.Length)
+            {
+                // Placeholder is index 0; real options are shifted by 1.
+                return picked <= 0 ? -1 : picked - 1;
+            }
+
             return picked;
         }
 

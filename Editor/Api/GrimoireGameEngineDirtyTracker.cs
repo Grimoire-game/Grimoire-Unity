@@ -126,6 +126,24 @@ namespace Grimoire.PluginV2.Editor
             return null;
         }
 
+        /// <summary>
+        /// Fills <paramref name="into"/> with every <see cref="GrimoireObjectLink"/>
+        /// in loaded scenes (skips prefab assets / unloaded scenes).
+        /// </summary>
+        public static void CollectSceneLinks(List<GrimoireObjectLink> into)
+        {
+            CollectLinks(into);
+        }
+
+        /// <summary>
+        /// True when this link has unsynced game-engine transform / name changes.
+        /// </summary>
+        public static bool IsGameEngineDirty(GrimoireObjectLink link)
+        {
+            var pending = FindPending(link);
+            return pending != null && pending.IsDirty;
+        }
+
         private static void OnEditorUpdate()
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode ||

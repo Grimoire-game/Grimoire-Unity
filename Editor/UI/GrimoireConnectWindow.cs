@@ -5,14 +5,15 @@ namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
     /// Grimoire Connect: sign in, pick company and game, then browse tasks,
-    /// inspect linked objects, sync game engine data, or download exports.
+    /// scene links, inspect objects, sync game engine data, or download exports.
     /// </summary>
     public class GrimoireConnectWindow : EditorWindow
     {
         private const int TabTasks = 0;
-        private const int TabObject = 1;
-        private const int TabSync = 2;
-        private const int TabExport = 3;
+        private const int TabScene = 1;
+        private const int TabObject = 2;
+        private const int TabSync = 3;
+        private const int TabExport = 4;
 
         private const int ObjectTabInfo = 0;
         private const int ObjectTabEditable = 1;
@@ -37,6 +38,7 @@ namespace Grimoire.PluginV2.Editor
         private GrimoireTasksPanel _objectTasksPanel;
         private GrimoireUserTasksPanel _userTasksPanel;
         private GrimoireSetupPanel _setupQueue;
+        private GrimoireScenePanel _scenePanel;
         private GrimoireSyncPanel _syncPanel;
         private GrimoireExportPanel _exportPanel;
 
@@ -79,6 +81,10 @@ namespace Grimoire.PluginV2.Editor
             _setupQueue.RepaintNeeded += Repaint;
             _setupQueue.SetupCompleted += OnSetupCompleted;
 
+            _scenePanel = new GrimoireScenePanel();
+            _scenePanel.RepaintNeeded += ScheduleRepaint;
+            _scenePanel.OpenObjectRequested += OnSceneOpenObjectRequested;
+
             _syncPanel = new GrimoireSyncPanel();
             _syncPanel.RepaintNeeded += ScheduleRepaint;
 
@@ -94,7 +100,11 @@ namespace Grimoire.PluginV2.Editor
             GrimoireGameEngineDirtyTracker.Changed += OnGameEngineDirtyChanged;
 
             _userTasksPanel.Activate();
-            if (_selectedTab == TabSync)
+            if (_selectedTab == TabScene)
+            {
+                _scenePanel.Activate();
+            }
+            else if (_selectedTab == TabSync)
             {
                 _syncPanel.Activate();
             }
@@ -121,15 +131,27 @@ namespace Grimoire.PluginV2.Editor
             GrimoireGameEngineSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
             GrimoireFieldSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
             GrimoireGameEngineDirtyTracker.Changed -= OnGameEngineDirtyChanged;
+            _scenePanel?.Deactivate();
             _syncPanel?.Deactivate();
         }
 
         private void OnGameEngineDirtyChanged()
         {
-            if (_selectedTab == TabObject || _selectedTab == TabSync)
+            if (_selectedTab == TabObject || _selectedTab == TabSync || _selectedTab == TabScene)
             {
                 ScheduleRepaint();
             }
+        }
+
+        private void OnSceneOpenObjectRequested(GrimoireObjectLink link)
+        {
+            if (link == null)
+            {
+                return;
+            }
+
+            _selectedTab = TabObject;
+            LoadLink(link);
         }
 
         private void OnGameEngineDocumentUpdated(ObjectViewDocument document)
@@ -150,6 +172,11 @@ namespace Grimoire.PluginV2.Editor
             _error = null;
             _loading = false;
             _statusMessage = null;
+            if (_document.@object != null && GrimoireSettings.HasGameId)
+            {
+                GrimoireObjectKeyResolver.RememberSummary(GrimoireSettings.GameId, _document.@object);
+            }
+
             GrimoireEditableFieldsRenderer.ClearBuffers();
             Repaint();
         }
@@ -173,7 +200,11 @@ namespace Grimoire.PluginV2.Editor
             _objectTasksPanel.ResetStatusFetchState();
             _userTasksPanel.Reset();
             _userTasksPanel.Activate();
-            if (_selectedTab == TabExport)
+            if (_selectedTab == TabScene)
+            {
+                _scenePanel?.Activate();
+            }
+            else if (_selectedTab == TabExport)
             {
                 _exportPanel?.Activate();
             }
@@ -186,7 +217,11 @@ namespace Grimoire.PluginV2.Editor
             _error = null;
             _userTasksPanel.Reset();
             _userTasksPanel.Activate();
-            if (_selectedTab == TabExport)
+            if (_selectedTab == TabScene)
+            {
+                _scenePanel?.Activate();
+            }
+            else if (_selectedTab == TabExport)
             {
                 _exportPanel?.Activate();
             }
@@ -365,6 +400,11 @@ namespace Grimoire.PluginV2.Editor
             _document = view.Data;
             _loading = false;
             _statusMessage = null;
+            if (_document?.@object != null)
+            {
+                GrimoireObjectKeyResolver.RememberSummary(gameId, _document.@object);
+            }
+
             GrimoireEditableFieldsRenderer.ClearBuffers();
             Repaint();
         }
@@ -411,6 +451,9 @@ namespace Grimoire.PluginV2.Editor
                 case TabTasks:
                     DrawTasksTab();
                     break;
+                case TabScene:
+                    DrawSceneTab();
+                    break;
                 case TabObject:
                     DrawObjectTab();
                     break;
@@ -429,7 +472,7 @@ namespace Grimoire.PluginV2.Editor
         {
             var dirty = GrimoireGameEngineDirtyTracker.DirtyCount;
             var syncLabel = dirty > 0 ? $"Sync ({dirty})" : "Sync";
-            var labels = new[] { "Tasks", "Object", syncLabel, "Versions" };
+            var labels = new[] { "Tasks", "Scene", "Object", syncLabel, "Versions" };
 
             var picked = GrimoireEditorStyles.DrawTabBar(_selectedTab, labels);
             if (picked != _selectedTab)
@@ -437,6 +480,10 @@ namespace Grimoire.PluginV2.Editor
                 if (_selectedTab == TabSync)
                 {
                     _syncPanel?.Deactivate();
+                }
+                else if (_selectedTab == TabScene)
+                {
+                    _scenePanel?.Deactivate();
                 }
 
                 _selectedTab = picked;
@@ -447,6 +494,10 @@ namespace Grimoire.PluginV2.Editor
                 else if (_selectedTab == TabTasks)
                 {
                     _userTasksPanel.Activate();
+                }
+                else if (_selectedTab == TabScene)
+                {
+                    _scenePanel?.Activate();
                 }
                 else if (_selectedTab == TabSync)
                 {
@@ -462,6 +513,11 @@ namespace Grimoire.PluginV2.Editor
         private void DrawTasksTab()
         {
             _userTasksPanel.Draw();
+        }
+
+        private void DrawSceneTab()
+        {
+            _scenePanel?.Draw();
         }
 
         private void DrawSyncTab()

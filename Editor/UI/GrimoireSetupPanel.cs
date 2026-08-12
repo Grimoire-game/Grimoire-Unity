@@ -27,8 +27,8 @@ namespace Grimoire.PluginV2.Editor
 
         private GameDirectoryEntry[] _games = Array.Empty<GameDirectoryEntry>();
         private CompanyOption[] _companies = Array.Empty<CompanyOption>();
-        private int _companyIndex;
-        private int _gameIndex;
+        private int _companyIndex = -1;
+        private int _gameIndex = -1;
         private bool _gamesLoading;
         private bool _gamesFetchRequested;
         private string _gamesError;
@@ -90,8 +90,8 @@ namespace Grimoire.PluginV2.Editor
             _companies = Array.Empty<CompanyOption>();
             _gamesError = null;
             _gamesFetchRequested = false;
-            _companyIndex = 0;
-            _gameIndex = 0;
+            _companyIndex = -1;
+            _gameIndex = -1;
             _error = null;
         }
 
@@ -99,8 +99,8 @@ namespace Grimoire.PluginV2.Editor
         {
             GrimoireSettings.ClearWorkspace();
             _gamesFetchRequested = false;
-            _companyIndex = 0;
-            _gameIndex = 0;
+            _companyIndex = -1;
+            _gameIndex = -1;
             FetchGames();
             RepaintNeeded?.Invoke();
         }
@@ -145,6 +145,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             SyncWorkspaceSelection();
+            var companyBeforeUi = _companyIndex;
 
             var companyLabels = _companies.Select(company => company.Label).ToArray();
             var filteredGames = GetGamesForSelectedCompany();
@@ -162,10 +163,16 @@ namespace Grimoire.PluginV2.Editor
                 _gamesLoading,
                 _gamesError ?? _error);
 
-            if (_companyIndex >= 0 && _companyIndex < _companies.Length &&
-                (_gameIndex < 0 || _gameIndex >= gameLabels.Length))
+            if (_companyIndex != companyBeforeUi)
             {
-                _gameIndex = gameLabels.Length > 0 ? 0 : -1;
+                filteredGames = GetGamesForSelectedCompany();
+                gameLabels = filteredGames.Select(game => game.name).ToArray();
+                _gameIndex = gameLabels.Length == 1 ? 0 : -1;
+            }
+            else if (_companyIndex >= 0 && _companyIndex < _companies.Length &&
+                     (_gameIndex < 0 || _gameIndex >= gameLabels.Length))
+            {
+                _gameIndex = gameLabels.Length == 1 ? 0 : -1;
             }
 
             switch (action)
@@ -185,30 +192,49 @@ namespace Grimoire.PluginV2.Editor
         {
             if (_companies.Length == 0)
             {
+                _companyIndex = -1;
+                _gameIndex = -1;
                 return;
             }
 
-            if (!string.IsNullOrEmpty(GrimoireSettings.CompanyId))
+            if (_companyIndex < 0 || _companyIndex >= _companies.Length)
             {
-                var savedCompanyIndex = Array.FindIndex(_companies, company => company.Id == GrimoireSettings.CompanyId);
-                if (savedCompanyIndex >= 0)
+                if (!string.IsNullOrEmpty(GrimoireSettings.CompanyId))
                 {
-                    _companyIndex = savedCompanyIndex;
+                    var savedCompanyIndex = Array.FindIndex(_companies, company => company.Id == GrimoireSettings.CompanyId);
+                    _companyIndex = savedCompanyIndex >= 0 ? savedCompanyIndex : -1;
+                }
+                else if (_companies.Length == 1)
+                {
+                    // Single company: pre-select so the user only picks a game.
+                    _companyIndex = 0;
+                }
+                else
+                {
+                    _companyIndex = -1;
                 }
             }
 
             var filteredGames = GetGamesForSelectedCompany();
+            if (_companyIndex < 0)
+            {
+                _gameIndex = -1;
+                return;
+            }
+
             if (!string.IsNullOrEmpty(GrimoireSettings.GameId))
             {
                 var savedGameIndex = Array.FindIndex(filteredGames, game => game.id == GrimoireSettings.GameId);
                 if (savedGameIndex >= 0)
                 {
                     _gameIndex = savedGameIndex;
+                    return;
                 }
             }
-            else if (filteredGames.Length == 1)
+
+            if (_gameIndex < 0 || _gameIndex >= filteredGames.Length)
             {
-                _gameIndex = 0;
+                _gameIndex = filteredGames.Length == 1 ? 0 : -1;
             }
         }
 
@@ -390,14 +416,17 @@ namespace Grimoire.PluginV2.Editor
 
         private static string ResolveCompanyLabel(string companyId, GameDirectoryEntry[] companyGames)
         {
+            var apiName = companyGames
+                .Select(game => game.company_name)
+                .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
+            if (!string.IsNullOrWhiteSpace(apiName))
+            {
+                return apiName.Trim();
+            }
+
             if (companyId == GrimoireSettings.CompanyId && !string.IsNullOrEmpty(GrimoireSettings.CompanyName))
             {
                 return GrimoireSettings.CompanyName;
-            }
-
-            if (companyGames.Length == 1)
-            {
-                return companyGames[0].name;
             }
 
             return $"Company ({companyGames.Length} games)";

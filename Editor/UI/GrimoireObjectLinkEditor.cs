@@ -85,6 +85,7 @@ namespace Grimoire.PluginV2.Editor
                             link.ObjectKey = summary.code_id ?? "";
                             link.CachedObjectId = summary.id;
                             GrimoireObjectKeyResolver.Remember(GrimoireSettings.GameId, summary.code_id, summary.id);
+                            GrimoireObjectKeyResolver.RememberSummary(GrimoireSettings.GameId, summary);
                             EditorUtility.SetDirty(link);
 
                             if (string.IsNullOrEmpty(summary.code_id))

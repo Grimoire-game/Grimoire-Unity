@@ -310,6 +310,7 @@ namespace Grimoire.PluginV2.Editor
         public string id;
         public string name;
         public string company_id;
+        public string company_name;
     }
 
     public class UserDirectoryEntry
