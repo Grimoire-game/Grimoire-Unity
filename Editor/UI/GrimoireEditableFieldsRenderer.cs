@@ -307,7 +307,7 @@ namespace Grimoire.PluginV2.Editor
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(
-                $"{editable.Count} editable field{(editable.Count == 1 ? "" : "s")}" +
+                $"{fieldCount} editable field{(fieldCount == 1 ? "" : "s")}" +
                 (dirtyCount > 0 ? $"  ·  {dirtyCount} changed" : ""),
                 GrimoireEditorStyles.MiniSecondaryStyle);
 
