@@ -920,7 +920,7 @@ namespace Grimoire.PluginV2.Editor
                 $"In play ({_objects.Count})",
                 EditorStyles.boldLabel);
             EditorGUILayout.LabelField(
-                "Scene Object Links and their adaptable field values.",
+                "Scene Object Links with live values (object overrides Database defaults).",
                 GrimoireEditorStyles.MiniSecondaryStyle);
             EditorGUILayout.Space(2);
 
@@ -971,7 +971,9 @@ namespace Grimoire.PluginV2.Editor
                             try
                             {
                                 _objRtResetItem?.Invoke(null, new object[] { obj.RuntimeKey });
-                                PopulateEditableFields(obj);
+                                PopulateObjectFields(obj, obj.SceneGameObject != null
+                                    ? obj.SceneGameObject.GetComponent<GrimoireObjectLink>()
+                                    : null);
                                 GUI.FocusControl(null);
                                 RequestRepaint();
                             }
@@ -1014,18 +1016,23 @@ namespace Grimoire.PluginV2.Editor
         private void DrawObjectFieldEntry(RuntimeObjectEntry obj, RuntimeObjectField field)
         {
             Color origBg = GUI.backgroundColor;
-            if (field.HasOverride)
-                GUI.backgroundColor = new Color(0.75f, 0.9f, 1f);   // tinted blue = overridden
+            var differsFromDb = !string.IsNullOrEmpty(field.DefaultValue)
+                                && !ValuesEqual(field.EditBuffer, field.DefaultValue, field.Kind);
+            if (field.HasOverride || differsFromDb)
+            {
+                GUI.backgroundColor = new Color(0.75f, 0.9f, 1f); // live / object value differs from DB
+            }
 
+            EditorGUILayout.BeginVertical();
             EditorGUILayout.BeginHorizontal();
 
             if (field.Kind == FieldVarKind.Boolean)
             {
-                bool current = field.EditBuffer == "True";
+                bool current = IsTruthy(field.EditBuffer);
                 bool toggled = EditorGUILayout.Toggle(new GUIContent(field.Name), current);
                 if (toggled != current)
                 {
-                    field.EditBuffer = toggled.ToString();
+                    field.EditBuffer = toggled ? "true" : "false";
                     ApplyObjectFieldValue(obj, field);
                 }
             }
@@ -1049,11 +1056,21 @@ namespace Grimoire.PluginV2.Editor
 
             GUI.backgroundColor = origBg;
             EditorGUILayout.EndHorizontal();
+
+            if (differsFromDb)
+            {
+                EditorGUILayout.LabelField(
+                    $"Database: {field.DefaultValue}",
+                    GrimoireEditorStyles.MiniSecondaryStyle);
+            }
+
+            EditorGUILayout.EndVertical();
         }
 
         private void ApplyObjectFieldValue(RuntimeObjectEntry obj, RuntimeObjectField field)
         {
             if (!obj.ObjectRuntimeAvailable) return;
+            var runtimeName = string.IsNullOrEmpty(field.RuntimeName) ? field.Name : field.RuntimeName;
             try
             {
                 switch (field.Kind)
@@ -1064,25 +1081,26 @@ namespace Grimoire.PluginV2.Editor
                                 System.Globalization.CultureInfo.InvariantCulture,
                                 out double num))
                         {
-                            _objRtSetNumber?.Invoke(null, new object[] { obj.RuntimeKey, field.Name, num });
+                            _objRtSetNumber?.Invoke(null, new object[] { obj.RuntimeKey, runtimeName, num });
                             field.HasOverride = true;
                         }
                         break;
 
                     case FieldVarKind.String:
-                        _objRtSetString?.Invoke(null, new object[] { obj.RuntimeKey, field.Name, field.EditBuffer });
+                        _objRtSetString?.Invoke(null, new object[] { obj.RuntimeKey, runtimeName, field.EditBuffer });
                         field.HasOverride = true;
                         break;
 
                     case FieldVarKind.Boolean:
-                        bool bv = field.EditBuffer == "True";
-                        _objRtSetBool?.Invoke(null, new object[] { obj.RuntimeKey, field.Name, bv });
+                        bool bv = IsTruthy(field.EditBuffer);
+                        field.EditBuffer = bv ? "true" : "false";
+                        _objRtSetBool?.Invoke(null, new object[] { obj.RuntimeKey, runtimeName, bv });
                         field.HasOverride = true;
                         break;
 
                     case FieldVarKind.StringArray:
                         string[] arr = ParseStringArray(field.EditBuffer);
-                        _objRtSetStringArray?.Invoke(null, new object[] { obj.RuntimeKey, field.Name, arr });
+                        _objRtSetStringArray?.Invoke(null, new object[] { obj.RuntimeKey, runtimeName, arr });
                         field.HasOverride = true;
                         break;
                 }
@@ -1389,18 +1407,16 @@ namespace Grimoire.PluginV2.Editor
                 {
                     foreach (var kv in libraryMatch.Properties)
                     {
+                        if (kv.Key.StartsWith("__", StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
                         entry.Properties[kv.Key] = kv.Value;
                     }
                 }
 
-                PopulateEditableFields(entry);
-
-                // Fall back to cached linked fields when Library template isn't available.
-                if (entry.EditableFields.Count == 0 && link.LinkedFields != null)
-                {
-                    PopulateFieldsFromLinkedFields(entry, link);
-                }
-
+                PopulateObjectFields(entry, link);
                 _objects.Add(entry);
             }
 
@@ -1998,146 +2014,374 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
-        private void PopulateEditableFields(RuntimeObjectEntry entry)
+        /// <summary>
+        /// Build adaptable fields for a scene object.
+        /// Live value priority: ObjectRuntime override → Object Link local value → Database default.
+        /// When the Object Link local value differs from the database and ObjectRuntime has no
+        /// override yet, the local value is written into ObjectRuntime so Play uses it.
+        /// </summary>
+        private void PopulateObjectFields(RuntimeObjectEntry entry, GrimoireObjectLink link)
         {
             entry.EditableFields.Clear();
-            if (entry.LibraryInstance == null) return;
+            var byNorm = new Dictionary<string, RuntimeObjectField>(StringComparer.Ordinal);
 
-            var instance = entry.LibraryInstance;
-            var type     = instance.GetType();
-            var runtimeKey = string.IsNullOrEmpty(entry.RuntimeKey) ? entry.Key : entry.RuntimeKey;
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-
-            void AddField(string name, FieldVarKind kind, Func<object> readDefault)
+            void Register(RuntimeObjectField field)
             {
-                if (string.IsNullOrEmpty(name) || !seen.Add(name))
+                if (field == null || string.IsNullOrEmpty(field.RuntimeName))
                 {
                     return;
                 }
 
-                string rawValue = "";
-                bool hasOverride = false;
-
-                if (entry.ObjectRuntimeAvailable && _objRtGetNumber != null)
+                var norm = NormalizeFieldName(field.RuntimeName);
+                if (byNorm.TryGetValue(norm, out var existing))
                 {
-                    try
+                    // Prefer richer data: keep runtime name from template, labels from link.
+                    if (string.IsNullOrEmpty(existing.DefaultValue) && !string.IsNullOrEmpty(field.DefaultValue))
                     {
-                        rawValue = kind switch
+                        existing.DefaultValue = field.DefaultValue;
+                    }
+
+                    if (string.IsNullOrEmpty(existing.ObjectLocalValue) && !string.IsNullOrEmpty(field.ObjectLocalValue))
+                    {
+                        existing.ObjectLocalValue = field.ObjectLocalValue;
+                    }
+
+                    if (!string.IsNullOrEmpty(field.Name) && field.Name.IndexOf(' ') < 0)
+                    {
+                        existing.RuntimeName = field.RuntimeName;
+                    }
+
+                    return;
+                }
+
+                byNorm[norm] = field;
+                entry.EditableFields.Add(field);
+            }
+
+            // 1) Database / Library template fields
+            if (entry.LibraryInstance != null)
+            {
+                var instance = entry.LibraryInstance;
+                var type = instance.GetType();
+
+                foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    if (!TryGetFieldVarKind(field.FieldType, out var kind)) continue;
+                    object raw;
+                    try { raw = field.GetValue(instance); }
+                    catch { continue; }
+
+                    Register(new RuntimeObjectField
+                    {
+                        Name = field.Name,
+                        RuntimeName = field.Name,
+                        Kind = kind,
+                        DefaultValue = FormatFieldDefault(raw, kind),
+                    });
+                }
+
+                foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    if (!prop.CanRead || prop.GetIndexParameters().Length > 0) continue;
+                    if (!TryGetFieldVarKind(prop.PropertyType, out var kind)) continue;
+                    object raw;
+                    try { raw = prop.GetValue(instance); }
+                    catch { continue; }
+
+                    Register(new RuntimeObjectField
+                    {
+                        Name = prop.Name,
+                        RuntimeName = prop.Name,
+                        Kind = kind,
+                        DefaultValue = FormatFieldDefault(raw, kind),
+                    });
+                }
+            }
+
+            // 2) Object Link adaptable fields (values authored on the component)
+            if (link?.LinkedFields != null)
+            {
+                foreach (var linked in link.LinkedFields)
+                {
+                    if (linked == null || linked.ReadOnly)
+                    {
+                        continue;
+                    }
+
+                    var label = !string.IsNullOrEmpty(linked.Label) ? linked.Label : linked.FieldId;
+                    if (string.IsNullOrEmpty(label))
+                    {
+                        continue;
+                    }
+
+                    var kind = MapLinkedFieldKind(linked);
+                    var norm = NormalizeFieldName(label);
+                    if (byNorm.TryGetValue(norm, out var existing))
+                    {
+                        existing.ObjectLocalValue = linked.LocalValue ?? "";
+                        if (string.IsNullOrEmpty(existing.DefaultValue))
                         {
-                            FieldVarKind.Number => ((double)_objRtGetNumber.Invoke(null, new object[] { runtimeKey, name, 0.0 })).ToString("G"),
-                            FieldVarKind.Boolean => ((bool)_objRtGetBool.Invoke(null, new object[] { runtimeKey, name, false })).ToString(),
-                            FieldVarKind.StringArray => _objRtGetStringArray != null
-                                ? string.Join(", ", (string[])_objRtGetStringArray.Invoke(null, new object[] { runtimeKey, name }))
-                                : FormatStringArray(readDefault() as string[]),
-                            _ => (string)_objRtGetString.Invoke(null, new object[] { runtimeKey, name, "" })
-                        };
-                        if (_objRtHasOverride != null)
+                            existing.DefaultValue = linked.GrimoireValue ?? "";
+                        }
+
+                        continue;
+                    }
+
+                    // Try matching a known template field by normalized label.
+                    RuntimeObjectField matched = null;
+                    foreach (var candidate in entry.EditableFields)
+                    {
+                        if (NormalizeFieldName(candidate.RuntimeName) == norm
+                            || NormalizeFieldName(candidate.Name) == norm)
                         {
-                            hasOverride = (bool)_objRtHasOverride.Invoke(null, new object[] { runtimeKey, name });
+                            matched = candidate;
+                            break;
                         }
                     }
-                    catch
+
+                    if (matched != null)
                     {
-                        var fallback = readDefault();
-                        rawValue = kind == FieldVarKind.StringArray
-                            ? FormatStringArray(fallback as string[])
-                            : fallback?.ToString() ?? "";
+                        matched.ObjectLocalValue = linked.LocalValue ?? "";
+                        if (string.IsNullOrEmpty(matched.DefaultValue))
+                        {
+                            matched.DefaultValue = linked.GrimoireValue ?? "";
+                        }
+
+                        continue;
                     }
-                }
-                else
-                {
-                    var fallback = readDefault();
-                    rawValue = kind == FieldVarKind.StringArray
-                        ? FormatStringArray(fallback as string[])
-                        : fallback?.ToString() ?? "";
-                }
 
-                entry.EditableFields.Add(new RuntimeObjectField
-                {
-                    Name = name,
-                    Kind = kind,
-                    EditBuffer = rawValue ?? "",
-                    HasOverride = hasOverride
-                });
+                    Register(new RuntimeObjectField
+                    {
+                        Name = label,
+                        RuntimeName = label,
+                        Kind = kind,
+                        DefaultValue = linked.GrimoireValue ?? "",
+                        ObjectLocalValue = linked.LocalValue ?? "",
+                    });
+                }
             }
 
-            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            // 3) Resolve live values and seed ObjectRuntime from object locals when needed
+            foreach (var field in entry.EditableFields)
             {
-                if (!TryGetFieldVarKind(field.FieldType, out var kind)) continue;
-                AddField(field.Name, kind, () => field.GetValue(instance));
-            }
-
-            foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (!prop.CanRead || prop.GetIndexParameters().Length > 0) continue;
-                if (!TryGetFieldVarKind(prop.PropertyType, out var kind)) continue;
-                AddField(prop.Name, kind, () =>
-                {
-                    try { return prop.GetValue(instance); }
-                    catch { return null; }
-                });
+                ResolveLiveFieldValue(entry, field);
             }
         }
 
-        private void PopulateFieldsFromLinkedFields(RuntimeObjectEntry entry, GrimoireObjectLink link)
+        private void ResolveLiveFieldValue(RuntimeObjectEntry entry, RuntimeObjectField field)
         {
-            foreach (var linked in link.LinkedFields)
+            var runtimeName = string.IsNullOrEmpty(field.RuntimeName) ? field.Name : field.RuntimeName;
+            var databaseDefault = field.DefaultValue ?? "";
+            var objectLocal = field.ObjectLocalValue;
+
+            // Read ObjectRuntime with the database default as fallback (not 0 / empty).
+            var live = ReadObjectRuntimeValue(entry.RuntimeKey, runtimeName, field.Kind, databaseDefault);
+            var hasRtOverride = false;
+            if (entry.ObjectRuntimeAvailable && _objRtHasOverride != null)
             {
-                if (linked == null || linked.ReadOnly)
+                try
                 {
-                    continue;
+                    hasRtOverride = (bool)_objRtHasOverride.Invoke(
+                        null, new object[] { entry.RuntimeKey, runtimeName });
                 }
-
-                var name = !string.IsNullOrEmpty(linked.Label) ? linked.Label : linked.FieldId;
-                if (string.IsNullOrEmpty(name))
+                catch
                 {
-                    continue;
+                    hasRtOverride = false;
                 }
-
-                var kind = MapLinkedFieldKind(linked);
-                var runtimeKey = entry.RuntimeKey;
-                var rawValue = linked.LocalValue ?? "";
-                var hasOverride = false;
-
-                // Prefer live ObjectRuntime value when the label matches a field name.
-                if (entry.ObjectRuntimeAvailable && !string.IsNullOrEmpty(linked.Label))
-                {
-                    try
-                    {
-                        rawValue = kind switch
-                        {
-                            FieldVarKind.Number => _objRtGetNumber != null
-                                ? ((double)_objRtGetNumber.Invoke(null, new object[] { runtimeKey, linked.Label, 0.0 })).ToString("G")
-                                : rawValue,
-                            FieldVarKind.Boolean => _objRtGetBool != null
-                                ? ((bool)_objRtGetBool.Invoke(null, new object[] { runtimeKey, linked.Label, false })).ToString()
-                                : rawValue,
-                            FieldVarKind.StringArray => _objRtGetStringArray != null
-                                ? string.Join(", ", (string[])_objRtGetStringArray.Invoke(null, new object[] { runtimeKey, linked.Label }))
-                                : rawValue,
-                            _ => _objRtGetString != null
-                                ? (string)_objRtGetString.Invoke(null, new object[] { runtimeKey, linked.Label, rawValue })
-                                : rawValue
-                        };
-                        if (_objRtHasOverride != null)
-                        {
-                            hasOverride = (bool)_objRtHasOverride.Invoke(null, new object[] { runtimeKey, linked.Label });
-                        }
-                    }
-                    catch
-                    {
-                        rawValue = linked.LocalValue ?? "";
-                    }
-                }
-
-                entry.EditableFields.Add(new RuntimeObjectField
-                {
-                    Name = name,
-                    Kind = kind,
-                    EditBuffer = rawValue ?? "",
-                    HasOverride = hasOverride
-                });
             }
+
+            // Object Link local differs from database → that value is what Play should use.
+            var objectDiffers = !string.IsNullOrEmpty(objectLocal)
+                                && !ValuesEqual(objectLocal, databaseDefault, field.Kind);
+
+            if (hasRtOverride)
+            {
+                field.EditBuffer = live ?? databaseDefault;
+                field.HasOverride = true;
+                return;
+            }
+
+            if (objectDiffers)
+            {
+                field.EditBuffer = FormatLiveBuffer(objectLocal, field.Kind);
+                field.HasOverride = true;
+                // Push onto ObjectRuntime so gameplay uses the object value.
+                if (entry.ObjectRuntimeAvailable)
+                {
+                    WriteObjectRuntimeValue(entry.RuntimeKey, runtimeName, field.Kind, field.EditBuffer);
+                }
+
+                return;
+            }
+
+            // Fall back to live read (already defaulted to database) or database.
+            field.EditBuffer = string.IsNullOrEmpty(live) ? databaseDefault : live;
+            field.HasOverride = !ValuesEqual(field.EditBuffer, databaseDefault, field.Kind);
+        }
+
+        private string ReadObjectRuntimeValue(
+            string runtimeKey,
+            string fieldName,
+            FieldVarKind kind,
+            string databaseDefault)
+        {
+            if (_objectRuntimeType == null || string.IsNullOrEmpty(runtimeKey) || string.IsNullOrEmpty(fieldName))
+            {
+                return databaseDefault;
+            }
+
+            try
+            {
+                switch (kind)
+                {
+                    case FieldVarKind.Number:
+                    {
+                        if (_objRtGetNumber == null) return databaseDefault;
+                        double fallback = 0;
+                        double.TryParse(
+                            databaseDefault,
+                            System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out fallback);
+                        var value = (double)_objRtGetNumber.Invoke(
+                            null, new object[] { runtimeKey, fieldName, fallback });
+                        return value.ToString("G", System.Globalization.CultureInfo.InvariantCulture);
+                    }
+                    case FieldVarKind.Boolean:
+                    {
+                        if (_objRtGetBool == null) return databaseDefault;
+                        var fallback = IsTruthy(databaseDefault);
+                        var value = (bool)_objRtGetBool.Invoke(
+                            null, new object[] { runtimeKey, fieldName, fallback });
+                        return value ? "true" : "false";
+                    }
+                    case FieldVarKind.StringArray:
+                    {
+                        if (_objRtGetStringArray == null) return databaseDefault;
+                        var arr = (string[])_objRtGetStringArray.Invoke(
+                            null, new object[] { runtimeKey, fieldName });
+                        return FormatStringArray(arr);
+                    }
+                    default:
+                    {
+                        if (_objRtGetString == null) return databaseDefault;
+                        var value = (string)_objRtGetString.Invoke(
+                            null, new object[] { runtimeKey, fieldName, databaseDefault ?? "" });
+                        return value ?? databaseDefault;
+                    }
+                }
+            }
+            catch
+            {
+                return databaseDefault;
+            }
+        }
+
+        private void WriteObjectRuntimeValue(
+            string runtimeKey,
+            string fieldName,
+            FieldVarKind kind,
+            string text)
+        {
+            try
+            {
+                switch (kind)
+                {
+                    case FieldVarKind.Number:
+                        if (double.TryParse(
+                                text,
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out var num))
+                        {
+                            _objRtSetNumber?.Invoke(null, new object[] { runtimeKey, fieldName, num });
+                        }
+                        break;
+                    case FieldVarKind.Boolean:
+                        _objRtSetBool?.Invoke(null, new object[] { runtimeKey, fieldName, IsTruthy(text) });
+                        break;
+                    case FieldVarKind.StringArray:
+                        _objRtSetStringArray?.Invoke(null, new object[] { runtimeKey, fieldName, ParseStringArray(text) });
+                        break;
+                    default:
+                        _objRtSetString?.Invoke(null, new object[] { runtimeKey, fieldName, text ?? "" });
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Grimoire Runtime] Could not set {runtimeKey}.{fieldName}: {ex.Message}");
+            }
+        }
+
+        private static string FormatFieldDefault(object raw, FieldVarKind kind)
+        {
+            if (kind == FieldVarKind.StringArray)
+            {
+                return FormatStringArray(raw as string[]);
+            }
+
+            if (raw is bool b)
+            {
+                return b ? "true" : "false";
+            }
+
+            if (raw is float f)
+            {
+                return f.ToString("G", System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            if (raw is double d)
+            {
+                return d.ToString("G", System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            return raw?.ToString() ?? "";
+        }
+
+        private static string FormatLiveBuffer(string value, FieldVarKind kind)
+        {
+            if (kind == FieldVarKind.Boolean)
+            {
+                return IsTruthy(value) ? "true" : "false";
+            }
+
+            return value ?? "";
+        }
+
+        private static bool ValuesEqual(string a, string b, FieldVarKind kind)
+        {
+            if (kind == FieldVarKind.Boolean)
+            {
+                return IsTruthy(a) == IsTruthy(b);
+            }
+
+            if (kind == FieldVarKind.Number)
+            {
+                if (double.TryParse(a, System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var da)
+                    && double.TryParse(b, System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var db))
+                {
+                    return Math.Abs(da - db) < 0.000001;
+                }
+            }
+
+            return string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.Ordinal);
+        }
+
+        private static bool IsTruthy(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            var v = value.Trim().ToLowerInvariant();
+            return v == "true" || v == "1" || v == "yes";
+        }
+
+        private static string NormalizeFieldName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "";
+            var chars = name.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant);
+            return new string(chars.ToArray());
         }
 
         private static FieldVarKind MapLinkedFieldKind(GrimoireLinkedField linked)
@@ -2398,9 +2642,13 @@ namespace Grimoire.PluginV2.Editor
         private sealed class RuntimeObjectField
         {
             public string        Name;
+            /// <summary>Name used for ObjectRuntime get/set (C# template field name when known).</summary>
+            public string        RuntimeName;
             public FieldVarKind  Kind;
-            public string        EditBuffer;   // current editor text / "True"/"False"
-            public bool          HasOverride;  // true when ObjectRuntime has a live override
+            public string        EditBuffer;       // live value shown / edited
+            public string        DefaultValue;     // Database / Library baseline
+            public string        ObjectLocalValue; // value stored on the Object Link
+            public bool          HasOverride;      // live/object value differs from database
         }
 
         private sealed class RuntimeObjectEntry

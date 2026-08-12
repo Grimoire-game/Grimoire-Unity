@@ -60,7 +60,7 @@ namespace Grimoire.PluginV2.Editor
         {
             EditorGUILayout.Space(6);
             _syncFoldout = EditorGUILayout.Foldout(
-                _syncFoldout, "Engine data", true, EditorStyles.foldoutHeader);
+                _syncFoldout, "Sync to game engine data", true, EditorStyles.foldoutHeader);
             if (!_syncFoldout)
             {
                 return;
