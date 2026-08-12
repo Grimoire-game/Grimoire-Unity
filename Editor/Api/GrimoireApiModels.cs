@@ -182,14 +182,74 @@ namespace Grimoire.PluginV2.Editor
     }
 
     /// <summary>
-    /// One field value update for <c>PATCH /api/v1/objects/{id}</c>.
-    /// <see cref="value"/> is the stored glossary shape (string, number, bool,
-    /// vector object, or array for <c>multiple</c> fields).
+    /// One field value update for <c>PATCH /api/v1/objects/{id}</c> or an
+    /// engine-commit field change. <see cref="value"/> is the stored glossary
+    /// shape (string, number, bool, vector object, or array for <c>multiple</c>).
     /// </summary>
     public class FieldValueUpdate
     {
         public string id;
         public object value;
+        public object base_value;
+    }
+
+    // ---------------------------------------------------------------------
+    // Engine commits (queued engine sync for review)
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// One change in <c>POST /api/v1/engine-commits</c>. Send either
+    /// <c>field_id</c> + <c>value</c> or <c>game_engine_data</c>, not both.
+    /// </summary>
+    public class EngineCommitChangeRequest
+    {
+        public string object_id;
+        public string field_id;
+        public object value;
+        public object base_value;
+        public GameEngineInstance[] game_engine_data;
+    }
+
+    public class EngineCommitSummary
+    {
+        public string id;
+        public string title;
+        public string description;
+        public string source;
+        public string status;
+        public string created_at;
+    }
+
+    public class EngineCommitCreatedData
+    {
+        public EngineCommitSummary commit;
+        public EngineCommitChangeResult[] changes;
+    }
+
+    /// <summary>Body of <c>PATCH /api/v1/objects/{id}</c> when a change is queued (202).</summary>
+    public class EngineCommitQueuedData
+    {
+        public string commit_id;
+        public string status;
+        public EngineCommitChangeResult[] changes;
+    }
+
+    public class EngineCommitChangeResult
+    {
+        public string id;
+        public string object_id;
+        public string object_name;
+        public string change_type;
+        public string field_id;
+        public string field_label;
+        public bool has_base;
+        public object base_value;
+        public object new_value;
+        public object current_value;
+        public object snapshot_value;
+        public string status;
+        public string apply_error;
+        public string state;
     }
 
     public class ViewSection

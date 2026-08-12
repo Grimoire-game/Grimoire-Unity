@@ -162,21 +162,38 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>
-        /// PATCH /api/v1/objects/{id} — full replace of <c>game_engine_data</c>.
-        /// Pass <paramref name="instances"/> as <c>null</c> to clear all links.
-        /// Returns the updated Object View Document.
+        /// PATCH /api/v1/objects/{id} — queue a full replace of
+        /// <c>game_engine_data</c> for review (202). Pass
+        /// <paramref name="instances"/> as <c>null</c> to clear all links.
+        /// Optional <paramref name="title"/> / <paramref name="description"/>
+        /// label the single-object commit; title defaults to the object name.
         /// </summary>
-        public static async Task<ApiResult<ObjectViewDocument>> PatchObjectGameEngineDataAsync(
-            string gameId, string objectId, GameEngineInstance[] instances)
+        public static async Task<ApiResult<EngineCommitQueuedData>> PatchObjectGameEngineDataAsync(
+            string gameId,
+            string objectId,
+            GameEngineInstance[] instances,
+            string title = null,
+            string description = null)
         {
             var url = BuildUrl($"/api/v1/objects/{UnityWebRequest.EscapeURL(objectId)}", new Dictionary<string, string>
             {
                 ["game_id"] = gameId,
             });
 
+            var payload = new Dictionary<string, object> { ["game_engine_data"] = instances };
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                payload["title"] = title.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                payload["description"] = description.Trim();
+            }
+
             // Null clears all links; omit null fields on instances (e.g. optional id).
             var body = JsonConvert.SerializeObject(
-                new Dictionary<string, object> { ["game_engine_data"] = instances },
+                payload,
                 new JsonSerializerSettings
                 {
                     NullValueHandling = instances == null
@@ -184,27 +201,26 @@ namespace Grimoire.PluginV2.Editor
                         : NullValueHandling.Ignore,
                 });
 
-            var result = await SendAsync<SingleEnvelope<ObjectViewDocument>>("PATCH", url, body, ApiAuth.Bearer);
-            if (!result.Success)
-            {
-                return ApiResult<ObjectViewDocument>.Fail(result.Error, result.Code, result.HttpStatus);
-            }
-
-            ObjectViewSchema.WarnOnVersionMismatch(result.Data.data?.schema_version);
-            return ApiResult<ObjectViewDocument>.Ok(result.Data.data);
+            var result = await SendAsync<SingleEnvelope<EngineCommitQueuedData>>("PATCH", url, body, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<EngineCommitQueuedData>.Ok(result.Data.data, result.HttpStatus)
+                : ApiResult<EngineCommitQueuedData>.Fail(result.Error, result.Code, result.HttpStatus);
         }
 
         /// <summary>
-        /// PATCH /api/v1/objects/{id} — update values of
-        /// <c>hints.game_engine_editable</c> fields. Returns the updated
-        /// Object View Document.
+        /// PATCH /api/v1/objects/{id} — queue
+        /// <c>hints.game_engine_editable</c> field values for review (202).
         /// </summary>
-        public static async Task<ApiResult<ObjectViewDocument>> PatchObjectFieldsAsync(
-            string gameId, string objectId, FieldValueUpdate[] fields)
+        public static async Task<ApiResult<EngineCommitQueuedData>> PatchObjectFieldsAsync(
+            string gameId,
+            string objectId,
+            FieldValueUpdate[] fields,
+            string title = null,
+            string description = null)
         {
             if (fields == null || fields.Length == 0)
             {
-                return ApiResult<ObjectViewDocument>.Fail(
+                return ApiResult<EngineCommitQueuedData>.Fail(
                     "No field updates to send.",
                     "missing_parameter");
             }
@@ -214,18 +230,76 @@ namespace Grimoire.PluginV2.Editor
                 ["game_id"] = gameId,
             });
 
-            var body = JsonConvert.SerializeObject(
-                new Dictionary<string, object> { ["fields"] = fields },
-                new JsonSerializerSettings { NullValueHandling = NullValueHandling.Include });
-
-            var result = await SendAsync<SingleEnvelope<ObjectViewDocument>>("PATCH", url, body, ApiAuth.Bearer);
-            if (!result.Success)
+            var payload = new Dictionary<string, object> { ["fields"] = fields };
+            if (!string.IsNullOrWhiteSpace(title))
             {
-                return ApiResult<ObjectViewDocument>.Fail(result.Error, result.Code, result.HttpStatus);
+                payload["title"] = title.Trim();
             }
 
-            ObjectViewSchema.WarnOnVersionMismatch(result.Data.data?.schema_version);
-            return ApiResult<ObjectViewDocument>.Ok(result.Data.data);
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                payload["description"] = description.Trim();
+            }
+
+            var body = JsonConvert.SerializeObject(
+                payload,
+                new JsonSerializerSettings { NullValueHandling = NullValueHandling.Include });
+
+            var result = await SendAsync<SingleEnvelope<EngineCommitQueuedData>>("PATCH", url, body, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<EngineCommitQueuedData>.Ok(result.Data.data, result.HttpStatus)
+                : ApiResult<EngineCommitQueuedData>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
+        /// <summary>
+        /// POST /api/v1/engine-commits — queue a titled batch of engine edits
+        /// for review (201). Prefer this over per-object PATCH when committing
+        /// from the editor Sync tab.
+        /// </summary>
+        public static async Task<ApiResult<EngineCommitCreatedData>> CreateEngineCommitAsync(
+            string gameId,
+            string title,
+            string description,
+            IList<EngineCommitChangeRequest> changes)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return ApiResult<EngineCommitCreatedData>.Fail(
+                    "A commit title is required.",
+                    "missing_parameter");
+            }
+
+            if (changes == null || changes.Count == 0)
+            {
+                return ApiResult<EngineCommitCreatedData>.Fail(
+                    "No changes to commit.",
+                    "missing_parameter");
+            }
+
+            var url = BuildUrl("/api/v1/engine-commits", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+            });
+
+            var payload = new Dictionary<string, object>
+            {
+                ["title"] = title.Trim(),
+                ["source"] = "unity",
+                ["changes"] = changes,
+            };
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                payload["description"] = description.Trim();
+            }
+
+            var body = JsonConvert.SerializeObject(
+                payload,
+                new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
+
+            var result = await SendAsync<SingleEnvelope<EngineCommitCreatedData>>("POST", url, body, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<EngineCommitCreatedData>.Ok(result.Data.data, result.HttpStatus)
+                : ApiResult<EngineCommitCreatedData>.Fail(result.Error, result.Code, result.HttpStatus);
         }
 
         /// <summary>POST /api/v1/auth/login — session or 2FA challenge.</summary>

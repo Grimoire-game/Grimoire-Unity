@@ -6,35 +6,38 @@ using System.Threading.Tasks;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Pushes edited <c>game_engine_editable</c> field values to Grimoire via
-    /// PATCH /api/v1/objects/{id}, and notifies the Connect window to refresh.
+    /// Queues edited <c>game_engine_editable</c> field values for review via
+    /// PATCH /api/v1/objects/{id} (single-object commit). Prefer
+    /// <see cref="GrimoireEngineCommit"/> for titled batch commits.
     /// </summary>
     public static class GrimoireFieldSync
     {
-        public static event Action<ObjectViewDocument> DocumentUpdated;
+        public static event Action FieldsQueued;
 
-        public static async Task<ApiResult<ObjectViewDocument>> PushFieldUpdatesAsync(
+        public static async Task<ApiResult<EngineCommitQueuedData>> PushFieldUpdatesAsync(
             string gameId,
             string objectId,
-            IList<FieldValueUpdate> updates)
+            IList<FieldValueUpdate> updates,
+            string title = null,
+            string description = null)
         {
             if (string.IsNullOrWhiteSpace(gameId) || string.IsNullOrWhiteSpace(objectId))
             {
-                return ApiResult<ObjectViewDocument>.Fail(
+                return ApiResult<EngineCommitQueuedData>.Fail(
                     "Missing game or object id.",
                     "missing_parameter");
             }
 
             if (updates == null || updates.Count == 0)
             {
-                return ApiResult<ObjectViewDocument>.Fail(
+                return ApiResult<EngineCommitQueuedData>.Fail(
                     "No field updates to send.",
                     "missing_parameter");
             }
 
             if (!GrimoireSettings.IsConfigured)
             {
-                return ApiResult<ObjectViewDocument>.Fail(
+                return ApiResult<EngineCommitQueuedData>.Fail(
                     "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).",
                     "not_configured");
             }
@@ -47,10 +50,14 @@ namespace Grimoire.PluginV2.Editor
                 payload[i] = updates[i];
             }
 
-            var patched = await GrimoireApiClient.PatchObjectFieldsAsync(gameId, objectId, payload);
-            if (patched.Success && patched.Data != null)
+            var commitTitle = string.IsNullOrWhiteSpace(title)
+                ? "Unity: editable field updates"
+                : title;
+            var patched = await GrimoireApiClient.PatchObjectFieldsAsync(
+                gameId, objectId, payload, commitTitle, description);
+            if (patched.Success)
             {
-                DocumentUpdated?.Invoke(patched.Data);
+                FieldsQueued?.Invoke();
             }
 
             return patched;

@@ -30,8 +30,8 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.Space(6);
             EditorGUILayout.LabelField("Sync to game engine data", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "When linked, selected fields are written to this object's game_engine_data in Grimoire. " +
-                "Removing the link or this component clears the entry.",
+                "When linked, selected fields are queued into this object's game_engine_data for review in Grimoire. " +
+                "Removing the link or this component queues removal of the entry.",
                 MessageType.None);
 
             EditorGUI.BeginChangeCheck();
@@ -59,7 +59,7 @@ namespace Grimoire.PluginV2.Editor
 
                 if (link.HasKey || !string.IsNullOrEmpty(link.CachedObjectId))
                 {
-                    SyncUpsert(link, "Updated game_engine_data sync fields.");
+                    SyncUpsert(link, "Updated game_engine_data sync fields (queued for review).");
                 }
             }
 
@@ -134,7 +134,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 if (GUILayout.Button("Sync now"))
                 {
-                    SyncUpsert(link, "Synced game_engine_data.");
+                    SyncUpsert(link, "Queued game_engine_data for review in Grimoire.");
                 }
 
                 if (GUILayout.Button("Unlink"))
@@ -218,7 +218,7 @@ namespace Grimoire.PluginV2.Editor
                 GrimoireGameEngineSyncHooks.Remember(link);
                 if (_validationType != MessageType.Warning)
                 {
-                    _validationMessage = "Linked and synced game_engine_data.";
+                    _validationMessage = "Linked and queued game_engine_data for review.";
                     _validationType = MessageType.Info;
                 }
             }

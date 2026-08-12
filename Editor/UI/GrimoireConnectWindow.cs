@@ -96,7 +96,8 @@ namespace Grimoire.PluginV2.Editor
             GrimoireSettings.Changed += OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded += Repaint;
             GrimoireGameEngineSync.DocumentUpdated += OnGameEngineDocumentUpdated;
-            GrimoireFieldSync.DocumentUpdated += OnGameEngineDocumentUpdated;
+            GrimoireFieldSync.FieldsQueued += OnFieldsQueued;
+            GrimoireEngineCommit.Committed += OnEngineCommitQueued;
             GrimoireGameEngineDirtyTracker.Changed += OnGameEngineDirtyChanged;
             GrimoireEditableFieldsRenderer.Changed += OnGameEngineDirtyChanged;
 
@@ -130,7 +131,8 @@ namespace Grimoire.PluginV2.Editor
             GrimoireSettings.Changed -= OnSettingsChanged;
             GrimoireObjectViewRenderer.RepaintNeeded -= Repaint;
             GrimoireGameEngineSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
-            GrimoireFieldSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
+            GrimoireFieldSync.FieldsQueued -= OnFieldsQueued;
+            GrimoireEngineCommit.Committed -= OnEngineCommitQueued;
             GrimoireGameEngineDirtyTracker.Changed -= OnGameEngineDirtyChanged;
             GrimoireEditableFieldsRenderer.Changed -= OnGameEngineDirtyChanged;
             _scenePanel?.Deactivate();
@@ -179,6 +181,10 @@ namespace Grimoire.PluginV2.Editor
             GrimoireEditableFieldsRenderer.BindDocument(_document);
             Repaint();
         }
+
+        private void OnFieldsQueued() => Repaint();
+
+        private void OnEngineCommitQueued() => Repaint();
 
         private void OnAuthChanged()
         {

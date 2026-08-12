@@ -7,8 +7,8 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Draws <c>hints.game_engine_editable</c> fields with editors and Sync /
-    /// Reset controls so Unity ↔ Grimoire values stay aligned.
+    /// Draws <c>hints.game_engine_editable</c> fields with editors and Commit /
+    /// Reset controls. Commits are queued for review via engine-commits.
     /// </summary>
     public static class GrimoireEditableFieldsRenderer
     {
@@ -21,6 +21,8 @@ namespace Grimoire.PluginV2.Editor
         private static string _statusMessage;
         private static string _error;
         private static bool _syncing;
+        private static string _commitTitle = "";
+        private static string _commitDescription = "";
 
         /// <summary>Raised when editable field dirty state or buffers change.</summary>
         public static event Action Changed;
@@ -97,6 +99,8 @@ namespace Grimoire.PluginV2.Editor
             _statusMessage = null;
             _error = null;
             _syncing = false;
+            _commitTitle = "";
+            _commitDescription = "";
             NotifyDirtyChanged();
         }
 
@@ -193,17 +197,107 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>
-        /// Push dirty editable-field values for the loaded object to Grimoire.
+        /// Build stored glossary values for every dirty editable field, including
+        /// <c>base_value</c> from the last loaded Grimoire baseline.
         /// </summary>
-        public static async Task<ApiResult<ObjectViewDocument>> SyncDirtyFieldsAsync()
+        public static bool TryBuildDirtyFieldChanges(
+            out List<FieldValueUpdate> updates, out string error)
+        {
+            updates = new List<FieldValueUpdate>();
+            error = null;
+
+            if (_document == null)
+            {
+                error = "No object loaded.";
+                return false;
+            }
+
+            foreach (var entry in CollectEditableFields(_document))
+            {
+                var field = entry.Field;
+                if (!IsDirty(field.id))
+                {
+                    continue;
+                }
+
+                if (field.hints != null && field.hints.read_only)
+                {
+                    continue;
+                }
+
+                if (!GrimoireFieldSync.IsSupportedEditKind(GrimoireFieldSync.ResolveEditKind(field)))
+                {
+                    continue;
+                }
+
+                if (!GrimoireFieldSync.TryBuildStoredValue(field, GetBuffer(field.id), out var value, out var buildError))
+                {
+                    error = $"{field.label}: {buildError}";
+                    updates = null;
+                    return false;
+                }
+
+                object baseValue = null;
+                if (BaselineBuffers.TryGetValue(field.id, out var baseline) &&
+                    !string.IsNullOrEmpty(baseline))
+                {
+                    if (!GrimoireFieldSync.TryBuildStoredValue(field, baseline, out baseValue, out _))
+                    {
+                        baseValue = null;
+                    }
+                }
+
+                updates.Add(new FieldValueUpdate
+                {
+                    id = field.id,
+                    value = value,
+                    base_value = baseValue,
+                });
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Treat the current edit buffers as the new local baseline after a
+        /// commit was queued (object values are not updated until review).
+        /// </summary>
+        public static void AcceptSubmittedEdits()
         {
             if (_document == null)
             {
-                return ApiResult<ObjectViewDocument>.Fail("No object loaded.", "missing_parameter");
+                return;
             }
 
-            var editable = CollectEditableFields(_document);
-            return await PushUpdatesAsync(_document, editable);
+            foreach (var entry in CollectEditableFields(_document))
+            {
+                var id = entry.Field?.id;
+                if (string.IsNullOrEmpty(id) || !EditBuffers.TryGetValue(id, out var current))
+                {
+                    continue;
+                }
+
+                BaselineBuffers[id] = current;
+            }
+
+            _statusMessage = "Queued for review in Grimoire.";
+            _error = null;
+            NotifyDirtyChanged();
+        }
+
+        /// <summary>
+        /// Queue dirty editable-field values for review via
+        /// <c>POST /api/v1/engine-commits</c>.
+        /// </summary>
+        public static async Task<ApiResult<EngineCommitCreatedData>> SyncDirtyFieldsAsync(
+            string title, string description)
+        {
+            if (_document == null)
+            {
+                return ApiResult<EngineCommitCreatedData>.Fail("No object loaded.", "missing_parameter");
+            }
+
+            return await GrimoireEngineCommit.CommitLoadedFieldsAsync(title, description);
         }
 
         private static void DrawToolbar(ObjectViewDocument document, List<EditableEntry> editable)
@@ -230,16 +324,39 @@ namespace Grimoire.PluginV2.Editor
                     GUI.FocusControl(null);
                     NotifyDirtyChanged();
                 }
-
-                if (GUILayout.Button(
-                        new GUIContent("Sync to Grimoire", "Push edited field values to Grimoire so the web app stays in sync."),
-                        GUILayout.Width(120)))
-                {
-                    SyncAsync(document, editable);
-                }
             }
 
             EditorGUILayout.EndHorizontal();
+
+            if (dirtyCount > 0)
+            {
+                EditorGUILayout.Space(4);
+                EditorGUILayout.LabelField("Commit", EditorStyles.miniBoldLabel);
+                EditorGUILayout.LabelField(
+                    "Changes are queued for review in Grimoire (Engine Sync).",
+                    GrimoireEditorStyles.MiniSecondaryStyle);
+                _commitTitle = EditorGUILayout.TextField(
+                    new GUIContent("Title", "Required. Shown to the reviewer on the Engine Sync tab."),
+                    _commitTitle ?? "");
+                EditorGUILayout.LabelField("Description (optional)", GrimoireEditorStyles.MiniSecondaryStyle);
+                _commitDescription = EditorGUILayout.TextArea(
+                    _commitDescription ?? "",
+                    GUILayout.MinHeight(40));
+
+                using (new EditorGUI.DisabledScope(
+                           _syncing || string.IsNullOrWhiteSpace(_commitTitle)))
+                {
+                    if (GUILayout.Button(
+                            new GUIContent(
+                                "Commit to Grimoire",
+                                "Queue edited field values for review via POST /engine-commits."),
+                            GrimoireEditorStyles.PrimaryButtonStyle,
+                            GUILayout.Height(28)))
+                    {
+                        CommitAsync(document, editable);
+                    }
+                }
+            }
 
             if (!string.IsNullOrEmpty(_error))
             {
@@ -320,76 +437,48 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.Space(2);
         }
 
-        private static async void SyncAsync(ObjectViewDocument document, List<EditableEntry> editable)
+        private static async void CommitAsync(ObjectViewDocument document, List<EditableEntry> editable)
         {
-            await PushUpdatesAsync(document, editable);
-        }
+            _ = document;
+            _ = editable;
 
-        private static async Task<ApiResult<ObjectViewDocument>> PushUpdatesAsync(
-            ObjectViewDocument document, List<EditableEntry> editable)
-        {
-            var objectId = document?.@object?.id;
-            var gameId = GrimoireSettings.GameId;
-            if (string.IsNullOrEmpty(objectId) || string.IsNullOrEmpty(gameId))
+            if (string.IsNullOrWhiteSpace(_commitTitle))
             {
-                _error = "Missing object or game id.";
-                return ApiResult<ObjectViewDocument>.Fail(_error, "missing_parameter");
-            }
-
-            var updates = new List<FieldValueUpdate>();
-            foreach (var entry in editable)
-            {
-                var field = entry.Field;
-                if (!IsDirty(field.id))
-                {
-                    continue;
-                }
-
-                if (field.hints != null && field.hints.read_only)
-                {
-                    continue;
-                }
-
-                if (!GrimoireFieldSync.IsSupportedEditKind(GrimoireFieldSync.ResolveEditKind(field)))
-                {
-                    continue;
-                }
-
-                if (!GrimoireFieldSync.TryBuildStoredValue(field, GetBuffer(field.id), out var value, out var error))
-                {
-                    _error = $"{field.label}: {error}";
-                    return ApiResult<ObjectViewDocument>.Fail(_error, "invalid_value");
-                }
-
-                updates.Add(new FieldValueUpdate { id = field.id, value = value });
-            }
-
-            if (updates.Count == 0)
-            {
-                _statusMessage = "Nothing to sync.";
-                return ApiResult<ObjectViewDocument>.Fail("Nothing to sync.", "missing_parameter");
+                _error = "Enter a commit title before pushing changes.";
+                _statusMessage = null;
+                return;
             }
 
             _syncing = true;
             _error = null;
-            _statusMessage = "Syncing...";
+            _statusMessage = "Queuing commit…";
 
-            var result = await GrimoireFieldSync.PushFieldUpdatesAsync(gameId, objectId, updates);
+            var result = await GrimoireEngineCommit.CommitLoadedFieldsAsync(
+                _commitTitle, _commitDescription);
             _syncing = false;
 
             if (!result.Success)
             {
-                _error = result.Error ?? "Sync failed.";
+                _error = result.Error ?? "Commit failed.";
                 _statusMessage = null;
-                return result;
+                return;
             }
 
-            EnsureBuffers(result.Data);
-            _statusMessage = $"Synced {updates.Count} field{(updates.Count == 1 ? "" : "s")} to Grimoire.";
+            var conflict = GrimoireEngineCommit.FormatConflictSummary(result.Data?.changes);
+            var changeCount = result.Data?.changes?.Length ?? 0;
+            _statusMessage = changeCount == 1
+                ? "Queued 1 change for review in Grimoire."
+                : $"Queued {changeCount} changes for review in Grimoire.";
+            if (!string.IsNullOrEmpty(conflict))
+            {
+                _statusMessage += " " + conflict;
+            }
+
             _error = null;
+            _commitTitle = "";
+            _commitDescription = "";
             GUI.FocusControl(null);
             NotifyDirtyChanged();
-            return result;
         }
 
         private static void EnsureBuffers(ObjectViewDocument document)

@@ -6,8 +6,9 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Sync tab: lists pending game_engine_data and editable-field changes for
-    /// the selected linked object and for every other dirty linked object.
+    /// Sync tab: lists pending game_engine_data and editable-field changes and
+    /// commits them through <c>POST /api/v1/engine-commits</c> with a title and
+    /// optional description for review in Grimoire.
     /// </summary>
     public class GrimoireSyncPanel
     {
@@ -17,6 +18,8 @@ namespace Grimoire.PluginV2.Editor
         private bool _busy;
         private string _status;
         private string _error;
+        private string _commitTitle = "";
+        private string _commitDescription = "";
         private int _opGeneration;
 
         public event Action RepaintNeeded;
@@ -48,7 +51,7 @@ namespace Grimoire.PluginV2.Editor
             var entries = BuildEntries(out var selectedEntry, out var others);
             var dirtyTotal = CountDirtyEntries(entries);
 
-            DrawToolbar(selectedEntry, dirtyTotal);
+            DrawCommitForm(selectedEntry, dirtyTotal);
 
             if (!string.IsNullOrEmpty(_error))
             {
@@ -98,26 +101,53 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndScrollView();
         }
 
-        private void DrawToolbar(SyncEntry selectedEntry, int dirtyTotal)
+        private void DrawCommitForm(SyncEntry selectedEntry, int dirtyTotal)
         {
             var selectedDirty = selectedEntry != null && selectedEntry.IsDirty;
+            var canCommit = dirtyTotal > 0 || selectedDirty;
 
+            EditorGUILayout.LabelField("Commit", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(
+                "Pushes a titled batch to Grimoire for review (POST /engine-commits). " +
+                "Values are not applied until accepted on the Engine Sync tab.",
+                GrimoireEditorStyles.MiniSecondaryStyle);
+
+            using (new EditorGUI.DisabledScope(_busy || !canCommit))
+            {
+                _commitTitle = EditorGUILayout.TextField(
+                    new GUIContent("Title", "Required. Shown to the reviewer."),
+                    _commitTitle ?? "");
+                EditorGUILayout.LabelField("Description (optional)", GrimoireEditorStyles.MiniSecondaryStyle);
+                _commitDescription = EditorGUILayout.TextArea(
+                    _commitDescription ?? "",
+                    GUILayout.MinHeight(48));
+            }
+
+            EditorGUILayout.Space(4);
             EditorGUILayout.BeginHorizontal();
 
-            using (new EditorGUI.DisabledScope(_busy || !selectedDirty))
+            var titleReady = !string.IsNullOrWhiteSpace(_commitTitle);
+            using (new EditorGUI.DisabledScope(_busy || !selectedDirty || !titleReady))
             {
-                if (GUILayout.Button("Sync selected", GrimoireEditorStyles.PrimaryButtonStyle, GUILayout.Height(28)))
+                if (GUILayout.Button(
+                        new GUIContent(
+                            "Commit selected",
+                            "Queue the selected object's pending changes for review."),
+                        GrimoireEditorStyles.PrimaryButtonStyle,
+                        GUILayout.Height(28)))
                 {
-                    SyncAsync(new[] { selectedEntry });
+                    CommitAsync(new[] { selectedEntry });
                 }
             }
 
-            using (new EditorGUI.DisabledScope(_busy || dirtyTotal == 0))
+            using (new EditorGUI.DisabledScope(_busy || dirtyTotal == 0 || !titleReady))
             {
-                var label = dirtyTotal == 0 ? "Sync all" : $"Sync all ({dirtyTotal})";
-                if (GUILayout.Button(label, GUILayout.Height(28)))
+                var label = dirtyTotal == 0 ? "Commit all" : $"Commit all ({dirtyTotal})";
+                if (GUILayout.Button(
+                        new GUIContent(label, "Queue every pending change as one commit."),
+                        GUILayout.Height(28)))
                 {
-                    SyncAllDirty();
+                    CommitAllDirty();
                 }
             }
 
@@ -252,13 +282,19 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUIUtility.PingObject(change.Link.gameObject);
             }
 
+            var titleReady = !string.IsNullOrWhiteSpace(_commitTitle);
+            using (new EditorGUI.DisabledScope(_busy || !entry.IsDirty || !titleReady))
+            {
+                if (GUILayout.Button(
+                        new GUIContent("Commit", "Queue this object's pending changes for review."),
+                        GUILayout.Width(70)))
+                {
+                    CommitAsync(new[] { entry });
+                }
+            }
+
             using (new EditorGUI.DisabledScope(_busy || !entry.IsDirty))
             {
-                if (GUILayout.Button("Sync", GUILayout.Width(70)))
-                {
-                    SyncAsync(new[] { entry });
-                }
-
                 if (GUILayout.Button(
                         new GUIContent(
                             "Reset",
@@ -500,9 +536,9 @@ namespace Grimoire.PluginV2.Editor
             return count + 1;
         }
 
-        private void SyncAllDirty()
+        private void CommitAllDirty()
         {
-            SyncAsync(CollectDirtyEntries());
+            CommitAsync(CollectDirtyEntries());
         }
 
         private void ResetAllDirty()
@@ -523,79 +559,71 @@ namespace Grimoire.PluginV2.Editor
             return dirty;
         }
 
-        private async void SyncAsync(IReadOnlyList<SyncEntry> entries)
+        private async void CommitAsync(IReadOnlyList<SyncEntry> entries)
         {
             if (_busy || entries == null || entries.Count == 0)
             {
                 return;
             }
 
+            if (string.IsNullOrWhiteSpace(_commitTitle))
+            {
+                _error = "Enter a commit title before pushing changes.";
+                _status = null;
+                RequestRepaint();
+                return;
+            }
+
             var generation = ++_opGeneration;
             _busy = true;
             _error = null;
-            _status = $"Syncing 0/{entries.Count}…";
+            _status = "Building commit…";
             RequestRepaint();
 
-            await GrimoireAuthSession.EnsureFreshTokenAsync();
-
-            var ok = 0;
-            var failed = 0;
-            string lastError = null;
-
-            for (var i = 0; i < entries.Count; i++)
+            var links = new List<GrimoireObjectLink>(entries.Count);
+            foreach (var entry in entries)
             {
-                if (generation != _opGeneration)
+                if (entry?.Link != null && entry.IsDirty)
                 {
-                    return;
-                }
-
-                var entry = entries[i];
-                if (entry?.Link == null)
-                {
-                    continue;
-                }
-
-                _status = $"Syncing {i + 1}/{entries.Count}: {entry.Link.gameObject.name}…";
-                RequestRepaint();
-
-                var objectOk = true;
-
-                if (entry.EngineDirty)
-                {
-                    var result = await GrimoireGameEngineSync.UpsertAsync(entry.Link);
-                    if (!result.Success)
-                    {
-                        objectOk = false;
-                        lastError = result.Error;
-                    }
-                }
-
-                if (entry.FieldsDirty)
-                {
-                    var result = await GrimoireEditableFieldsRenderer.SyncDirtyFieldsAsync();
-                    if (!result.Success)
-                    {
-                        objectOk = false;
-                        lastError = result.Error;
-                    }
-                }
-
-                if (objectOk)
-                {
-                    ok++;
-                }
-                else
-                {
-                    failed++;
+                    links.Add(entry.Link);
                 }
             }
+
+            var result = await GrimoireEngineCommit.CommitAsync(
+                _commitTitle,
+                _commitDescription,
+                links,
+                includeEngineData: true,
+                includeEditableFields: true);
 
             if (generation != _opGeneration)
             {
                 return;
             }
 
-            FinishBatch(ok, failed, lastError, "Synced");
+            _busy = false;
+            if (!result.Success)
+            {
+                _status = null;
+                _error = result.Error ?? "Commit failed.";
+                RequestRepaint();
+                return;
+            }
+
+            var changeCount = result.Data?.changes?.Length ?? 0;
+            var conflict = GrimoireEngineCommit.FormatConflictSummary(result.Data?.changes);
+            _status = changeCount == 1
+                ? "Queued 1 change for review in Grimoire."
+                : $"Queued {changeCount} changes for review in Grimoire.";
+            if (!string.IsNullOrEmpty(conflict))
+            {
+                _status += " " + conflict;
+            }
+
+            _error = null;
+            _commitTitle = "";
+            _commitDescription = "";
+            RequestRepaint();
         }
 
         private async void ResetAsync(IReadOnlyList<SyncEntry> entries)

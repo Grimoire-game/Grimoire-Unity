@@ -289,65 +289,113 @@ namespace Grimoire.PluginV2.Editor
             Mathf.Abs(Mathf.DeltaAngle(a.z, b.z)) <= Epsilon;
 
         /// <summary>
-        /// Resolve the linked object if needed, then upsert this instance into
-        /// <c>game_engine_data</c> according to the link's sync toggles.
+        /// Resolve the linked object if needed, then queue an upsert of this
+        /// instance into <c>game_engine_data</c> for review (single-object
+        /// commit via PATCH). Prefer <see cref="GrimoireEngineCommit"/> when
+        /// the user is committing titled batches from the Sync tab.
         /// </summary>
-        public static async Task<ApiResult<ObjectViewDocument>> UpsertAsync(GrimoireObjectLink link)
+        public static async Task<ApiResult<EngineCommitQueuedData>> UpsertAsync(
+            GrimoireObjectLink link, string title = null, string description = null)
         {
             if (link == null)
             {
-                return ApiResult<ObjectViewDocument>.Fail("No Grimoire Object Link.", "missing_link");
+                return ApiResult<EngineCommitQueuedData>.Fail("No Grimoire Object Link.", "missing_link");
             }
 
             if (!GrimoireSettings.IsConfigured)
             {
-                return ApiResult<ObjectViewDocument>.Fail(
+                return ApiResult<EngineCommitQueuedData>.Fail(
                     "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).",
                     "not_configured");
             }
 
             if (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))
             {
-                return ApiResult<ObjectViewDocument>.Fail("No Grimoire object linked.", "missing_key");
+                return ApiResult<EngineCommitQueuedData>.Fail("No Grimoire object linked.", "missing_key");
             }
 
             await GrimoireAuthSession.EnsureFreshTokenAsync();
 
             var gameId = GrimoireSettings.GameId;
+            var built = await BuildUpsertedGameEngineDataAsync(link);
+            if (!built.Success)
+            {
+                return ApiResult<EngineCommitQueuedData>.Fail(built.Error, built.Code, built.HttpStatus);
+            }
+
             var objectId = await ResolveObjectIdAsync(link, gameId);
             if (!objectId.Success)
             {
-                return ApiResult<ObjectViewDocument>.Fail(objectId.Error, objectId.Code, objectId.HttpStatus);
+                return ApiResult<EngineCommitQueuedData>.Fail(objectId.Error, objectId.Code, objectId.HttpStatus);
             }
 
-            var current = await GrimoireApiClient.GetObjectViewAsync(gameId, objectId.Data, GrimoireSettings.Locale);
-            if (!current.Success)
-            {
-                return ApiResult<ObjectViewDocument>.Fail(current.Error, current.Code, current.HttpStatus);
-            }
-
-            var engineInstanceId = GetEngineInstanceId(link.gameObject);
-            var scene = GetSceneName(link.gameObject);
-            var existing = FindInstance(current.Data?.game_engine_data, engineInstanceId, scene);
-            var built = BuildInstance(link, existing, engineInstanceId, scene);
-
-            var next = UpsertInstance(current.Data?.game_engine_data, built);
-            var patched = await GrimoireApiClient.PatchObjectGameEngineDataAsync(gameId, objectId.Data, next);
+            var commitTitle = string.IsNullOrWhiteSpace(title)
+                ? $"Unity: {link.gameObject.name}"
+                : title;
+            var patched = await GrimoireApiClient.PatchObjectGameEngineDataAsync(
+                gameId, objectId.Data, built.Data, commitTitle, description);
             if (patched.Success)
             {
                 GrimoireGameEngineDirtyTracker.MarkClean(link);
-                DocumentUpdated?.Invoke(patched.Data);
             }
 
             return patched;
         }
 
         /// <summary>
+        /// Build the full <c>game_engine_data</c> array after upserting this
+        /// scene instance (does not POST). Used by engine commits.
+        /// </summary>
+        public static async Task<ApiResult<GameEngineInstance[]>> BuildUpsertedGameEngineDataAsync(
+            GrimoireObjectLink link)
+        {
+            if (link == null)
+            {
+                return ApiResult<GameEngineInstance[]>.Fail("No Grimoire Object Link.", "missing_link");
+            }
+
+            if (!GrimoireSettings.IsConfigured)
+            {
+                return ApiResult<GameEngineInstance[]>.Fail(
+                    "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).",
+                    "not_configured");
+            }
+
+            if (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))
+            {
+                return ApiResult<GameEngineInstance[]>.Fail("No Grimoire object linked.", "missing_key");
+            }
+
+            var gameId = GrimoireSettings.GameId;
+            var objectId = await ResolveObjectIdAsync(link, gameId);
+            if (!objectId.Success)
+            {
+                return ApiResult<GameEngineInstance[]>.Fail(objectId.Error, objectId.Code, objectId.HttpStatus);
+            }
+
+            var current = await GrimoireApiClient.GetObjectViewAsync(gameId, objectId.Data, GrimoireSettings.Locale);
+            if (!current.Success)
+            {
+                return ApiResult<GameEngineInstance[]>.Fail(current.Error, current.Code, current.HttpStatus);
+            }
+
+            var engineInstanceId = GetEngineInstanceId(link.gameObject);
+            var scene = GetSceneName(link.gameObject);
+            var existing = FindInstance(current.Data?.game_engine_data, engineInstanceId, scene);
+            var built = BuildInstance(link, existing, engineInstanceId, scene);
+            return ApiResult<GameEngineInstance[]>.Ok(UpsertInstance(current.Data?.game_engine_data, built));
+        }
+
+        public static Task<ApiResult<string>> ResolveObjectIdForCommitAsync(
+            GrimoireObjectLink link, string gameId) =>
+            ResolveObjectIdAsync(link, gameId);
+
+        /// <summary>
         /// Remove this Unity instance from the linked object's
         /// <c>game_engine_data</c>. Uses <paramref name="identity"/> when the
         /// component can no longer supply live Transform / id data.
         /// </summary>
-        public static async Task<ApiResult<ObjectViewDocument>> RemoveAsync(
+        public static async Task<ApiResult<EngineCommitQueuedData>> RemoveAsync(
             GrimoireObjectLink link, LinkIdentity? identity = null)
         {
             var snap = identity ?? (link != null ? CaptureIdentity(link) : default);
@@ -356,14 +404,14 @@ namespace Grimoire.PluginV2.Editor
                 string.IsNullOrEmpty(snap.ObjectId) ||
                 string.IsNullOrEmpty(snap.EngineInstanceId))
             {
-                return ApiResult<ObjectViewDocument>.Fail(
+                return ApiResult<EngineCommitQueuedData>.Fail(
                     "Nothing to remove from game_engine_data.",
                     "missing_identity");
             }
 
             if (!GrimoireAuthSession.IsSignedIn)
             {
-                return ApiResult<ObjectViewDocument>.Fail(
+                return ApiResult<EngineCommitQueuedData>.Fail(
                     "Not signed in. Sign in with your Grimoire account first.",
                     "missing_credentials");
             }
@@ -374,29 +422,34 @@ namespace Grimoire.PluginV2.Editor
                 snap.GameId, snap.ObjectId, GrimoireSettings.Locale);
             if (!current.Success)
             {
-                return ApiResult<ObjectViewDocument>.Fail(current.Error, current.Code, current.HttpStatus);
+                return ApiResult<EngineCommitQueuedData>.Fail(current.Error, current.Code, current.HttpStatus);
             }
 
             var existing = current.Data?.game_engine_data;
             if (existing == null || existing.Length == 0)
             {
-                return ApiResult<ObjectViewDocument>.Ok(current.Data);
+                return ApiResult<EngineCommitQueuedData>.Ok(new EngineCommitQueuedData
+                {
+                    status = "pending",
+                    changes = Array.Empty<EngineCommitChangeResult>(),
+                });
             }
 
             var next = RemoveInstance(existing, snap.EngineInstanceId, snap.Scene);
             if (next.Length == existing.Length)
             {
-                return ApiResult<ObjectViewDocument>.Ok(current.Data);
+                return ApiResult<EngineCommitQueuedData>.Ok(new EngineCommitQueuedData
+                {
+                    status = "pending",
+                    changes = Array.Empty<EngineCommitChangeResult>(),
+                });
             }
 
-            var patched = await GrimoireApiClient.PatchObjectGameEngineDataAsync(
-                snap.GameId, snap.ObjectId, next.Length == 0 ? null : next);
-            if (patched.Success)
-            {
-                DocumentUpdated?.Invoke(patched.Data);
-            }
-
-            return patched;
+            var title = link != null
+                ? $"Unity: unlink {link.gameObject.name}"
+                : "Unity: remove scene instance";
+            return await GrimoireApiClient.PatchObjectGameEngineDataAsync(
+                snap.GameId, snap.ObjectId, next.Length == 0 ? null : next, title);
         }
 
         private static async Task<ApiResult<string>> ResolveObjectIdAsync(GrimoireObjectLink link, string gameId)
