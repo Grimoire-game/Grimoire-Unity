@@ -95,22 +95,24 @@ project.
 
 ### Export tab (optional)
 
-Use the **Export** tab in Grimoire Connect (or `Window > Grimoire > Export Importer`)
+Use the **Versions** tab in Grimoire Connect (or `Window > Grimoire > Export Importer`)
 to list Unity export versions for the selected game, download a ZIP, and extract
-it to `Assets/Grimoire/`.
+it to `Assets/Grimoire/`. Then use the **Runtime** tab (next to Versions) to finish
+setup and inspect live values.
 
-After an import:
+### Runtime tab (optional)
 
-1. Add **Grimoire > Grimoire Bootstrap** to a GameObject in your first scene to
-   initialize language, variables, objects, and logic from the generated C#.
-2. Optionally add **Grimoire > Grimoire Session Tracker** to stream playthrough
-   events to the platform.
-3. Open `Window > Grimoire > Database Browser` to explore the imported C# data.
-4. In Play Mode, open `Window > Grimoire > Runtime Inspector` to inspect live
-   variables, objects, dialogs, and logic.
+After importing a Unity export from **Versions**, open the **Runtime** tab:
 
-Projects that only use Connect can ignore this entirely—no export folder or
-Bootstrap component is required.
+1. Use **Add to scene** for Bootstrap (required) and Session Tracker (optional).
+2. Paste a playthrough session ID if you want events streamed to the platform.
+3. Press **Play** — live variables, objects, dialogs, and logic appear in the same tab.
+
+`Window > Grimoire > Runtime Inspector` opens Connect on this tab.
+`Window > Grimoire > Database Browser` explores the imported C# data.
+
+Projects that only use Connect can ignore Versions and Runtime entirely—no export
+folder or Bootstrap component is required.
 
 ## API endpoints used
 

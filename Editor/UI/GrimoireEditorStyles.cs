@@ -188,7 +188,7 @@ namespace Grimoire.PluginV2.Editor
             for (var i = 0; i < labels.Length; i++)
             {
                 var style = i == selected ? _tabActiveStyle : _tabInactiveStyle;
-                if (GUILayout.Button(labels[i], style, GUILayout.MinWidth(88)))
+                if (GUILayout.Button(labels[i], style, GUILayout.MinWidth(72), GUILayout.MaxWidth(120)))
                 {
                     selected = i;
                 }

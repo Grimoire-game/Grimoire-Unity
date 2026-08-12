@@ -5,7 +5,8 @@ namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
     /// Grimoire Connect: sign in, pick company and game, then browse tasks,
-    /// scene links, inspect objects, sync game engine data, or download exports.
+    /// scene links, inspect objects, sync game engine data, download exports,
+    /// or inspect live runtime values.
     /// </summary>
     public class GrimoireConnectWindow : EditorWindow
     {
@@ -14,6 +15,7 @@ namespace Grimoire.PluginV2.Editor
         private const int TabObject = 2;
         private const int TabSync = 3;
         private const int TabExport = 4;
+        private const int TabRuntime = 5;
 
         private const int ObjectTabInfo = 0;
         private const int ObjectTabEditable = 1;
@@ -41,12 +43,13 @@ namespace Grimoire.PluginV2.Editor
         private GrimoireScenePanel _scenePanel;
         private GrimoireSyncPanel _syncPanel;
         private GrimoireExportPanel _exportPanel;
+        private GrimoireRuntimePanel _runtimePanel;
 
         [MenuItem("Window/Grimoire/Grimoire Connect")]
         public static void Open()
         {
             var window = GetWindow<GrimoireConnectWindow>("Grimoire Connect");
-            window.minSize = new Vector2(420, 520);
+            window.minSize = new Vector2(560, 520);
             window.Show();
         }
 
@@ -57,6 +60,16 @@ namespace Grimoire.PluginV2.Editor
             var window = GetWindow<GrimoireConnectWindow>();
             window._selectedTab = TabExport;
             window._exportPanel?.Activate();
+            window.Repaint();
+        }
+
+        /// <summary>Open Connect focused on the Runtime tab.</summary>
+        public static void OpenRuntime()
+        {
+            Open();
+            var window = GetWindow<GrimoireConnectWindow>();
+            window._selectedTab = TabRuntime;
+            window._runtimePanel?.Activate();
             window.Repaint();
         }
 
@@ -91,6 +104,10 @@ namespace Grimoire.PluginV2.Editor
             _exportPanel = new GrimoireExportPanel();
             _exportPanel.RepaintNeeded += ScheduleRepaint;
 
+            _runtimePanel = new GrimoireRuntimePanel();
+            _runtimePanel.RepaintNeeded += ScheduleRepaint;
+            _runtimePanel.OpenVersionsRequested += OnOpenVersionsRequested;
+
             Selection.selectionChanged += OnSelectionChanged;
             GrimoireAuthSession.Changed += OnAuthChanged;
             GrimoireSettings.Changed += OnSettingsChanged;
@@ -113,6 +130,10 @@ namespace Grimoire.PluginV2.Editor
             else if (_selectedTab == TabExport)
             {
                 _exportPanel.Activate();
+            }
+            else if (_selectedTab == TabRuntime)
+            {
+                _runtimePanel.Activate();
             }
 
             OnSelectionChanged();
@@ -137,6 +158,15 @@ namespace Grimoire.PluginV2.Editor
             GrimoireEditableFieldsRenderer.Changed -= OnGameEngineDirtyChanged;
             _scenePanel?.Deactivate();
             _syncPanel?.Deactivate();
+            _runtimePanel?.Deactivate();
+        }
+
+        private void OnOpenVersionsRequested()
+        {
+            _selectedTab = TabExport;
+            _runtimePanel?.Deactivate();
+            _exportPanel?.Activate();
+            Repaint();
         }
 
         private void OnGameEngineDirtyChanged()
@@ -468,6 +498,9 @@ namespace Grimoire.PluginV2.Editor
                 case TabExport:
                     DrawExportTab();
                     break;
+                case TabRuntime:
+                    DrawRuntimeTab();
+                    break;
             }
 
             GrimoireEditorStyles.EndContentArea();
@@ -477,7 +510,7 @@ namespace Grimoire.PluginV2.Editor
         {
             var dirty = GrimoireSyncPanel.TotalPendingCount();
             var syncLabel = dirty > 0 ? $"Sync ({dirty})" : "Sync";
-            var labels = new[] { "Tasks", "Scene", "Object", syncLabel, "Versions" };
+            var labels = new[] { "Tasks", "Scene", "Object", syncLabel, "Versions", "Runtime" };
 
             var picked = GrimoireEditorStyles.DrawTabBar(_selectedTab, labels);
             if (picked != _selectedTab)
@@ -489,6 +522,10 @@ namespace Grimoire.PluginV2.Editor
                 else if (_selectedTab == TabScene)
                 {
                     _scenePanel?.Deactivate();
+                }
+                else if (_selectedTab == TabRuntime)
+                {
+                    _runtimePanel?.Deactivate();
                 }
 
                 _selectedTab = picked;
@@ -512,6 +549,10 @@ namespace Grimoire.PluginV2.Editor
                 {
                     _exportPanel?.Activate();
                 }
+                else if (_selectedTab == TabRuntime)
+                {
+                    _runtimePanel?.Activate();
+                }
             }
         }
 
@@ -533,6 +574,11 @@ namespace Grimoire.PluginV2.Editor
         private void DrawExportTab()
         {
             _exportPanel?.Draw();
+        }
+
+        private void DrawRuntimeTab()
+        {
+            _runtimePanel?.Draw();
         }
 
         private void DrawObjectTab()

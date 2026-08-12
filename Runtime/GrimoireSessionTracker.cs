@@ -60,6 +60,26 @@ namespace Grimoire.PluginV2
         // ── Singleton ──────────────────────────────────────────────────────────
         public static GrimoireSessionTracker Instance { get; private set; }
 
+        /// <summary>Playthrough session ID from the Grimoire platform.</summary>
+        public string SessionId
+        {
+            get => _sessionId;
+            set => _sessionId = value ?? "";
+        }
+
+        /// <summary>API base URL used when flushing events.</summary>
+        public string ApiBaseUrl
+        {
+            get => _apiBaseUrl;
+            set => _apiBaseUrl = value ?? "";
+        }
+
+        /// <summary>True while a playthrough session is actively tracking.</summary>
+        public bool IsTracking => _isTracking;
+
+        /// <summary>Human-readable status shown in the editor Runtime tab.</summary>
+        public string StatusText => _status;
+
         // ─────────────────────────────────────────────────────────────────────
         #region Unity lifecycle
 
