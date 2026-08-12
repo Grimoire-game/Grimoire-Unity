@@ -206,7 +206,7 @@ namespace Grimoire.PluginV2.Editor
 
             _tab = (Tab)GUILayout.Toolbar((int)_tab, new[]
             {
-                $"Objects ({_objects.Count(o => o.InScene)}/{_objects.Count})",
+                $"Objects ({_objects.Count})",
                 $"Variables ({_variables.Count})",
                 $"Dialogs ({_dialogs.Count})",
                 $"Logic ({_logicEntries.Count})",
@@ -910,53 +910,24 @@ namespace Grimoire.PluginV2.Editor
             if (_objects.Count == 0)
             {
                 EditorGUILayout.HelpBox(
-                    "No Library object entries found.\n\n" +
-                    "This tab reflects Database.Library data captured when Play started. " +
-                    "Ensure your Grimoire export is imported and contains a Database class with a Library.",
+                    "No Grimoire Object Links found in the loaded scene.\n\n" +
+                    "Add Object Links to GameObjects you use in Play Mode, then press Refresh.",
                     MessageType.Info);
                 return;
             }
 
+            EditorGUILayout.LabelField(
+                $"In play ({_objects.Count})",
+                EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(
+                "Scene Object Links and their adaptable field values.",
+                GrimoireEditorStyles.MiniSecondaryStyle);
+            EditorGUILayout.Space(2);
+
             string filt = NormaliseFilter();
-            var sceneObjects = _objects
-                .Where(o => o.InScene && MatchesFilter(filt, o.Key, o.TypeName, o.SceneObjectName))
-                .OrderBy(o => o.SceneObjectName ?? o.Key)
-                .ToList();
-            var otherObjects = _objects
-                .Where(o => !o.InScene && MatchesFilter(filt, o.Key, o.TypeName))
-                .OrderBy(o => o.Key)
-                .ToList();
-
-            if (sceneObjects.Count > 0)
-            {
-                EditorGUILayout.LabelField(
-                    $"In this scene ({sceneObjects.Count})",
-                    EditorStyles.boldLabel);
-                EditorGUILayout.LabelField(
-                    "Linked GameObjects and their current values.",
-                    GrimoireEditorStyles.MiniSecondaryStyle);
-                EditorGUILayout.Space(2);
-
-                foreach (var obj in sceneObjects)
-                {
-                    DrawObjectEntry(obj);
-                    GUILayout.Space(3);
-                }
-
-                if (otherObjects.Count > 0)
-                {
-                    EditorGUILayout.Space(8);
-                    EditorGUILayout.LabelField(
-                        $"Library ({otherObjects.Count})",
-                        EditorStyles.boldLabel);
-                    EditorGUILayout.LabelField(
-                        "Other Database.Library entries not linked in this scene.",
-                        GrimoireEditorStyles.MiniSecondaryStyle);
-                    EditorGUILayout.Space(2);
-                }
-            }
-
-            foreach (var obj in otherObjects)
+            foreach (var obj in _objects
+                         .Where(o => MatchesFilter(filt, o.Key, o.TypeName, o.SceneObjectName))
+                         .OrderBy(o => o.SceneObjectName ?? o.Key))
             {
                 DrawObjectEntry(obj);
                 GUILayout.Space(3);
@@ -969,67 +940,72 @@ namespace Grimoire.PluginV2.Editor
             bool   exp = _expanded.Contains(id);
 
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.BeginVertical();
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
-            var title = obj.InScene && !string.IsNullOrEmpty(obj.SceneObjectName)
-                ? $"{obj.SceneObjectName}  ·  {obj.Key}  [{obj.TypeName}]"
-                : $"{obj.Key}  [{obj.TypeName}]";
+            var title = !string.IsNullOrEmpty(obj.SceneObjectName)
+                ? $"{obj.SceneObjectName}  ·  {obj.Key}"
+                : obj.Key;
+            if (!string.IsNullOrEmpty(obj.TypeName) && obj.TypeName != "ObjectLink")
+            {
+                title += $"  [{obj.TypeName}]";
+            }
+
             bool newExp = EditorGUILayout.Foldout(exp, title, true);
             ToggleExpanded(id, exp, newExp);
 
             if (newExp)
             {
-                EditorGUI.indentLevel++;
-
-                if (obj.ObjectRuntimeAvailable && obj.EditableFields.Count > 0)
+                if (obj.EditableFields.Count > 0)
                 {
-                    // ── Header row ──────────────────────────────────────────
                     EditorGUILayout.BeginHorizontal();
                     GUILayout.FlexibleSpace();
-                    if (GUILayout.Button("Save", GUILayout.Width(44), GUILayout.Height(16)))
+                    if (obj.ObjectRuntimeAvailable)
                     {
-                        try { _objRtSavePrefs?.Invoke(null, null); } catch { }
-                    }
-                    if (GUILayout.Button("Reset", GUILayout.Width(44), GUILayout.Height(16)))
-                    {
-                        try
+                        if (GUILayout.Button("Save", GUILayout.Width(44), GUILayout.Height(16)))
                         {
-                            _objRtResetItem?.Invoke(null, new object[] { obj.Key });
-                            PopulateEditableFields(obj);
-                            GUI.FocusControl(null);
-                            RequestRepaint();
+                            try { _objRtSavePrefs?.Invoke(null, null); } catch { }
                         }
-                        catch { }
+
+                        if (GUILayout.Button("Reset", GUILayout.Width(44), GUILayout.Height(16)))
+                        {
+                            try
+                            {
+                                _objRtResetItem?.Invoke(null, new object[] { obj.RuntimeKey });
+                                PopulateEditableFields(obj);
+                                GUI.FocusControl(null);
+                                RequestRepaint();
+                            }
+                            catch { }
+                        }
                     }
+
                     EditorGUILayout.EndHorizontal();
 
-                    // ── Editable fields ─────────────────────────────────────
                     foreach (var field in obj.EditableFields)
                         DrawObjectFieldEntry(obj, field);
                 }
-                else
+                else if (obj.Properties.Count > 0)
                 {
-                    // Fallback: read-only property list
                     foreach (var kv in obj.Properties)
                         DrawKeyValue(kv.Key, kv.Value);
                 }
-
-                EditorGUI.indentLevel--;
+                else
+                {
+                    EditorGUILayout.LabelField(
+                        "No adaptable fields found for this object.",
+                        GrimoireEditorStyles.MiniSecondaryStyle);
+                }
             }
 
             EditorGUILayout.EndVertical();
 
-            if (obj.InScene && obj.SceneGameObject != null)
+            if (obj.SceneGameObject != null)
             {
                 if (GUILayout.Button("Ping", GUILayout.Width(44), GUILayout.Height(18)))
                 {
                     EditorGUIUtility.PingObject(obj.SceneGameObject);
                     Selection.activeGameObject = obj.SceneGameObject;
                 }
-            }
-            else if (GUILayout.Button("Copy", GUILayout.Width(44), GUILayout.Height(18)))
-            {
-                EditorGUIUtility.systemCopyBuffer = obj.Key;
             }
 
             EditorGUILayout.EndHorizontal();
@@ -1088,25 +1064,25 @@ namespace Grimoire.PluginV2.Editor
                                 System.Globalization.CultureInfo.InvariantCulture,
                                 out double num))
                         {
-                            _objRtSetNumber?.Invoke(null, new object[] { obj.Key, field.Name, num });
+                            _objRtSetNumber?.Invoke(null, new object[] { obj.RuntimeKey, field.Name, num });
                             field.HasOverride = true;
                         }
                         break;
 
                     case FieldVarKind.String:
-                        _objRtSetString?.Invoke(null, new object[] { obj.Key, field.Name, field.EditBuffer });
+                        _objRtSetString?.Invoke(null, new object[] { obj.RuntimeKey, field.Name, field.EditBuffer });
                         field.HasOverride = true;
                         break;
 
                     case FieldVarKind.Boolean:
                         bool bv = field.EditBuffer == "True";
-                        _objRtSetBool?.Invoke(null, new object[] { obj.Key, field.Name, bv });
+                        _objRtSetBool?.Invoke(null, new object[] { obj.RuntimeKey, field.Name, bv });
                         field.HasOverride = true;
                         break;
 
                     case FieldVarKind.StringArray:
                         string[] arr = ParseStringArray(field.EditBuffer);
-                        _objRtSetStringArray?.Invoke(null, new object[] { obj.Key, field.Name, arr });
+                        _objRtSetStringArray?.Invoke(null, new object[] { obj.RuntimeKey, field.Name, arr });
                         field.HasOverride = true;
                         break;
                 }
@@ -1227,12 +1203,14 @@ namespace Grimoire.PluginV2.Editor
                 ScanSceneComponents(grimoireTypes);
                 ScanVariables(grimoireTypes);
                 ScanDialogs(grimoireTypes);
-                ScanObjects(grimoireTypes);
-                MarkSceneLinkedObjects();
-                ScanLogic(grimoireTypes);
 
-                var sceneCount = _objects.Count(o => o.InScene);
-                _status = $"Snapshot  ·  {sceneCount} in scene  ·  {_objects.Count} objects  ·  " +
+                var library = new List<RuntimeObjectEntry>();
+                ScanObjectsInto(grimoireTypes, library);
+                BuildSceneObjects(library);
+                ScanLogic(grimoireTypes);
+                FilterLogicToSceneObjects();
+
+                _status = $"Snapshot  ·  {_objects.Count} scene objects  ·  " +
                           $"{_variables.Count} vars  ·  {_dialogs.Count} dialogs  ·  {_logicEntries.Count} logic";
                 _statusType = MessageType.Info;
             }
@@ -1372,10 +1350,13 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>
-        /// Tag Library entries that have a matching <see cref="GrimoireObjectLink"/> in the scene.
+        /// Build the Objects list from scene <see cref="GrimoireObjectLink"/>s only,
+        /// resolving adaptable fields via Database.Library + ObjectRuntime.
         /// </summary>
-        private void MarkSceneLinkedObjects()
+        private void BuildSceneObjects(List<RuntimeObjectEntry> library)
         {
+            _objects.Clear();
+
             var links = UnityEngine.Object.FindObjectsOfType<GrimoireObjectLink>(true);
             if (links == null || links.Length == 0)
             {
@@ -1389,42 +1370,150 @@ namespace Grimoire.PluginV2.Editor
                     continue;
                 }
 
-                var key = link.ObjectKey;
-                RuntimeObjectEntry match = null;
-                foreach (var obj in _objects)
+                var objectKey = link.ObjectKey.Trim();
+                var libraryMatch = FindLibraryEntry(library, objectKey);
+
+                var entry = new RuntimeObjectEntry
                 {
-                    if (string.Equals(obj.Key, key, StringComparison.OrdinalIgnoreCase)
-                        || obj.Key.EndsWith("." + key, StringComparison.OrdinalIgnoreCase)
-                        || obj.Key.EndsWith("/" + key, StringComparison.OrdinalIgnoreCase)
-                        || key.EndsWith("/" + obj.Key, StringComparison.OrdinalIgnoreCase)
-                        || key.EndsWith("." + obj.Key, StringComparison.OrdinalIgnoreCase))
+                    Key = objectKey,
+                    RuntimeKey = objectKey,
+                    TypeName = libraryMatch?.TypeName ?? "Template",
+                    LibraryInstance = libraryMatch?.LibraryInstance,
+                    ObjectRuntimeAvailable = _objectRuntimeType != null,
+                    InScene = true,
+                    SceneObjectName = link.gameObject.name,
+                    SceneGameObject = link.gameObject,
+                };
+
+                if (libraryMatch != null)
+                {
+                    foreach (var kv in libraryMatch.Properties)
                     {
-                        match = obj;
-                        break;
+                        entry.Properties[kv.Key] = kv.Value;
                     }
                 }
 
-                if (match == null)
+                PopulateEditableFields(entry);
+
+                // Fall back to cached linked fields when Library template isn't available.
+                if (entry.EditableFields.Count == 0 && link.LinkedFields != null)
                 {
-                    // Still surface the scene link even if Library has no matching entry yet.
-                    match = new RuntimeObjectEntry
-                    {
-                        Key = key,
-                        TypeName = "ObjectLink",
-                        ObjectRuntimeAvailable = _objectRuntimeType != null,
-                    };
-                    _objects.Add(match);
+                    PopulateFieldsFromLinkedFields(entry, link);
                 }
 
-                match.InScene = true;
-                match.SceneObjectName = link.gameObject.name;
-                match.SceneGameObject = link.gameObject;
+                _objects.Add(entry);
+            }
 
-                if (match.ObjectRuntimeAvailable && match.LibraryInstance != null)
+            _objects.Sort((a, b) => string.Compare(
+                a.SceneObjectName ?? a.Key,
+                b.SceneObjectName ?? b.Key,
+                StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static RuntimeObjectEntry FindLibraryEntry(
+            List<RuntimeObjectEntry> library,
+            string objectKey)
+        {
+            if (library == null || library.Count == 0 || string.IsNullOrEmpty(objectKey))
+            {
+                return null;
+            }
+
+            foreach (var candidate in library)
+            {
+                if (KeysMatch(objectKey, candidate.Key))
                 {
-                    PopulateEditableFields(match);
+                    return candidate;
+                }
+
+                if (candidate.Properties != null
+                    && candidate.Properties.TryGetValue("__libraryPath", out var path)
+                    && KeysMatch(objectKey, path))
+                {
+                    return candidate;
                 }
             }
+
+            // Last-segment match (playerhouse/interactables_bed ↔ …interactables_bed).
+            var needle = LastKeySegment(objectKey);
+            RuntimeObjectEntry segmentMatch = null;
+            var ambiguous = false;
+            foreach (var candidate in library)
+            {
+                if (!string.Equals(LastKeySegment(candidate.Key), needle, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (segmentMatch != null)
+                {
+                    ambiguous = true;
+                    break;
+                }
+
+                segmentMatch = candidate;
+            }
+
+            return ambiguous ? null : segmentMatch;
+        }
+
+        private static bool KeysMatch(string objectKey, string libraryKey)
+        {
+            if (string.IsNullOrEmpty(objectKey) || string.IsNullOrEmpty(libraryKey))
+            {
+                return false;
+            }
+
+            if (string.Equals(objectKey, libraryKey, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var a = NormalizeKey(objectKey);
+            var b = NormalizeKey(libraryKey);
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return b.EndsWith("/" + a, StringComparison.OrdinalIgnoreCase)
+                   || a.EndsWith("/" + b, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeKey(string key) =>
+            (key ?? "").Replace('\\', '/').Replace('.', '/').Trim('/');
+
+        private static string LastKeySegment(string key)
+        {
+            var normalized = NormalizeKey(key);
+            var slash = normalized.LastIndexOf('/');
+            return slash >= 0 ? normalized.Substring(slash + 1) : normalized;
+        }
+
+        private void FilterLogicToSceneObjects()
+        {
+            if (_logicEntries.Count == 0 || _objects.Count == 0)
+            {
+                _logicEntries.Clear();
+                return;
+            }
+
+            _logicEntries.RemoveAll(entry =>
+            {
+                foreach (var obj in _objects)
+                {
+                    if (KeysMatch(obj.Key, entry.ObjectKey)
+                        || string.Equals(
+                            LastKeySegment(obj.Key),
+                            LastKeySegment(entry.ObjectKey),
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            });
         }
 
         // ── Variables ─────────────────────────────────────────────────────
@@ -1867,7 +1956,7 @@ namespace Grimoire.PluginV2.Editor
 
         // ── Objects ───────────────────────────────────────────────────────
 
-        private void ScanObjects(List<Type> grimoireTypes)
+        private void ScanObjectsInto(List<Type> grimoireTypes, List<RuntimeObjectEntry> destination)
         {
             // Find the main Database static class
             var dbType = grimoireTypes.FirstOrDefault(t =>
@@ -1881,7 +1970,7 @@ namespace Grimoire.PluginV2.Editor
             var libraryNested = dbType.GetNestedType("Library", BindingFlags.Public | BindingFlags.NonPublic);
             if (libraryNested != null)
             {
-                ScanLibraryType(libraryNested, dbType.Name + ".Library");
+                ScanLibraryType(libraryNested, dbType.Name + ".Library", destination);
                 return;
             }
 
@@ -1895,6 +1984,7 @@ namespace Grimoire.PluginV2.Editor
                     var entry  = new RuntimeObjectEntry
                     {
                         Key      = key,
+                        RuntimeKey = key,
                         TypeName = kvp.Value?.GetType().Name ?? "unknown"
                     };
 
@@ -1903,11 +1993,8 @@ namespace Grimoire.PluginV2.Editor
 
                     entry.LibraryInstance        = kvp.Value;
                     entry.ObjectRuntimeAvailable = _objectRuntimeType != null;
-                    PopulateEditableFields(entry);
-                    _objects.Add(entry);
+                    destination.Add(entry);
                 }
-
-                _objects.Sort((a, b) => string.Compare(a.Key, b.Key, StringComparison.OrdinalIgnoreCase));
             }
         }
 
@@ -1918,13 +2005,18 @@ namespace Grimoire.PluginV2.Editor
 
             var instance = entry.LibraryInstance;
             var type     = instance.GetType();
+            var runtimeKey = string.IsNullOrEmpty(entry.RuntimeKey) ? entry.Key : entry.RuntimeKey;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            void AddField(string name, FieldVarKind kind, Func<object> readDefault)
             {
-                if (!TryGetFieldVarKind(field.FieldType, out var kind)) continue;
+                if (string.IsNullOrEmpty(name) || !seen.Add(name))
+                {
+                    return;
+                }
 
                 string rawValue = "";
-                bool   hasOverride = false;
+                bool hasOverride = false;
 
                 if (entry.ObjectRuntimeAvailable && _objRtGetNumber != null)
                 {
@@ -1932,34 +2024,135 @@ namespace Grimoire.PluginV2.Editor
                     {
                         rawValue = kind switch
                         {
-                            FieldVarKind.Number      => ((double)_objRtGetNumber.Invoke(null, new object[] { entry.Key, field.Name, 0.0 })).ToString("G"),
-                            FieldVarKind.Boolean     => ((bool)_objRtGetBool.Invoke(null, new object[] { entry.Key, field.Name, false })).ToString(),
+                            FieldVarKind.Number => ((double)_objRtGetNumber.Invoke(null, new object[] { runtimeKey, name, 0.0 })).ToString("G"),
+                            FieldVarKind.Boolean => ((bool)_objRtGetBool.Invoke(null, new object[] { runtimeKey, name, false })).ToString(),
                             FieldVarKind.StringArray => _objRtGetStringArray != null
-                                ? string.Join(", ", (string[])_objRtGetStringArray.Invoke(null, new object[] { entry.Key, field.Name }))
-                                : FormatStringArray((string[])field.GetValue(instance)),
-                            _                        => (string)_objRtGetString.Invoke(null, new object[] { entry.Key, field.Name, "" })
+                                ? string.Join(", ", (string[])_objRtGetStringArray.Invoke(null, new object[] { runtimeKey, name }))
+                                : FormatStringArray(readDefault() as string[]),
+                            _ => (string)_objRtGetString.Invoke(null, new object[] { runtimeKey, name, "" })
                         };
                         if (_objRtHasOverride != null)
-                            hasOverride = (bool)_objRtHasOverride.Invoke(null, new object[] { entry.Key, field.Name });
+                        {
+                            hasOverride = (bool)_objRtHasOverride.Invoke(null, new object[] { runtimeKey, name });
+                        }
                     }
-                    catch { rawValue = field.GetValue(instance)?.ToString() ?? ""; }
+                    catch
+                    {
+                        var fallback = readDefault();
+                        rawValue = kind == FieldVarKind.StringArray
+                            ? FormatStringArray(fallback as string[])
+                            : fallback?.ToString() ?? "";
+                    }
                 }
                 else
                 {
-                    if (kind == FieldVarKind.StringArray)
-                        rawValue = FormatStringArray((string[])field.GetValue(instance));
-                    else
-                        rawValue = field.GetValue(instance)?.ToString() ?? "";
+                    var fallback = readDefault();
+                    rawValue = kind == FieldVarKind.StringArray
+                        ? FormatStringArray(fallback as string[])
+                        : fallback?.ToString() ?? "";
                 }
 
                 entry.EditableFields.Add(new RuntimeObjectField
                 {
-                    Name        = field.Name,
-                    Kind        = kind,
-                    EditBuffer  = rawValue,
+                    Name = name,
+                    Kind = kind,
+                    EditBuffer = rawValue ?? "",
                     HasOverride = hasOverride
                 });
             }
+
+            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!TryGetFieldVarKind(field.FieldType, out var kind)) continue;
+                AddField(field.Name, kind, () => field.GetValue(instance));
+            }
+
+            foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!prop.CanRead || prop.GetIndexParameters().Length > 0) continue;
+                if (!TryGetFieldVarKind(prop.PropertyType, out var kind)) continue;
+                AddField(prop.Name, kind, () =>
+                {
+                    try { return prop.GetValue(instance); }
+                    catch { return null; }
+                });
+            }
+        }
+
+        private void PopulateFieldsFromLinkedFields(RuntimeObjectEntry entry, GrimoireObjectLink link)
+        {
+            foreach (var linked in link.LinkedFields)
+            {
+                if (linked == null || linked.ReadOnly)
+                {
+                    continue;
+                }
+
+                var name = !string.IsNullOrEmpty(linked.Label) ? linked.Label : linked.FieldId;
+                if (string.IsNullOrEmpty(name))
+                {
+                    continue;
+                }
+
+                var kind = MapLinkedFieldKind(linked);
+                var runtimeKey = entry.RuntimeKey;
+                var rawValue = linked.LocalValue ?? "";
+                var hasOverride = false;
+
+                // Prefer live ObjectRuntime value when the label matches a field name.
+                if (entry.ObjectRuntimeAvailable && !string.IsNullOrEmpty(linked.Label))
+                {
+                    try
+                    {
+                        rawValue = kind switch
+                        {
+                            FieldVarKind.Number => _objRtGetNumber != null
+                                ? ((double)_objRtGetNumber.Invoke(null, new object[] { runtimeKey, linked.Label, 0.0 })).ToString("G")
+                                : rawValue,
+                            FieldVarKind.Boolean => _objRtGetBool != null
+                                ? ((bool)_objRtGetBool.Invoke(null, new object[] { runtimeKey, linked.Label, false })).ToString()
+                                : rawValue,
+                            FieldVarKind.StringArray => _objRtGetStringArray != null
+                                ? string.Join(", ", (string[])_objRtGetStringArray.Invoke(null, new object[] { runtimeKey, linked.Label }))
+                                : rawValue,
+                            _ => _objRtGetString != null
+                                ? (string)_objRtGetString.Invoke(null, new object[] { runtimeKey, linked.Label, rawValue })
+                                : rawValue
+                        };
+                        if (_objRtHasOverride != null)
+                        {
+                            hasOverride = (bool)_objRtHasOverride.Invoke(null, new object[] { runtimeKey, linked.Label });
+                        }
+                    }
+                    catch
+                    {
+                        rawValue = linked.LocalValue ?? "";
+                    }
+                }
+
+                entry.EditableFields.Add(new RuntimeObjectField
+                {
+                    Name = name,
+                    Kind = kind,
+                    EditBuffer = rawValue ?? "",
+                    HasOverride = hasOverride
+                });
+            }
+        }
+
+        private static FieldVarKind MapLinkedFieldKind(GrimoireLinkedField linked)
+        {
+            var kind = (linked.Kind ?? "").Trim().ToLowerInvariant();
+            var type = (linked.FieldType ?? "").Trim().ToLowerInvariant();
+            if (kind.Contains("bool") || type.Contains("bool")) return FieldVarKind.Boolean;
+            if (kind.Contains("number") || kind.Contains("int") || kind.Contains("float")
+                || type.Contains("number") || type.Contains("int") || type.Contains("float"))
+            {
+                return FieldVarKind.Number;
+            }
+
+            if (type.Contains("array") || kind.Contains("array")) return FieldVarKind.StringArray;
+            return FieldVarKind.String;
         }
 
         private static bool TryGetFieldVarKind(Type t, out FieldVarKind kind)
@@ -2000,7 +2193,7 @@ namespace Grimoire.PluginV2.Editor
             return result.ToArray();
         }
 
-        private void ScanLibraryType(Type type, string pathPrefix)
+        private void ScanLibraryType(Type type, string pathPrefix, List<RuntimeObjectEntry> destination)
         {
             foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static))
             {
@@ -2012,15 +2205,29 @@ namespace Grimoire.PluginV2.Editor
 
                     var entry = new RuntimeObjectEntry
                     {
-                        Key      = pathPrefix + "." + field.Name,
+                        Key      = field.Name,
+                        RuntimeKey = field.Name,
                         TypeName = field.FieldType.Name
                     };
+
+                    // Prefer Template.Key / Id when present — matches ObjectLink object keys.
+                    var templateKey = ReadStringMember(val, "Key")
+                                      ?? ReadStringMember(val, "Id")
+                                      ?? ReadStringMember(val, "CodeId")
+                                      ?? field.Name;
+                    entry.Key = templateKey;
+                    entry.RuntimeKey = templateKey;
 
                     CollectPublicMembers(val, entry.Properties);
                     entry.LibraryInstance        = val;
                     entry.ObjectRuntimeAvailable = _objectRuntimeType != null;
-                    PopulateEditableFields(entry);
-                    _objects.Add(entry);
+                    // Also index under the static path for fuzzy matching.
+                    if (!string.Equals(pathPrefix + "." + field.Name, templateKey, StringComparison.Ordinal))
+                    {
+                        entry.Properties["__libraryPath"] = pathPrefix + "." + field.Name;
+                    }
+
+                    destination.Add(entry);
                 }
                 catch { }
             }
@@ -2028,7 +2235,7 @@ namespace Grimoire.PluginV2.Editor
             foreach (var nested in type.GetNestedTypes(BindingFlags.Public))
             {
                 if (nested.IsAbstract && nested.IsSealed)
-                    ScanLibraryType(nested, pathPrefix + "." + nested.Name);
+                    ScanLibraryType(nested, pathPrefix + "." + nested.Name, destination);
             }
         }
 
@@ -2199,6 +2406,8 @@ namespace Grimoire.PluginV2.Editor
         private sealed class RuntimeObjectEntry
         {
             public string Key;
+            /// <summary>Key passed to ObjectRuntime getters/setters (ObjectLink object key).</summary>
+            public string RuntimeKey;
             public string TypeName;
             public object LibraryInstance;    // the Template object from Database.Library
             public bool   ObjectRuntimeAvailable;
