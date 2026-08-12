@@ -19,9 +19,9 @@ namespace Grimoire.PluginV2.Editor
 
         private const int ObjectTabInfo = 0;
         private const int ObjectTabEditable = 1;
-        private const int ObjectTabGameEngine = 2;
+        private const int ObjectTabTasks = 2;
 
-        private static readonly string[] ObjectTabLabels = { "Info", "Editable", "Game Engine Data" };
+        private static readonly string[] ObjectTabLabels = { "Info", "Editable", "Tasks" };
 
         private GrimoireObjectLink _link;
         private ObjectViewDocument _document;
@@ -31,7 +31,7 @@ namespace Grimoire.PluginV2.Editor
         private bool _settingsOpen;
         private Vector2 _objectScroll;
         private Vector2 _editableScroll;
-        private Vector2 _gameEngineScroll;
+        private Vector2 _objectTasksScroll;
         private int _selectedTab;
         private int _selectedObjectTab;
 
@@ -621,8 +621,8 @@ namespace Grimoire.PluginV2.Editor
                 case ObjectTabEditable:
                     DrawObjectEditableTab();
                     break;
-                case ObjectTabGameEngine:
-                    DrawObjectGameEngineTab();
+                case ObjectTabTasks:
+                    DrawObjectTasksTab();
                     break;
             }
         }
@@ -665,7 +665,7 @@ namespace Grimoire.PluginV2.Editor
             _objectScroll = EditorGUILayout.BeginScrollView(_objectScroll);
 
             GrimoireObjectViewRenderer.Draw(_document);
-            _objectTasksPanel.Draw(GrimoireSettings.GameId, _document.tasks);
+            GrimoireGameEngineDataRenderer.Draw(_document, _link);
 
             EditorGUILayout.EndScrollView();
         }
@@ -677,10 +677,10 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndScrollView();
         }
 
-        private void DrawObjectGameEngineTab()
+        private void DrawObjectTasksTab()
         {
-            _gameEngineScroll = EditorGUILayout.BeginScrollView(_gameEngineScroll);
-            GrimoireGameEngineDataRenderer.Draw(_document, _link);
+            _objectTasksScroll = EditorGUILayout.BeginScrollView(_objectTasksScroll);
+            _objectTasksPanel.Draw(GrimoireSettings.GameId, _document.tasks);
             EditorGUILayout.EndScrollView();
         }
 
