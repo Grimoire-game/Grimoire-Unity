@@ -12,8 +12,8 @@ namespace Grimoire.PluginV2.Editor
     [InitializeOnLoad]
     internal static class GrimoireGameEngineSyncHooks
     {
-        private static readonly Dictionary<int, GrimoireGameEngineSync.LinkIdentity> Tracked =
-            new Dictionary<int, GrimoireGameEngineSync.LinkIdentity>();
+        private static readonly Dictionary<UnityObjectId, GrimoireGameEngineSync.LinkIdentity> Tracked =
+            new Dictionary<UnityObjectId, GrimoireGameEngineSync.LinkIdentity>();
 
         private static readonly HashSet<string> RemovalsInFlight = new HashSet<string>();
 
@@ -41,14 +41,14 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            Tracked[link.GetInstanceID()] = identity;
+            Tracked[UnityObjectId.Of(link)] = identity;
         }
 
         public static void Forget(GrimoireObjectLink link)
         {
             if (link != null)
             {
-                Tracked.Remove(link.GetInstanceID());
+                Tracked.Remove(UnityObjectId.Of(link));
             }
         }
 
@@ -59,8 +59,8 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            var instanceId = link != null ? link.GetInstanceID() : 0;
-            if (instanceId == 0 || !Tracked.TryGetValue(instanceId, out var identity))
+            var instanceId = link != null ? UnityObjectId.Of(link) : default;
+            if (!instanceId.IsValid || !Tracked.TryGetValue(instanceId, out var identity))
             {
                 return;
             }

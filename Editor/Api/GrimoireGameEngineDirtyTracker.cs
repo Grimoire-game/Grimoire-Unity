@@ -48,8 +48,8 @@ namespace Grimoire.PluginV2.Editor
                 PositionDirty || RotationDirty || ScaleDirty || IdNameDirty;
         }
 
-        private static readonly Dictionary<int, Snapshot> Baselines =
-            new Dictionary<int, Snapshot>();
+        private static readonly Dictionary<UnityObjectId, Snapshot> Baselines =
+            new Dictionary<UnityObjectId, Snapshot>();
 
         private static readonly List<PendingChange> PendingBuffer = new List<PendingChange>();
         private static readonly List<GrimoireObjectLink> LinkBuffer = new List<GrimoireObjectLink>();
@@ -70,7 +70,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 if (link != null)
                 {
-                    Baselines.Remove(link.GetInstanceID());
+                    Baselines.Remove(UnityObjectId.Of(link));
                     NotifyIfDirtyCountChanged();
                 }
             };
@@ -87,7 +87,7 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            Baselines[link.GetInstanceID()] = Capture(link, hasSyncedBaseline: true);
+            Baselines[UnityObjectId.Of(link)] = Capture(link, hasSyncedBaseline: true);
             RefreshPending(forceNotify: true);
         }
 
@@ -98,7 +98,7 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            Baselines.Remove(link.GetInstanceID());
+            Baselines.Remove(UnityObjectId.Of(link));
             RefreshPending(forceNotify: true);
         }
 
@@ -176,7 +176,7 @@ namespace Grimoire.PluginV2.Editor
                     continue;
                 }
 
-                var id = link.GetInstanceID();
+                var id = UnityObjectId.Of(link);
                 if (!Baselines.TryGetValue(id, out var baseline))
                 {
                     // First sighting this session: treat current pose as clean

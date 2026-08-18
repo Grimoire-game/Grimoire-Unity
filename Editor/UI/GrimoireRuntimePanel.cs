@@ -1331,7 +1331,7 @@ namespace Grimoire.PluginV2.Editor
                     TypeName       = "GrimoireObjectLink",
                     GameObjectName = link.gameObject.name,
                     Component      = link,
-                    InstanceId     = link.GetInstanceID()
+                    InstanceId     = UnityObjectId.Of(link)
                 };
                 entry.PublicMembers["ObjectKey"] = link.ObjectKey;
                 if (!string.IsNullOrEmpty(link.CachedObjectId))
@@ -1350,7 +1350,7 @@ namespace Grimoire.PluginV2.Editor
                 TypeName       = t.Name,
                 GameObjectName = mb.gameObject.name,
                 Component      = mb,
-                InstanceId     = mb.GetInstanceID()
+                InstanceId     = UnityObjectId.Of(mb)
             };
 
             foreach (var prop in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
@@ -2671,7 +2671,7 @@ namespace Grimoire.PluginV2.Editor
             public string       TypeName;
             public string       GameObjectName;
             public MonoBehaviour Component;
-            public int          InstanceId;
+            public UnityObjectId InstanceId;
             public readonly Dictionary<string, string> PublicMembers = new Dictionary<string, string>();
         }
 

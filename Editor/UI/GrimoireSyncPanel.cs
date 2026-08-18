@@ -222,7 +222,7 @@ namespace Grimoire.PluginV2.Editor
                 title += "  ·  up to date";
             }
 
-            var sectionId = $"sync:{change.Link.GetInstanceID()}";
+            var sectionId = $"sync:{UnityObjectId.Of(change.Link)}";
             if (!GrimoireEditorStyles.BeginCollapsibleSection(
                     sectionId, title, defaultExpanded: isSelected || entry.IsDirty))
             {
@@ -348,7 +348,7 @@ namespace Grimoire.PluginV2.Editor
         {
             selectedEntry = null;
             others = new List<SyncEntry>();
-            var byLink = new Dictionary<int, SyncEntry>();
+            var byLink = new Dictionary<UnityObjectId, SyncEntry>();
             var ordered = new List<SyncEntry>();
 
             var selectedLink = Selection.activeGameObject != null
@@ -369,7 +369,7 @@ namespace Grimoire.PluginV2.Editor
             if (selectedLink != null &&
                 (selectedLink.HasKey || !string.IsNullOrEmpty(selectedLink.CachedObjectId)))
             {
-                var id = selectedLink.GetInstanceID();
+                var id = UnityObjectId.Of(selectedLink);
                 if (!byLink.TryGetValue(id, out selectedEntry))
                 {
                     selectedEntry = UpsertEntry(byLink, ordered, BuildLiveOnly(selectedLink));
@@ -397,7 +397,7 @@ namespace Grimoire.PluginV2.Editor
         }
 
         private static void MaybeAddFieldOnlyEntries(
-            Dictionary<int, SyncEntry> byLink,
+            Dictionary<UnityObjectId, SyncEntry> byLink,
             List<SyncEntry> ordered,
             GrimoireObjectLink selectedLink)
         {
@@ -410,7 +410,7 @@ namespace Grimoire.PluginV2.Editor
                     continue;
                 }
 
-                var id = link.GetInstanceID();
+                var id = UnityObjectId.Of(link);
                 if (byLink.TryGetValue(id, out var existing))
                 {
                     AttachFieldState(existing);
@@ -423,11 +423,11 @@ namespace Grimoire.PluginV2.Editor
         }
 
         private static SyncEntry UpsertEntry(
-            Dictionary<int, SyncEntry> byLink,
+            Dictionary<UnityObjectId, SyncEntry> byLink,
             List<SyncEntry> ordered,
             GrimoireGameEngineDirtyTracker.PendingChange change)
         {
-            var id = change.Link.GetInstanceID();
+            var id = UnityObjectId.Of(change.Link);
             if (byLink.TryGetValue(id, out var existing))
             {
                 existing.Engine = change;
