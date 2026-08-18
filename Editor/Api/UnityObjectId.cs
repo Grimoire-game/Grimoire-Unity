@@ -25,7 +25,11 @@ namespace Grimoire.PluginV2.Editor
             new UnityObjectId(obj.GetInstanceID());
 #endif
 
-        public bool IsValid => !_value.Equals(default);
+#if UNITY_6000_4_OR_NEWER
+        public bool IsValid => !_value.Equals(default(EntityId));
+#else
+        public bool IsValid => _value != 0;
+#endif
 
         public bool Equals(UnityObjectId other) => _value.Equals(other._value);
 
