@@ -6,8 +6,9 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Keeps <see cref="GrimoireObjectLink.LinkedFields"/> in sync with Grimoire
-    /// object views: apply baselines, detect deviations, build commit payloads.
+    /// Keeps Object Link editable fields and the API snapshot in sync with
+    /// Grimoire object views: apply baselines, detect deviations, build commit
+    /// payloads. Does not consult the exported C# database.
     /// </summary>
     public static class GrimoireLinkedFieldStore
     {
@@ -81,6 +82,18 @@ namespace Grimoire.PluginV2.Editor
 
             Undo.RecordObject(link, "Update Grimoire linked fields");
             link.ReplaceLinkedFields(next);
+            var snapshot = GrimoireObjectSnapshotMapper.FromDocument(document);
+            foreach (var linked in next)
+            {
+                if (linked == null || string.IsNullOrEmpty(linked.FieldId))
+                {
+                    continue;
+                }
+
+                snapshot.SetFieldValue(linked.FieldId, linked.LocalValue);
+            }
+
+            link.ReplaceSnapshot(snapshot);
             EditorUtility.SetDirty(link);
             NotifyChanged();
         }
@@ -140,6 +153,7 @@ namespace Grimoire.PluginV2.Editor
 
             Undo.RecordObject(link, "Edit Grimoire linked field");
             field.LocalValue = next;
+            link.Snapshot?.SetFieldValue(field.FieldId, next);
             EditorUtility.SetDirty(link);
             NotifyChanged();
             return true;
@@ -164,6 +178,7 @@ namespace Grimoire.PluginV2.Editor
                 field.LocalValue = field.GrimoireValue ?? "";
             }
 
+            link.OverlayLinkedFieldValues();
             EditorUtility.SetDirty(link);
             NotifyChanged();
             return true;
@@ -191,6 +206,7 @@ namespace Grimoire.PluginV2.Editor
                 field.GrimoireValue = field.LocalValue ?? "";
             }
 
+            link.OverlayLinkedFieldValues();
             EditorUtility.SetDirty(link);
             NotifyChanged();
         }
@@ -381,6 +397,12 @@ namespace Grimoire.PluginV2.Editor
                 foreach (var field in section.fields)
                 {
                     if (field?.hints == null || !field.hints.game_engine_editable)
+                    {
+                        continue;
+                    }
+
+                    var kind = GrimoireFieldSync.ResolveEditKind(field);
+                    if (!GrimoireFieldSync.IsSupportedEditKind(kind))
                     {
                         continue;
                     }

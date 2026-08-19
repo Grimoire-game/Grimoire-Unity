@@ -48,7 +48,20 @@ Add the `Grimoire > Grimoire Object Link` component to a GameObject and click
 **Pick from Grimoire...** to search and select an object.
 
 The resolved object UUID is cached on the component so subsequent lookups skip
-the key-resolution step.
+the key-resolution step. **Pick** / **Refresh from Grimoire** also stores an API
+snapshot of every field (including lists of related objects such as `levels`).
+Use **Prefetch references** so nested objects are available in Play Mode and
+builds without a live API call.
+
+Other scripts read that snapshot directly — no exported C# database required:
+
+```csharp
+var link = GetComponent<GrimoireObjectLink>();
+link.TryGetNumber("health", out var hp);
+var levels = link.GetReferences("levels");
+var level = await link.GetReferencedObjectAsync("levels", 0);
+level.TryGetString("title", out var title);
+```
 
 Linking also upserts this scene instance into the object's `game_engine_data`
 (so Grimoire knows it exists in the engine). Removing the component, deleting
@@ -100,11 +113,12 @@ to list Unity export versions for the selected game, download a ZIP, and extract
 it to `Assets/Grimoire/`. Then use the **Runtime** tab (next to Versions) to finish
 setup and inspect live values.
 
-### Runtime tab (optional)
+### Runtime tab
 
-After importing a Unity export from **Versions**, open the **Runtime** tab:
+The **Runtime** tab lists scene Object Links from their API snapshots (an imported
+export is optional for this list). After importing a Unity export from **Versions**:
 
-1. Use **Add to scene** for Bootstrap (required) and Session Tracker (optional).
+1. Use **Add to scene** for Bootstrap (required for export runtimes) and Session Tracker (optional).
 2. Paste a playthrough session ID if you want events streamed to the platform.
 3. Press **Play** — live variables, objects, dialogs, and logic appear in the same tab.
 

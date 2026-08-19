@@ -920,7 +920,7 @@ namespace Grimoire.PluginV2.Editor
                 $"In play ({_objects.Count})",
                 EditorStyles.boldLabel);
             EditorGUILayout.LabelField(
-                "Scene Object Links with live values (object overrides Database defaults).",
+                "Scene Object Links with live values from the API snapshot (export Database is optional).",
                 GrimoireEditorStyles.MiniSecondaryStyle);
             EditorGUILayout.Space(2);
 
@@ -1369,7 +1369,7 @@ namespace Grimoire.PluginV2.Editor
 
         /// <summary>
         /// Build the Objects list from scene <see cref="GrimoireObjectLink"/>s only,
-        /// resolving adaptable fields via Database.Library + ObjectRuntime.
+        /// resolving fields from the API snapshot (export Library is optional).
         /// </summary>
         private void BuildSceneObjects(List<RuntimeObjectEntry> library)
         {
@@ -1381,21 +1381,36 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
+            var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var link in links)
             {
-                if (!link.HasKey)
+                if (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))
                 {
                     continue;
                 }
 
-                var objectKey = link.ObjectKey.Trim();
+                var objectKey = link.HasKey ? link.ObjectKey.Trim() : (link.CachedObjectId ?? "");
                 var libraryMatch = FindLibraryEntry(library, objectKey);
+                seenKeys.Add(objectKey);
+                if (!string.IsNullOrEmpty(link.CachedObjectId))
+                {
+                    seenKeys.Add(link.CachedObjectId);
+                }
+
+                var typeName = libraryMatch?.TypeName;
+                if (string.IsNullOrEmpty(typeName))
+                {
+                    typeName = !string.IsNullOrEmpty(link.Snapshot?.Name)
+                        ? link.Snapshot.Name
+                        : "Object";
+                }
 
                 var entry = new RuntimeObjectEntry
                 {
                     Key = objectKey,
                     RuntimeKey = objectKey,
-                    TypeName = libraryMatch?.TypeName ?? "Template",
+                    TypeName = typeName,
                     LibraryInstance = libraryMatch?.LibraryInstance,
                     ObjectRuntimeAvailable = _objectRuntimeType != null,
                     InScene = true,
@@ -1418,12 +1433,65 @@ namespace Grimoire.PluginV2.Editor
 
                 PopulateObjectFields(entry, link);
                 _objects.Add(entry);
+
+                AddNestedSnapshotRows(link, library, seenKeys);
             }
 
             _objects.Sort((a, b) => string.Compare(
                 a.SceneObjectName ?? a.Key,
                 b.SceneObjectName ?? b.Key,
                 StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void AddNestedSnapshotRows(
+            GrimoireObjectLink link,
+            List<RuntimeObjectEntry> library,
+            HashSet<string> seenKeys)
+        {
+            var nested = link?.NestedSnapshots;
+            if (nested == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < nested.Count; i++)
+            {
+                var snapshot = nested[i];
+                if (snapshot == null || snapshot.IsEmpty)
+                {
+                    continue;
+                }
+
+                var nestedKey = !string.IsNullOrEmpty(snapshot.ObjectKey)
+                    ? snapshot.ObjectKey
+                    : snapshot.ObjectId;
+                if (string.IsNullOrEmpty(nestedKey) || !seenKeys.Add(nestedKey))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(snapshot.ObjectId))
+                {
+                    seenKeys.Add(snapshot.ObjectId);
+                }
+
+                var libraryMatch = FindLibraryEntry(library, nestedKey);
+                var nestedEntry = new RuntimeObjectEntry
+                {
+                    Key = nestedKey,
+                    RuntimeKey = nestedKey,
+                    TypeName = libraryMatch?.TypeName
+                               ?? (!string.IsNullOrEmpty(snapshot.Name) ? snapshot.Name : "Object"),
+                    LibraryInstance = libraryMatch?.LibraryInstance,
+                    ObjectRuntimeAvailable = _objectRuntimeType != null,
+                    InScene = false,
+                    SceneObjectName = $"{link.gameObject.name} / {snapshot.Name}",
+                    SceneGameObject = link.gameObject,
+                };
+
+                PopulateObjectFieldsFromSnapshot(nestedEntry, snapshot);
+                _objects.Add(nestedEntry);
+            }
         }
 
         private static RuntimeObjectEntry FindLibraryEntry(
@@ -2016,7 +2084,7 @@ namespace Grimoire.PluginV2.Editor
 
         /// <summary>
         /// Build adaptable fields for a scene object.
-        /// Live value priority: ObjectRuntime override → Object Link local value → Database default.
+        /// Live value priority: ObjectRuntime override → Object Link local/snapshot → Database default.
         /// When the Object Link local value differs from the database and ObjectRuntime has no
         /// override yet, the local value is written into ObjectRuntime so Play uses it.
         /// </summary>
@@ -2058,7 +2126,10 @@ namespace Grimoire.PluginV2.Editor
                 entry.EditableFields.Add(field);
             }
 
-            // 1) Database / Library template fields
+            // 1) API snapshot on the Object Link (does not require an export)
+            RegisterSnapshotFields(Register, link?.Snapshot);
+
+            // 2) Database / Library template fields (optional)
             if (entry.LibraryInstance != null)
             {
                 var instance = entry.LibraryInstance;
@@ -2098,7 +2169,7 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            // 2) Object Link adaptable fields (values authored on the component)
+            // 3) Object Link adaptable fields (values authored on the component)
             if (link?.LinkedFields != null)
             {
                 foreach (var linked in link.LinkedFields)
@@ -2161,10 +2232,101 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            // 3) Resolve live values and seed ObjectRuntime from object locals when needed
+            // 4) Resolve live values and seed ObjectRuntime from object locals when needed
             foreach (var field in entry.EditableFields)
             {
                 ResolveLiveFieldValue(entry, field);
+            }
+        }
+
+        private void PopulateObjectFieldsFromSnapshot(
+            RuntimeObjectEntry entry,
+            GrimoireObjectSnapshot snapshot)
+        {
+            entry.EditableFields.Clear();
+            var byNorm = new Dictionary<string, RuntimeObjectField>(StringComparer.Ordinal);
+
+            void Register(RuntimeObjectField field)
+            {
+                if (field == null || string.IsNullOrEmpty(field.RuntimeName))
+                {
+                    return;
+                }
+
+                var norm = NormalizeFieldName(field.RuntimeName);
+                if (byNorm.ContainsKey(norm))
+                {
+                    return;
+                }
+
+                byNorm[norm] = field;
+                entry.EditableFields.Add(field);
+            }
+
+            RegisterSnapshotFields(Register, snapshot);
+
+            foreach (var field in entry.EditableFields)
+            {
+                ResolveLiveFieldValue(entry, field);
+            }
+        }
+
+        private static void RegisterSnapshotFields(
+            Action<RuntimeObjectField> register,
+            GrimoireObjectSnapshot snapshot)
+        {
+            if (register == null || snapshot?.Fields == null)
+            {
+                return;
+            }
+
+            foreach (var cached in snapshot.Fields)
+            {
+                if (cached == null)
+                {
+                    continue;
+                }
+
+                var label = cached.DisplayLabel;
+                if (string.IsNullOrEmpty(label))
+                {
+                    continue;
+                }
+
+                if (cached.IsReference)
+                {
+                    var names = new List<string>();
+                    var refs = cached.References;
+                    if (refs != null)
+                    {
+                        for (var i = 0; i < refs.Count; i++)
+                        {
+                            if (refs[i] != null && !string.IsNullOrEmpty(refs[i].DisplayName))
+                            {
+                                names.Add(refs[i].DisplayName);
+                            }
+                        }
+                    }
+
+                    register(new RuntimeObjectField
+                    {
+                        Name = label,
+                        RuntimeName = label,
+                        Kind = FieldVarKind.StringArray,
+                        DefaultValue = FormatStringArray(names.ToArray()),
+                        ObjectLocalValue = FormatStringArray(names.ToArray()),
+                    });
+                    continue;
+                }
+
+                register(new RuntimeObjectField
+                {
+                    Name = label,
+                    RuntimeName = label,
+                    Kind = MapCachedFieldKind(cached),
+                    DefaultValue = cached.Value ?? "",
+                    ObjectLocalValue = cached.Value ?? "",
+                });
             }
         }
 
@@ -2396,6 +2558,20 @@ namespace Grimoire.PluginV2.Editor
             }
 
             if (type.Contains("array") || kind.Contains("array")) return FieldVarKind.StringArray;
+            return FieldVarKind.String;
+        }
+
+        private static FieldVarKind MapCachedFieldKind(GrimoireCachedField cached)
+        {
+            var kind = (cached.Kind ?? "").Trim().ToLowerInvariant();
+            var type = (cached.FieldType ?? "").Trim().ToLowerInvariant();
+            if (kind == "boolean" || type.Contains("bool")) return FieldVarKind.Boolean;
+            if (kind == "number" || type.Contains("number") || type.Contains("int") || type.Contains("float"))
+            {
+                return FieldVarKind.Number;
+            }
+
+            if (cached.Multiple || kind == "reference") return FieldVarKind.StringArray;
             return FieldVarKind.String;
         }
 

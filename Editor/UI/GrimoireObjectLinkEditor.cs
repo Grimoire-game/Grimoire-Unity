@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -19,6 +20,7 @@ namespace Grimoire.PluginV2.Editor
         private bool _syncing;
         private bool _syncFoldout = true;
         private bool _fieldsFoldout = true;
+        private bool _refsFoldout = true;
 
         private void OnEnable()
         {
@@ -45,6 +47,7 @@ namespace Grimoire.PluginV2.Editor
 
             DrawSyncSection(link);
             DrawEditableFieldsSection(link);
+            DrawReferencedObjectsSection(link);
 
             if (_syncing)
             {
@@ -266,7 +269,8 @@ namespace Grimoire.PluginV2.Editor
             for (var i = 0; i < fields.Count; i++)
             {
                 var field = fields[i];
-                if (field == null)
+                if (field == null ||
+                    string.Equals(field.Kind, ObjectViewKinds.Reference, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -403,6 +407,264 @@ namespace Grimoire.PluginV2.Editor
             }
 
             Repaint();
+        }
+
+        private void DrawReferencedObjectsSection(GrimoireObjectLink link)
+        {
+            EditorGUILayout.Space(10);
+
+            var refFields = CollectReferenceFields(link);
+            var stubCount = CountStubs(refFields);
+            var loadedCount = CountLoaded(link, refFields);
+            var title = stubCount > 0
+                ? $"Referenced objects ({loadedCount}/{stubCount} loaded)"
+                : "Referenced objects";
+
+            _refsFoldout = EditorGUILayout.Foldout(_refsFoldout, title, true, EditorStyles.foldoutHeader);
+            if (!_refsFoldout)
+            {
+                return;
+            }
+
+            EditorGUILayout.HelpBox(
+                "Lists of linked Grimoire objects (for example levels) are stored as stubs. " +
+                "Prefetch them here so other scripts can read their fields in Play Mode and builds. " +
+                "Nested objects are not loaded recursively.",
+                MessageType.None);
+
+            EditorGUILayout.BeginHorizontal();
+            using (new EditorGUI.DisabledScope(
+                       _syncing || stubCount == 0 ||
+                       (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))))
+            {
+                if (GUILayout.Button(
+                        new GUIContent(
+                            "Prefetch references",
+                            "Fetch each referenced object from the API and store it on this link."),
+                        GUILayout.Height(22)))
+                {
+                    PrefetchReferences(link);
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(4);
+
+            if (refFields.Count == 0)
+            {
+                EditorGUILayout.LabelField(
+                    link.HasSnapshot
+                        ? "This object has no referenced objects."
+                        : "No snapshot yet. Link an object and refresh from Grimoire.",
+                    EditorStyles.miniLabel);
+                return;
+            }
+
+            for (var i = 0; i < refFields.Count; i++)
+            {
+                var field = refFields[i];
+                EditorGUILayout.LabelField(field.DisplayLabel, EditorStyles.boldLabel);
+                var refs = field.References;
+                if (refs == null || refs.Count == 0)
+                {
+                    EditorGUILayout.LabelField("  (none)", EditorStyles.miniLabel);
+                    continue;
+                }
+
+                for (var r = 0; r < refs.Count; r++)
+                {
+                    DrawReferenceStub(link, field.FieldId, refs[r], r);
+                }
+
+                EditorGUILayout.Space(2);
+            }
+        }
+
+        private void DrawReferenceStub(
+            GrimoireObjectLink link, string fieldName, GrimoireObjectRef stub, int index)
+        {
+            if (stub == null)
+            {
+                return;
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            var loaded = link.IsNestedLoaded(stub);
+            var detail = stub.DisplayName;
+            if (!string.IsNullOrEmpty(stub.CodeId) && stub.CodeId != stub.Name)
+            {
+                detail += $"  ({stub.CodeId})";
+            }
+
+            EditorGUILayout.LabelField(loaded ? "● " + detail : "○ " + detail);
+            using (new EditorGUI.DisabledScope(_syncing || loaded))
+            {
+                if (GUILayout.Button(
+                        loaded ? "Loaded" : "Load",
+                        GUILayout.Width(64),
+                        GUILayout.Height(18)))
+                {
+                    LoadNested(link, fieldName, index);
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private async void PrefetchReferences(GrimoireObjectLink link)
+        {
+            if (_syncing || link == null)
+            {
+                return;
+            }
+
+            if (!GrimoireSettings.IsConfigured)
+            {
+                _validationMessage = "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).";
+                _validationType = MessageType.Warning;
+                Repaint();
+                return;
+            }
+
+            _syncing = true;
+            Repaint();
+
+            await link.PrefetchReferencesAsync();
+
+            _syncing = false;
+            if (link == null)
+            {
+                return;
+            }
+
+            EditorUtility.SetDirty(link);
+            var loaded = CountLoaded(link, CollectReferenceFields(link));
+            _validationMessage = $"Prefetched {loaded} referenced object{(loaded == 1 ? "" : "s")}.";
+            _validationType = MessageType.Info;
+            Repaint();
+        }
+
+        private async void LoadNested(GrimoireObjectLink link, string fieldName, int index)
+        {
+            if (_syncing || link == null)
+            {
+                return;
+            }
+
+            if (!GrimoireSettings.IsConfigured)
+            {
+                _validationMessage = "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).";
+                _validationType = MessageType.Warning;
+                Repaint();
+                return;
+            }
+
+            _syncing = true;
+            Repaint();
+
+            var loaded = await link.GetReferencedObjectAsync(fieldName, index);
+
+            _syncing = false;
+            if (link == null)
+            {
+                return;
+            }
+
+            if (loaded != null)
+            {
+                EditorUtility.SetDirty(link);
+                var name = string.IsNullOrEmpty(loaded.Name) ? loaded.ObjectKey : loaded.Name;
+                var count = loaded.Fields?.Count ?? 0;
+                _validationMessage =
+                    $"Loaded '{name}' ({count} field{(count == 1 ? "" : "s")}).";
+                _validationType = MessageType.Info;
+            }
+            else
+            {
+                _validationMessage = "Could not load that referenced object. Check the Console.";
+                _validationType = MessageType.Warning;
+            }
+
+            Repaint();
+        }
+
+        private static List<GrimoireCachedField> CollectReferenceFields(
+            GrimoireObjectLink link)
+        {
+            var list = new List<GrimoireCachedField>();
+            var fields = link?.Snapshot?.Fields;
+            if (fields == null)
+            {
+                return list;
+            }
+
+            for (var i = 0; i < fields.Count; i++)
+            {
+                var field = fields[i];
+                if (field != null && field.IsReference)
+                {
+                    list.Add(field);
+                }
+            }
+
+            return list;
+        }
+
+        private static int CountStubs(List<GrimoireCachedField> fields)
+        {
+            var count = 0;
+            if (fields == null)
+            {
+                return count;
+            }
+
+            for (var i = 0; i < fields.Count; i++)
+            {
+                var refs = fields[i]?.References;
+                if (refs == null)
+                {
+                    continue;
+                }
+
+                for (var r = 0; r < refs.Count; r++)
+                {
+                    if (refs[r] != null)
+                    {
+                        count++;
+                    }
+                }
+            }
+
+            return count;
+        }
+
+        private static int CountLoaded(
+            GrimoireObjectLink link, List<GrimoireCachedField> fields)
+        {
+            var count = 0;
+            if (link == null || fields == null)
+            {
+                return count;
+            }
+
+            for (var i = 0; i < fields.Count; i++)
+            {
+                var refs = fields[i]?.References;
+                if (refs == null)
+                {
+                    continue;
+                }
+
+                for (var r = 0; r < refs.Count; r++)
+                {
+                    if (refs[r] != null && link.IsNestedLoaded(refs[r]))
+                    {
+                        count++;
+                    }
+                }
+            }
+
+            return count;
         }
 
         private async void SyncUpsert(
