@@ -13,6 +13,7 @@ namespace Grimoire.PluginV2.Editor
     public class GrimoireSyncPanel
     {
         private static readonly List<GrimoireObjectLink> LinkScratch = new List<GrimoireObjectLink>();
+        private static readonly List<GrimoireTextLink> TextLinkScratch = new List<GrimoireTextLink>();
 
         private Vector2 _scroll;
         private bool _busy;
@@ -32,6 +33,8 @@ namespace Grimoire.PluginV2.Editor
             GrimoireEditableFieldsRenderer.Changed += OnDirtyChanged;
             GrimoireLinkedFieldStore.Changed -= OnDirtyChanged;
             GrimoireLinkedFieldStore.Changed += OnDirtyChanged;
+            GrimoireTextLinkStore.Changed -= OnDirtyChanged;
+            GrimoireTextLinkStore.Changed += OnDirtyChanged;
             RequestRepaint();
         }
 
@@ -40,6 +43,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireGameEngineDirtyTracker.Changed -= OnDirtyChanged;
             GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
             GrimoireLinkedFieldStore.Changed -= OnDirtyChanged;
+            GrimoireTextLinkStore.Changed -= OnDirtyChanged;
         }
 
         public void Draw()
@@ -59,9 +63,10 @@ namespace Grimoire.PluginV2.Editor
             }
 
             var entries = BuildEntries(out var selectedEntry, out var others);
-            var dirtyTotal = CountDirtyEntries(entries);
+            BuildTextEntries(out var selectedTextEntry, out var otherTextEntries);
+            var dirtyTotal = CountDirtyEntries(entries) + CountDirtyTextEntries(selectedTextEntry, otherTextEntries);
 
-            DrawCommitForm(selectedEntry, dirtyTotal);
+            DrawCommitForm(selectedEntry, selectedTextEntry, dirtyTotal);
 
             if (!string.IsNullOrEmpty(_error))
             {
@@ -109,11 +114,135 @@ namespace Grimoire.PluginV2.Editor
             }
 
             EditorGUILayout.EndScrollView();
+
+            DrawTextLinksSection(selectedTextEntry, otherTextEntries);
         }
 
-        private void DrawCommitForm(SyncEntry selectedEntry, int dirtyTotal)
+        private void DrawTextLinksSection(TextSyncEntry selectedEntry, List<TextSyncEntry> others)
         {
-            var selectedDirty = selectedEntry != null && selectedEntry.IsDirty;
+            EditorGUILayout.Space(12);
+            EditorGUILayout.LabelField("Text links", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(
+                "Translation edits push immediately via PATCH /strings/{id}/translations/{locale}. " +
+                "Source text edits stay local until changed in Grimoire.",
+                GrimoireEditorStyles.MiniSecondaryStyle);
+
+            if (selectedEntry == null)
+            {
+                GrimoireEditorStyles.DrawInfoBox(
+                    "Select a GameObject with a Grimoire Text Link to review its pending translation edits.");
+            }
+            else
+            {
+                DrawTextChangeCard(selectedEntry, isSelected: true);
+            }
+
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField(
+                others.Count == 0
+                    ? "Other pending text links"
+                    : $"Other pending text links ({others.Count})",
+                EditorStyles.boldLabel);
+
+            if (others.Count == 0)
+            {
+                EditorGUILayout.LabelField(
+                    "No other text links have unsynced translation changes.",
+                    GrimoireEditorStyles.MiniSecondaryStyle);
+            }
+            else
+            {
+                foreach (var entry in others)
+                {
+                    DrawTextChangeCard(entry, isSelected: false);
+                    EditorGUILayout.Space(4);
+                }
+            }
+        }
+
+        private void DrawTextChangeCard(TextSyncEntry entry, bool isSelected)
+        {
+            var link = entry.Link;
+            var title = link.gameObject.name;
+            if (!string.IsNullOrEmpty(link.TextCode))
+            {
+                title += $"  ·  {link.TextCode}";
+            }
+
+            if (entry.IsDirty)
+            {
+                title += "  ·  pending";
+            }
+            else if (isSelected)
+            {
+                title += "  ·  up to date";
+            }
+
+            var sectionId = $"text-sync:{UnityObjectId.Of(link)}";
+            if (!GrimoireEditorStyles.BeginCollapsibleSection(
+                    sectionId, title, defaultExpanded: isSelected || entry.IsDirty))
+            {
+                return;
+            }
+
+            if (entry.SourceDirty)
+            {
+                DrawField("Source", entry.SourceCurrent, entry.SourcePrevious, dirty: true, enabled: true);
+                EditorGUILayout.LabelField(
+                    "Source text is not writable via the Public API.",
+                    GrimoireEditorStyles.MiniSecondaryStyle);
+            }
+
+            if (entry.TranslationChanges.Count > 0)
+            {
+                EditorGUILayout.Space(4);
+                EditorGUILayout.LabelField(
+                    entry.TranslationChanges.Count == 1
+                        ? "Translations (1 changed)"
+                        : $"Translations ({entry.TranslationChanges.Count} changed)",
+                    EditorStyles.miniBoldLabel);
+
+                foreach (var change in entry.TranslationChanges)
+                {
+                    DrawField(change.Label, change.Current, change.Previous, dirty: true, enabled: true);
+                }
+            }
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.BeginHorizontal();
+
+            if (GUILayout.Button("Select", GUILayout.Width(70)))
+            {
+                Selection.activeGameObject = link.gameObject;
+                EditorGUIUtility.PingObject(link.gameObject);
+            }
+
+            using (new EditorGUI.DisabledScope(_busy || !entry.PushableDirty))
+            {
+                if (GUILayout.Button(
+                        new GUIContent("Push", "PATCH deviated translations to Grimoire."),
+                        GUILayout.Width(70)))
+                {
+                    PushTextAsync(new[] { entry });
+                }
+            }
+
+            using (new EditorGUI.DisabledScope(_busy || !entry.IsDirty))
+            {
+                if (GUILayout.Button("Reset", GUILayout.Width(70)))
+                {
+                    GrimoireTextLinkStore.ResetToGrimoire(link);
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+            GrimoireEditorStyles.EndCollapsibleSection();
+        }
+
+        private void DrawCommitForm(SyncEntry selectedEntry, TextSyncEntry selectedTextEntry, int dirtyTotal)
+        {
+            var selectedDirty = (selectedEntry != null && selectedEntry.IsDirty) ||
+                                (selectedTextEntry != null && selectedTextEntry.PushableDirty);
             var canCommit = dirtyTotal > 0 || selectedDirty;
 
             EditorGUILayout.LabelField("Commit", EditorStyles.boldLabel);
@@ -198,6 +327,36 @@ namespace Grimoire.PluginV2.Editor
                     $"{dirtyTotal} pending",
                     GrimoireEditorStyles.MiniSecondaryStyle,
                     GUILayout.Width(80));
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(2);
+
+            var selectedTextDirty = selectedTextEntry != null && selectedTextEntry.PushableDirty;
+            var textDirtyTotal = CountPushableTextEntries(selectedTextEntry, otherTextEntries);
+            EditorGUILayout.BeginHorizontal();
+
+            using (new EditorGUI.DisabledScope(_busy || !selectedTextDirty))
+            {
+                if (GUILayout.Button(
+                        new GUIContent(
+                            "Push selected translations",
+                            "PATCH deviated translations on the selected text link."),
+                        GUILayout.Height(28)))
+                {
+                    PushTextAsync(new[] { selectedTextEntry });
+                }
+            }
+
+            using (new EditorGUI.DisabledScope(_busy || textDirtyTotal == 0))
+            {
+                var label = textDirtyTotal == 0
+                    ? "Push all translations"
+                    : $"Push all translations ({textDirtyTotal})";
+                if (GUILayout.Button(new GUIContent(label), GUILayout.Height(28)))
+                {
+                    PushAllTextDirty(selectedTextEntry, otherTextEntries);
+                }
             }
 
             EditorGUILayout.EndHorizontal();
@@ -474,6 +633,178 @@ namespace Grimoire.PluginV2.Editor
             };
         }
 
+        private static int CountDirtyTextEntries(TextSyncEntry selectedEntry, List<TextSyncEntry> others)
+        {
+            var count = 0;
+            if (selectedEntry != null && selectedEntry.IsDirty)
+            {
+                count++;
+            }
+
+            foreach (var entry in others)
+            {
+                if (entry != null && entry.IsDirty)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static int CountPushableTextEntries(TextSyncEntry selectedEntry, List<TextSyncEntry> others)
+        {
+            var count = 0;
+            if (selectedEntry != null && selectedEntry.PushableDirty)
+            {
+                count++;
+            }
+
+            foreach (var entry in others)
+            {
+                if (entry != null && entry.PushableDirty)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private List<TextSyncEntry> BuildTextEntries(out TextSyncEntry selectedEntry, out List<TextSyncEntry> others)
+        {
+            selectedEntry = null;
+            others = new List<TextSyncEntry>();
+            var ordered = new List<TextSyncEntry>();
+
+            var selectedLink = Selection.activeGameObject != null
+                ? Selection.activeGameObject.GetComponent<GrimoireTextLink>()
+                : null;
+
+            TextLinkScratch.Clear();
+            GrimoireTextLinkStore.CollectSceneLinks(TextLinkScratch);
+            foreach (var link in TextLinkScratch)
+            {
+                if (link == null)
+                {
+                    continue;
+                }
+
+                var entry = BuildTextEntry(link);
+                ordered.Add(entry);
+                if (selectedLink != null && link == selectedLink)
+                {
+                    selectedEntry = entry;
+                }
+                else if (entry.IsDirty)
+                {
+                    others.Add(entry);
+                }
+            }
+
+            if (selectedEntry == null && selectedLink != null &&
+                (selectedLink.HasCode || !string.IsNullOrEmpty(selectedLink.CachedStringId)))
+            {
+                selectedEntry = BuildTextEntry(selectedLink);
+            }
+
+            return ordered;
+        }
+
+        private static TextSyncEntry BuildTextEntry(GrimoireTextLink link)
+        {
+            var changes = GrimoireTextLinkStore.GetDeviations(link);
+            var translationChanges = new List<GrimoireTextLinkStore.DirtyTranslationChange>();
+            var sourceDirty = false;
+            string sourcePrevious = null;
+            string sourceCurrent = null;
+
+            foreach (var change in changes)
+            {
+                if (string.Equals(change.LanguageCode, "(source)", StringComparison.Ordinal))
+                {
+                    sourceDirty = true;
+                    sourcePrevious = change.Previous;
+                    sourceCurrent = change.Current;
+                    continue;
+                }
+
+                translationChanges.Add(change);
+            }
+
+            return new TextSyncEntry
+            {
+                Link = link,
+                SourceDirty = sourceDirty,
+                SourcePrevious = sourcePrevious,
+                SourceCurrent = sourceCurrent,
+                TranslationChanges = translationChanges,
+            };
+        }
+
+        private void PushAllTextDirty(TextSyncEntry selectedEntry, List<TextSyncEntry> others)
+        {
+            var entries = new List<TextSyncEntry>();
+            if (selectedEntry != null && selectedEntry.PushableDirty)
+            {
+                entries.Add(selectedEntry);
+            }
+
+            foreach (var entry in others)
+            {
+                if (entry != null && entry.PushableDirty)
+                {
+                    entries.Add(entry);
+                }
+            }
+
+            PushTextAsync(entries);
+        }
+
+        private async void PushTextAsync(IReadOnlyList<TextSyncEntry> entries)
+        {
+            if (_busy || entries == null || entries.Count == 0)
+            {
+                return;
+            }
+
+            var generation = ++_opGeneration;
+            _busy = true;
+            _error = null;
+            _status = "Pushing translations…";
+            RequestRepaint();
+            var links = new List<GrimoireTextLink>(entries.Count);
+            foreach (var entry in entries)
+            {
+                if (entry?.Link != null && entry.PushableDirty)
+                {
+                    links.Add(entry.Link);
+                }
+            }
+
+            var result = await GrimoireTextSync.PushLinksAsync(links);
+            if (generation != _opGeneration)
+            {
+                return;
+            }
+
+            _busy = false;
+            if (!result.Success)
+            {
+                _status = null;
+                _error = result.Error ?? "Push failed.";
+            }
+            else
+            {
+                _status = result.Data == 1
+                    ? "Pushed 1 translation to Grimoire."
+                    : $"Pushed {result.Data} translations to Grimoire.";
+                _error = null;
+            }
+
+            RequestRepaint();
+        }
+
         private static int CountDirtyEntries(List<SyncEntry> entries)
         {
             var count = 0;
@@ -508,7 +839,18 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            return engineDirty + fieldOnly;
+            var textDirty = 0;
+            TextLinkScratch.Clear();
+            GrimoireTextLinkStore.CollectSceneLinks(TextLinkScratch);
+            foreach (var link in TextLinkScratch)
+            {
+                if (link != null && GrimoireTextLinkStore.HasPushableDeviations(link))
+                {
+                    textDirty++;
+                }
+            }
+
+            return engineDirty + fieldOnly + textDirty;
         }
 
         private void CommitAllDirty()
@@ -706,6 +1048,19 @@ namespace Grimoire.PluginV2.Editor
             public GrimoireObjectLink Link => Engine?.Link;
             public bool EngineDirty => Engine != null && Engine.IsDirty;
             public bool IsDirty => EngineDirty || FieldsDirty;
+        }
+
+        private sealed class TextSyncEntry
+        {
+            public GrimoireTextLink Link;
+            public bool SourceDirty;
+            public string SourcePrevious;
+            public string SourceCurrent;
+            public List<GrimoireTextLinkStore.DirtyTranslationChange> TranslationChanges =
+                new List<GrimoireTextLinkStore.DirtyTranslationChange>();
+
+            public bool PushableDirty => Link != null && Link.HasTranslationDeviations;
+            public bool IsDirty => SourceDirty || PushableDirty;
         }
     }
 }

@@ -89,6 +89,76 @@ namespace Grimoire.PluginV2.Editor
             return ApiResult<ObjectViewDocument>.Ok(result.Data.data);
         }
 
+        /// <summary>
+        /// GET /api/v1/strings — source strings with translations for a game.
+        /// Pass <paramref name="includeContext"/> false for faster lookups on large games.
+        /// </summary>
+        public static async Task<ApiResult<StringResource[]>> ListStringsAsync(
+            string gameId,
+            bool includeTranslations = true,
+            bool includeContext = false,
+            string updatedSince = null,
+            string status = null)
+        {
+            var url = BuildUrl("/api/v1/strings", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+                ["include_translations"] = includeTranslations ? "true" : "false",
+                ["include_context"] = includeContext ? "true" : "false",
+                ["updated_since"] = string.IsNullOrWhiteSpace(updatedSince) ? null : updatedSince.Trim(),
+                ["status"] = string.IsNullOrWhiteSpace(status) ? null : status.Trim(),
+            });
+
+            var result = await SendAsync<ListEnvelope<StringResource>>("GET", url, null, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<StringResource[]>.Ok(result.Data.data ?? Array.Empty<StringResource>())
+                : ApiResult<StringResource[]>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
+        /// <summary>
+        /// PATCH /api/v1/strings/{id}/translations/{language_code} — upsert one translation.
+        /// </summary>
+        public static async Task<ApiResult<StringTranslation>> PatchStringTranslationAsync(
+            string gameId,
+            string stringId,
+            string languageCode,
+            string translatedText,
+            bool? approved = null)
+        {
+            if (string.IsNullOrWhiteSpace(stringId) || string.IsNullOrWhiteSpace(languageCode))
+            {
+                return ApiResult<StringTranslation>.Fail(
+                    "Missing string id or language code.",
+                    "missing_parameter");
+            }
+
+            var url = BuildUrl(
+                $"/api/v1/strings/{UnityWebRequest.EscapeURL(stringId)}/translations/{UnityWebRequest.EscapeURL(languageCode.Trim())}",
+                new Dictionary<string, string> { ["game_id"] = gameId });
+
+            var payload = new Dictionary<string, object>();
+            if (translatedText != null)
+            {
+                payload["translated_text"] = translatedText;
+            }
+
+            if (approved.HasValue)
+            {
+                payload["approved"] = approved.Value;
+            }
+
+            var body = JsonConvert.SerializeObject(payload);
+            var result = await SendAsync<SingleEnvelope<StringTranslation>>(
+                "PATCH", url, body, ApiAuth.Bearer);
+
+            if (!result.Success)
+            {
+                return ApiResult<StringTranslation>.Fail(result.Error, result.Code, result.HttpStatus);
+            }
+
+            return ApiResult<StringTranslation>.Ok(result.Data.data);
+        }
+
         /// <summary>GET /api/v1/statuses?domain=tasks — valid task workflow statuses.</summary>
         public static async Task<ApiResult<WorkflowStatusEntry[]>> GetTaskStatusesAsync(string gameId)
         {

@@ -441,6 +441,37 @@ namespace Grimoire.PluginV2.Editor
     }
 
     // ---------------------------------------------------------------------
+    // Strings (GET /api/v1/strings, PATCH translations)
+    // ---------------------------------------------------------------------
+
+    public class StringTranslation
+    {
+        public string id;
+        public string dialogue_line_id;
+        public string language_code;
+        public string translated_text;
+        public bool approved;
+        public string voice_url;
+        public string created_at;
+        public string updated_at;
+    }
+
+    public class StringResource
+    {
+        public string id;
+        public string version_id;
+        public string game_id;
+        public string source_text;
+        public string section;
+        public string context;
+        public string abbrev;
+        public string status;
+        public int? character_limit;
+        public string voice_url;
+        public StringTranslation[] translations;
+    }
+
+    // ---------------------------------------------------------------------
     // Schema versioning
     // ---------------------------------------------------------------------
 
