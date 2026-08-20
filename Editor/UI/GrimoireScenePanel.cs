@@ -7,18 +7,29 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Scene tab: lists every <see cref="GrimoireObjectLink"/> in loaded scenes,
-    /// with change badges, search, and filters for changed / template.
+    /// Scene tab: lists everything in loaded scenes that is linked to Grimoire —
+    /// <see cref="GrimoireObjectLink"/> objects and <see cref="GrimoireTextLink"/>
+    /// copy — with change badges, search, and filters for kind / changed / template.
     /// </summary>
     public class GrimoireScenePanel
     {
         private const string AllTemplatesKey = "";
 
+        private const int KindAll = 0;
+        private const int KindObjects = 1;
+        private const int KindTexts = 2;
+
+        private static readonly string[] KindLabels = { "Everything", "Objects", "Texts" };
+
+        private static readonly Color TextBadgeColor = new Color(0.20f, 0.55f, 0.95f);
+
         private static readonly List<GrimoireObjectLink> LinkBuffer = new List<GrimoireObjectLink>();
+        private static readonly List<GrimoireTextLink> TextLinkBuffer = new List<GrimoireTextLink>();
 
         private Vector2 _scroll;
         private string _search = "";
         private bool _changedOnly;
+        private int _kindFilterIndex;
         private int _templateFilterIndex;
         private string[] _templateKeys = { AllTemplatesKey };
         private string[] _templateLabels = { "All templates" };
@@ -36,6 +47,8 @@ namespace Grimoire.PluginV2.Editor
             GrimoireEditableFieldsRenderer.Changed += OnDirtyChanged;
             GrimoireLinkedFieldStore.Changed -= OnDirtyChanged;
             GrimoireLinkedFieldStore.Changed += OnDirtyChanged;
+            GrimoireTextLinkStore.Changed -= OnDirtyChanged;
+            GrimoireTextLinkStore.Changed += OnDirtyChanged;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             EditorApplication.hierarchyChanged += OnHierarchyChanged;
             Selection.selectionChanged -= OnSelectionChanged;
@@ -51,6 +64,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireGameEngineDirtyTracker.Changed -= OnDirtyChanged;
             GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
             GrimoireLinkedFieldStore.Changed -= OnDirtyChanged;
+            GrimoireTextLinkStore.Changed -= OnDirtyChanged;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             Selection.selectionChanged -= OnSelectionChanged;
         }
@@ -66,15 +80,12 @@ namespace Grimoire.PluginV2.Editor
 
             DrawFilterBar();
 
-            GrimoireGameEngineDirtyTracker.CollectSceneLinks(LinkBuffer);
+            CollectSceneLinks();
             RefreshTemplateOptions();
 
-            var rows = BuildVisibleRows(LinkBuffer);
+            var rows = BuildVisibleRows();
             EditorGUILayout.LabelField(
-                rows.Count == 0
-                    ? "No linked objects"
-                    : $"{rows.Count} linked object{(rows.Count == 1 ? "" : "s")}" +
-                      (_enriching ? "  ·  loading templates…" : ""),
+                BuildCountLabel(rows) + (_enriching ? "  ·  loading templates…" : ""),
                 GrimoireEditorStyles.MiniSecondaryStyle);
             EditorGUILayout.Space(4);
 
@@ -83,9 +94,9 @@ namespace Grimoire.PluginV2.Editor
             if (rows.Count == 0)
             {
                 GrimoireEditorStyles.DrawInfoBox(
-                    LinkBuffer.Count == 0
-                        ? "No GameObjects with a Grimoire Object Link in loaded scenes."
-                        : "No linked objects match the current search or filters.");
+                    LinkBuffer.Count == 0 && TextLinkBuffer.Count == 0
+                        ? "No GameObjects with a Grimoire Object Link or Grimoire Text Link in loaded scenes."
+                        : "Nothing matches the current search or filters.");
             }
             else
             {
@@ -96,6 +107,36 @@ namespace Grimoire.PluginV2.Editor
             }
 
             EditorGUILayout.EndScrollView();
+        }
+
+        private static void CollectSceneLinks()
+        {
+            GrimoireGameEngineDirtyTracker.CollectSceneLinks(LinkBuffer);
+            GrimoireTextLinkStore.CollectSceneLinks(TextLinkBuffer);
+        }
+
+        private static string BuildCountLabel(List<SceneRow> rows)
+        {
+            if (rows.Count == 0)
+            {
+                return "Nothing linked";
+            }
+
+            var objects = rows.Count(r => r.Kind == SceneRowKind.Object);
+            var texts = rows.Count - objects;
+
+            var parts = new List<string>(2);
+            if (objects > 0)
+            {
+                parts.Add($"{objects} object{(objects == 1 ? "" : "s")}");
+            }
+
+            if (texts > 0)
+            {
+                parts.Add($"{texts} text{(texts == 1 ? "" : "s")}");
+            }
+
+            return string.Join("  ·  ", parts);
         }
 
         private void DrawFilterBar()
@@ -117,9 +158,9 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Template", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(56));
+            EditorGUILayout.LabelField("Show", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(56));
             EditorGUI.BeginChangeCheck();
-            _templateFilterIndex = EditorGUILayout.Popup(_templateFilterIndex, _templateLabels);
+            _kindFilterIndex = EditorGUILayout.Popup(_kindFilterIndex, KindLabels);
             if (EditorGUI.EndChangeCheck())
             {
                 RequestRepaint();
@@ -127,10 +168,26 @@ namespace Grimoire.PluginV2.Editor
 
             EditorGUILayout.EndHorizontal();
 
+            using (new EditorGUI.DisabledScope(_kindFilterIndex == KindTexts))
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField("Template", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(56));
+                EditorGUI.BeginChangeCheck();
+                _templateFilterIndex = EditorGUILayout.Popup(_templateFilterIndex, _templateLabels);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    RequestRepaint();
+                }
+
+                EditorGUILayout.EndHorizontal();
+            }
+
             EditorGUILayout.BeginHorizontal();
             EditorGUI.BeginChangeCheck();
             _changedOnly = EditorGUILayout.ToggleLeft(
-                new GUIContent("Changed only", "Show only objects with unsynced game-engine or editable field deviations."),
+                new GUIContent(
+                    "Changed only",
+                    "Show only items with unsynced game-engine, editable field, or text deviations."),
                 _changedOnly);
             if (EditorGUI.EndChangeCheck())
             {
@@ -144,6 +201,7 @@ namespace Grimoire.PluginV2.Editor
                 if (GrimoireEditorStyles.ToolbarButton("Refresh", false, GUILayout.Width(64)))
                 {
                     GrimoireObjectKeyResolver.InvalidateCache(GrimoireSettings.GameId);
+                    GrimoireStringKeyResolver.Invalidate(GrimoireSettings.GameId);
                     EnsureSummariesLoaded(force: true);
                 }
             }
@@ -154,26 +212,28 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawRow(SceneRow row)
         {
-            var link = row.Link;
+            var target = row.TargetObject;
+            if (target == null)
+            {
+                return;
+            }
+
             var selected = Selection.activeGameObject != null &&
-                           Selection.activeGameObject == link.gameObject;
+                           Selection.activeGameObject == target;
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
             EditorGUILayout.BeginHorizontal();
-
             EditorGUILayout.BeginVertical();
 
-            var title = link.gameObject.name;
-            if (GUILayout.Button(title, selected ? EditorStyles.boldLabel : EditorStyles.label))
+            if (GUILayout.Button(row.GameObjectName, selected ? EditorStyles.boldLabel : EditorStyles.label))
             {
-                SelectLink(link);
+                Select(target);
             }
 
             var detailParts = new List<string>();
-            if (!string.IsNullOrEmpty(row.ObjectKey))
+            if (!string.IsNullOrEmpty(row.Code))
             {
-                detailParts.Add(row.ObjectKey);
+                detailParts.Add(row.Code);
             }
 
             if (!string.IsNullOrEmpty(row.TemplateName))
@@ -191,6 +251,11 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUILayout.LabelField(
                     string.Join("  ·  ", detailParts),
                     GrimoireEditorStyles.MiniSecondaryStyle);
+            }
+
+            if (row.Kind == SceneRowKind.Text)
+            {
+                EditorGUILayout.LabelField(row.TextPreview, EditorStyles.wordWrappedMiniLabel);
             }
 
             EditorGUILayout.EndVertical();
@@ -211,21 +276,30 @@ namespace Grimoire.PluginV2.Editor
                     "Editable fields on the Object Link differ from Grimoire and need sync.");
             }
 
+            if (row.TextDirty)
+            {
+                DrawBadge(
+                    "Text",
+                    TextBadgeColor,
+                    "Source text or translations differ from Grimoire. Push them on the Sync tab.");
+            }
+
             if (GUILayout.Button(
                     new GUIContent("Select", "Select this GameObject in the hierarchy."),
                     GUILayout.Width(56),
                     GUILayout.Height(24)))
             {
-                SelectLink(link);
+                Select(target);
             }
 
-            if (GUILayout.Button(
+            if (row.Kind == SceneRowKind.Object &&
+                GUILayout.Button(
                     new GUIContent("Open", "Open this object in the Object tab."),
                     GUILayout.Width(52),
                     GUILayout.Height(24)))
             {
-                SelectLink(link);
-                OpenObjectRequested?.Invoke(link);
+                Select(target);
+                OpenObjectRequested?.Invoke(row.Link);
             }
 
             EditorGUILayout.EndHorizontal();
@@ -251,53 +325,81 @@ namespace Grimoire.PluginV2.Editor
             GUI.Label(rect, content, style);
         }
 
-        private List<SceneRow> BuildVisibleRows(List<GrimoireObjectLink> links)
+        private List<SceneRow> BuildVisibleRows()
         {
             var gameId = GrimoireSettings.GameId;
-            var templateFilter = GetSelectedTemplateKey();
+            // Texts have no template, so the (disabled) template popup must not
+            // silently filter every row away when only texts are shown.
+            var templateFilter = _kindFilterIndex == KindTexts ? AllTemplatesKey : GetSelectedTemplateKey();
             var search = string.IsNullOrWhiteSpace(_search) ? null : _search.Trim();
 
-            var rows = new List<SceneRow>(links.Count);
-            foreach (var link in links)
+            var rows = new List<SceneRow>(LinkBuffer.Count + TextLinkBuffer.Count);
+
+            if (_kindFilterIndex != KindTexts)
             {
-                if (link == null || link.gameObject == null)
+                foreach (var link in LinkBuffer)
                 {
-                    continue;
-                }
+                    if (link == null || link.gameObject == null)
+                    {
+                        continue;
+                    }
 
-                if (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))
+                    if (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId))
+                    {
+                        continue;
+                    }
+
+                    var row = BuildObjectRow(gameId, link);
+                    if (!string.IsNullOrEmpty(templateFilter) &&
+                        !string.Equals(row.TemplateName, templateFilter, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (PassesFilters(row, search))
+                    {
+                        rows.Add(row);
+                    }
+                }
+            }
+
+            // Text links carry no template, so a template filter excludes them.
+            if (_kindFilterIndex != KindObjects && string.IsNullOrEmpty(templateFilter))
+            {
+                foreach (var link in TextLinkBuffer)
                 {
-                    continue;
-                }
+                    if (link == null || link.gameObject == null)
+                    {
+                        continue;
+                    }
 
-                var row = BuildRow(gameId, link);
-                if (_changedOnly && !row.GameEngineDirty && !row.FieldsDirty)
-                {
-                    continue;
+                    var row = BuildTextRow(link);
+                    if (PassesFilters(row, search))
+                    {
+                        rows.Add(row);
+                    }
                 }
-
-                if (!string.IsNullOrEmpty(templateFilter) &&
-                    !string.Equals(row.TemplateName, templateFilter, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                if (search != null && !RowMatchesSearch(row, search))
-                {
-                    continue;
-                }
-
-                rows.Add(row);
             }
 
             return rows
-                .OrderByDescending(r => r.GameEngineDirty || r.FieldsDirty)
+                .OrderByDescending(r => r.IsDirty)
+                .ThenBy(r => r.Kind)
                 .ThenBy(r => r.SceneName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(r => r.GameObjectName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
 
-        private static SceneRow BuildRow(string gameId, GrimoireObjectLink link)
+        private bool PassesFilters(SceneRow row, string search)
+        {
+            if (_changedOnly && !row.IsDirty)
+            {
+                return false;
+            }
+
+            return search == null || RowMatchesSearch(row, search);
+        }
+
+        private static SceneRow BuildObjectRow(string gameId, GrimoireObjectLink link)
         {
             string templateName = null;
             string objectName = null;
@@ -308,29 +410,67 @@ namespace Grimoire.PluginV2.Editor
                 objectName = summary.name;
             }
 
-            var geDirty = GrimoireGameEngineDirtyTracker.IsGameEngineDirty(link);
-            var fieldsDirty = GrimoireEditableFieldsRenderer.HasDirtyEditsForLink(link);
-
             return new SceneRow
             {
+                Kind = SceneRowKind.Object,
                 Link = link,
                 GameObjectName = link.gameObject.name,
-                ObjectKey = link.ObjectKey,
+                Code = link.ObjectKey,
                 ObjectName = objectName,
                 TemplateName = templateName ?? "",
                 SceneName = GrimoireGameEngineSync.GetSceneName(link.gameObject),
-                GameEngineDirty = geDirty,
-                FieldsDirty = fieldsDirty,
+                GameEngineDirty = GrimoireGameEngineDirtyTracker.IsGameEngineDirty(link),
+                FieldsDirty = GrimoireEditableFieldsRenderer.HasDirtyEditsForLink(link),
             };
+        }
+
+        private static SceneRow BuildTextRow(GrimoireTextLink link)
+        {
+            var locale = GrimoireTextLinkStore.ResolvePreviewLanguage(link);
+
+            return new SceneRow
+            {
+                Kind = SceneRowKind.Text,
+                TextLink = link,
+                GameObjectName = link.gameObject.name,
+                Code = link.TextCode,
+                SceneName = GrimoireGameEngineSync.GetSceneName(link.gameObject),
+                ResolvedText = link.GetResolvedText(locale),
+                TextPreview = BuildTextPreview(link.GetPreviewText(locale), locale),
+                TextDirty = GrimoireTextLinkStore.HasDeviations(link),
+            };
+        }
+
+        private static string BuildTextPreview(string preview, string locale)
+        {
+            if (string.IsNullOrEmpty(preview))
+            {
+                return "(no copy loaded — refresh the Text Link inspector)";
+            }
+
+            var prefix = string.IsNullOrEmpty(locale) ? "" : $"[{locale}] ";
+            if (string.Equals(preview, GrimoireTextLink.NotTranslatedPlaceholder, StringComparison.Ordinal))
+            {
+                return prefix + GrimoireTextLink.NotTranslatedPlaceholder;
+            }
+
+            var text = preview.Replace("\r", " ").Replace("\n", " ").Trim();
+            if (text.Length > 90)
+            {
+                text = text.Substring(0, 87) + "…";
+            }
+
+            return $"{prefix}“{text}”";
         }
 
         private static bool RowMatchesSearch(SceneRow row, string search)
         {
             return Contains(row.GameObjectName, search) ||
-                   Contains(row.ObjectKey, search) ||
+                   Contains(row.Code, search) ||
                    Contains(row.ObjectName, search) ||
                    Contains(row.TemplateName, search) ||
-                   Contains(row.SceneName, search);
+                   Contains(row.SceneName, search) ||
+                   Contains(row.ResolvedText, search);
         }
 
         private static bool Contains(string haystack, string needle) =>
@@ -424,20 +564,20 @@ namespace Grimoire.PluginV2.Editor
             }
 
             _enriching = false;
-            GrimoireGameEngineDirtyTracker.CollectSceneLinks(LinkBuffer);
+            CollectSceneLinks();
             RefreshTemplateOptions();
             RequestRepaint();
         }
 
-        private static void SelectLink(GrimoireObjectLink link)
+        private static void Select(GameObject gameObject)
         {
-            if (link == null || link.gameObject == null)
+            if (gameObject == null)
             {
                 return;
             }
 
-            Selection.activeGameObject = link.gameObject;
-            EditorGUIUtility.PingObject(link.gameObject);
+            Selection.activeGameObject = gameObject;
+            EditorGUIUtility.PingObject(gameObject);
         }
 
         private void OnDirtyChanged() => RequestRepaint();
@@ -448,16 +588,42 @@ namespace Grimoire.PluginV2.Editor
 
         private void RequestRepaint() => RepaintNeeded?.Invoke();
 
-        private struct SceneRow
+        private enum SceneRowKind
         {
+            Object = 0,
+            Text = 1,
+        }
+
+        private sealed class SceneRow
+        {
+            public SceneRowKind Kind;
             public GrimoireObjectLink Link;
+            public GrimoireTextLink TextLink;
             public string GameObjectName;
-            public string ObjectKey;
+            public string Code;
             public string ObjectName;
             public string TemplateName;
             public string SceneName;
+            public string ResolvedText;
+            public string TextPreview;
             public bool GameEngineDirty;
             public bool FieldsDirty;
+            public bool TextDirty;
+
+            public bool IsDirty => GameEngineDirty || FieldsDirty || TextDirty;
+
+            public GameObject TargetObject
+            {
+                get
+                {
+                    if (Kind == SceneRowKind.Object)
+                    {
+                        return Link != null ? Link.gameObject : null;
+                    }
+
+                    return TextLink != null ? TextLink.gameObject : null;
+                }
+            }
         }
     }
 }

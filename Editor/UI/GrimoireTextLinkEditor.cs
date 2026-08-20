@@ -109,7 +109,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             var locale = GrimoireTextLinkStore.ResolvePreviewLanguage(link);
-            var resolved = link.GetResolvedText(locale);
+            var resolved = link.GetPreviewText(locale);
             using (new EditorGUI.DisabledScope(true))
             {
                 EditorGUILayout.TextField(
@@ -117,6 +117,14 @@ namespace Grimoire.PluginV2.Editor
                         "Shown on object",
                         string.IsNullOrEmpty(locale) ? "Source text" : $"Locale: {locale}"),
                     resolved);
+            }
+
+            var linked = link.HasCode || !string.IsNullOrEmpty(link.CachedStringId);
+            if (linked && !string.IsNullOrEmpty(locale) && !link.HasTranslationFor(locale))
+            {
+                EditorGUILayout.HelpBox(
+                    $"No '{locale}' copy on this string yet. Players fall back to the source text.",
+                    MessageType.Info);
             }
         }
 

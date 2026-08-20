@@ -257,10 +257,17 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
+            into.Clear();
             var found = Resources.FindObjectsOfTypeAll<GrimoireTextLink>();
             foreach (var link in found)
             {
-                if (link == null || !link.gameObject.scene.IsValid())
+                if (link == null || link.gameObject == null || EditorUtility.IsPersistent(link))
+                {
+                    continue;
+                }
+
+                var scene = link.gameObject.scene;
+                if (!scene.IsValid() || !scene.isLoaded)
                 {
                     continue;
                 }

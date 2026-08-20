@@ -13,6 +13,9 @@ namespace Grimoire.PluginV2
     [DisallowMultipleComponent]
     public class GrimoireTextLink : MonoBehaviour
     {
+        /// <summary>Editor preview stand-in for a locale that has no copy yet.</summary>
+        public const string NotTranslatedPlaceholder = "not translated";
+
         [SerializeField]
         [Tooltip("Grimoire string code — typically the abbrev (e.g. WELCOME) or string UUID.")]
         private string _textCode = "";
@@ -179,6 +182,29 @@ namespace Grimoire.PluginV2
             return _sourceText ?? "";
         }
 
+        /// <summary>
+        /// Editor preview copy. Where <see cref="GetResolvedText"/> falls back to
+        /// the source text, this returns <see cref="NotTranslatedPlaceholder"/> so
+        /// an untranslated locale is visible instead of looking already localized.
+        /// </summary>
+        public string GetPreviewText(string languageCode = null)
+        {
+            var locale = string.IsNullOrWhiteSpace(languageCode) ? "" : languageCode.Trim();
+            if (locale.Length == 0)
+            {
+                return _sourceText ?? "";
+            }
+
+            return HasTranslationFor(locale) ? GetResolvedText(locale) : NotTranslatedPlaceholder;
+        }
+
+        /// <summary>True when <paramref name="languageCode"/> has non-empty copy cached here.</summary>
+        public bool HasTranslationFor(string languageCode)
+        {
+            var locale = string.IsNullOrWhiteSpace(languageCode) ? "" : languageCode.Trim();
+            return TryGetTranslation(locale, out var row) && !string.IsNullOrEmpty(row.LocalText);
+        }
+
         public bool TryGetTranslation(string languageCode, out GrimoireLinkedTranslation translation)
         {
             translation = null;
@@ -214,7 +240,12 @@ namespace Grimoire.PluginV2
             _translations?.Clear();
         }
 
-        /// <summary>Apply <see cref="GetResolvedText"/> to UI components on this GameObject.</summary>
+        /// <summary>
+        /// Apply <see cref="GetResolvedText"/> to UI components on this GameObject.
+        /// Edit Mode previews use <see cref="GetPreviewText"/> instead, so a missing
+        /// translation is visible while authoring without shipping the placeholder
+        /// to players.
+        /// </summary>
         public void ApplyResolvedText(string languageCode = null)
         {
             if (!_applyToTarget)
@@ -227,6 +258,14 @@ namespace Grimoire.PluginV2
             {
                 locale = ResolveActiveLanguage();
             }
+
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                GrimoireTextTarget.TryApply(gameObject, GetPreviewText(locale));
+                return;
+            }
+#endif
 
             GrimoireTextTarget.TryApply(gameObject, GetResolvedText(locale));
         }
