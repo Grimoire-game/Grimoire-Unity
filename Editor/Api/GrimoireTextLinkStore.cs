@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEditor;
+using UnityEngine;
 
 namespace Grimoire.PluginV2.Editor
 {

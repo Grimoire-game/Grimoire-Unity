@@ -66,7 +66,7 @@ namespace Grimoire.PluginV2.Editor
             BuildTextEntries(out var selectedTextEntry, out var otherTextEntries);
             var dirtyTotal = CountDirtyEntries(entries) + CountDirtyTextEntries(selectedTextEntry, otherTextEntries);
 
-            DrawCommitForm(selectedEntry, selectedTextEntry, dirtyTotal);
+            DrawCommitForm(selectedEntry, selectedTextEntry, otherTextEntries, dirtyTotal);
 
             if (!string.IsNullOrEmpty(_error))
             {
@@ -239,7 +239,11 @@ namespace Grimoire.PluginV2.Editor
             GrimoireEditorStyles.EndCollapsibleSection();
         }
 
-        private void DrawCommitForm(SyncEntry selectedEntry, TextSyncEntry selectedTextEntry, int dirtyTotal)
+        private void DrawCommitForm(
+            SyncEntry selectedEntry,
+            TextSyncEntry selectedTextEntry,
+            List<TextSyncEntry> otherTextEntries,
+            int dirtyTotal)
         {
             var selectedDirty = (selectedEntry != null && selectedEntry.IsDirty) ||
                                 (selectedTextEntry != null && selectedTextEntry.PushableDirty);
