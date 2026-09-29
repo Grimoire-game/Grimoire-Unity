@@ -67,6 +67,23 @@ Linking also upserts this scene instance into the object's `game_engine_data`
 (so Grimoire knows it exists in the engine). Removing the component, deleting
 the GameObject, or clicking **Unlink** removes that entry again.
 
+### Creating an object
+
+**Create in Grimoire...** on a Grimoire Object Link, **Create object** on the
+Scene tab, or `Window > Grimoire > Create Object` creates a library object with
+`POST /api/v1/objects`.
+
+Creation saves a **draft** in the selected game as soon as you confirm. You
+choose a name and either a blank object (Grimoire's default Title field) or an
+existing template. A Code ID is optional; leave it empty and Grimoire generates
+one. If that Code ID is already used, creation stops.
+
+The confirmation names the game, whether the object is blank or built from a
+template, and any object that already has the same name. Linking the GameObject
+is a separate checkbox. It stays off unless you turn it on, and the transform
+sync that follows is still queued for review. Publish the draft in Grimoire
+when it is ready.
+
 On the component, choose which fields to sync (defaults on):
 
 - **Position** → `location`
@@ -137,6 +154,7 @@ folder or Bootstrap component is required.
 | `GET /api/v1/users` | Game members for task assignee filters |
 | `GET /api/v1/tasks` | List tasks for a game (optional assignee filter) |
 | `GET /api/v1/objects` | Object picker + key (`code_id`) resolution |
+| `POST /api/v1/objects` | Create a draft library object (blank or from a template) |
 | `GET /api/v1/objects/{id}` | Object View Document incl. attached tasks |
 | `PATCH /api/v1/objects/{id}` | Replace `game_engine_data`, or update `game_engine_editable` field values |
 | `GET /api/v1/statuses?domain=tasks` | Valid task workflow statuses |

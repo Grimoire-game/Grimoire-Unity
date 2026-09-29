@@ -84,9 +84,19 @@ namespace Grimoire.PluginV2.Editor
             RefreshTemplateOptions();
 
             var rows = BuildVisibleRows();
+            EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(
                 BuildCountLabel(rows) + (_enriching ? "  ·  loading templates…" : ""),
                 GrimoireEditorStyles.MiniSecondaryStyle);
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button(
+                    new GUIContent("Create object", "Create a draft library object in the selected game."),
+                    GUILayout.Width(120)))
+            {
+                GrimoireCreateObjectWindow.Open();
+            }
+
+            EditorGUILayout.EndHorizontal();
             EditorGUILayout.Space(4);
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);

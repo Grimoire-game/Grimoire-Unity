@@ -72,6 +72,44 @@ namespace Grimoire.PluginV2.Editor
         public string updated_at;
     }
 
+    /// <summary>
+    /// Body of <c>POST /api/v1/objects</c>. The plugin sends a draft only:
+    /// name, optional description, code id, and tags, and an optional template.
+    /// Custom sections and field overlays are not part of this payload.
+    /// </summary>
+    public class CreateObjectRequest
+    {
+        public string name;
+        public string description;
+        public string code_id;
+        public string[] tags;
+        public string template_id;
+
+        /// <summary>Always <c>draft</c> when sent by the plugin.</summary>
+        public string status;
+    }
+
+    /// <summary>Object returned by <c>POST /api/v1/objects</c> (201).</summary>
+    public class CreatedObject : ObjectSummary
+    {
+        public CreatedObjectSection[] sections;
+    }
+
+    public class CreatedObjectSection
+    {
+        public string id;
+        public string title;
+        public CreatedObjectField[] fields;
+    }
+
+    public class CreatedObjectField
+    {
+        public string id;
+        public string type;
+        public string label;
+        public string string_id;
+    }
+
     public class TextPayload
     {
         public string content;
