@@ -90,9 +90,12 @@ namespace Grimoire.PluginV2.Editor
             link.ApplyToTarget = EditorGUILayout.Toggle(
                 new GUIContent("Apply to UI text", "Write resolved copy to Unity UI Text or TextMesh Pro on this GameObject."),
                 link.ApplyToTarget);
-            var previewLanguage = EditorGUILayout.TextField(
-                new GUIContent("Preview language", "Empty uses Connect locale. Examples: de, fr, ja."),
-                link.PreviewLanguage);
+            var previewLanguage = GrimoireLanguagePopup.Draw(
+                new GUIContent(
+                    "Preview language",
+                    "Override the scene language for this object only. Choose from the game's languages."),
+                link.PreviewLanguage,
+                "Follow scene language");
             if (EditorGUI.EndChangeCheck())
             {
                 Undo.RecordObject(link, "Change Grimoire text preview");

@@ -452,12 +452,18 @@ namespace Grimoire.PluginV2.Editor
                 : ApiResult<AuthSessionData>.Fail(result.Error, result.Code, result.HttpStatus);
         }
 
-        /// <summary>GET /api/v1/games — games the signed-in user can access.</summary>
-        public static async Task<ApiResult<GameDirectoryEntry[]>> ListGamesAsync(string companyId = null)
+        /// <summary>
+        /// GET /api/v1/games — games the signed-in user can access, with each
+        /// game's supported languages. Pass <paramref name="gameId"/> to fetch a
+        /// single game.
+        /// </summary>
+        public static async Task<ApiResult<GameDirectoryEntry[]>> ListGamesAsync(
+            string companyId = null, string gameId = null)
         {
             var url = BuildUrl("/api/v1/games", new Dictionary<string, string>
             {
                 ["company_id"] = string.IsNullOrWhiteSpace(companyId) ? null : companyId.Trim(),
+                ["game_id"] = string.IsNullOrWhiteSpace(gameId) ? null : gameId.Trim(),
             });
 
             var result = await SendAsync<ListEnvelope<GameDirectoryEntry>>("GET", url, null, ApiAuth.Bearer);

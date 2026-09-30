@@ -35,6 +35,7 @@ namespace Grimoire.PluginV2.Editor
         private string[] _templateLabels = { "All templates" };
         private bool _enriching;
         private int _enrichGeneration;
+        private int _clearedOverrides;
 
         public event Action RepaintNeeded;
         public event Action<GrimoireObjectLink> OpenObjectRequested;
@@ -49,11 +50,17 @@ namespace Grimoire.PluginV2.Editor
             GrimoireLinkedFieldStore.Changed += OnDirtyChanged;
             GrimoireTextLinkStore.Changed -= OnDirtyChanged;
             GrimoireTextLinkStore.Changed += OnDirtyChanged;
+            GrimoireGameLanguages.Changed -= OnDirtyChanged;
+            GrimoireGameLanguages.Changed += OnDirtyChanged;
+            GrimoireSettings.LocaleChanged -= OnDirtyChanged;
+            GrimoireSettings.LocaleChanged += OnDirtyChanged;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             EditorApplication.hierarchyChanged += OnHierarchyChanged;
             Selection.selectionChanged -= OnSelectionChanged;
             Selection.selectionChanged += OnSelectionChanged;
 
+            GrimoireGameLanguages.EnsureLoaded();
+            _clearedOverrides = 0;
             RefreshTemplateOptions();
             EnsureSummariesLoaded();
             RequestRepaint();
@@ -65,6 +72,8 @@ namespace Grimoire.PluginV2.Editor
             GrimoireEditableFieldsRenderer.Changed -= OnDirtyChanged;
             GrimoireLinkedFieldStore.Changed -= OnDirtyChanged;
             GrimoireTextLinkStore.Changed -= OnDirtyChanged;
+            GrimoireGameLanguages.Changed -= OnDirtyChanged;
+            GrimoireSettings.LocaleChanged -= OnDirtyChanged;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             Selection.selectionChanged -= OnSelectionChanged;
         }
@@ -78,9 +87,11 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
+            CollectSceneLinks();
+
+            DrawLanguageBar();
             DrawFilterBar();
 
-            CollectSceneLinks();
             RefreshTemplateOptions();
 
             var rows = BuildVisibleRows();
@@ -147,6 +158,101 @@ namespace Grimoire.PluginV2.Editor
             }
 
             return string.Join("  ·  ", parts);
+        }
+
+        /// <summary>
+        /// One dropdown that switches every text link in the loaded scenes to a
+        /// language the game actually supports.
+        /// </summary>
+        private void DrawLanguageBar()
+        {
+            if (!GrimoireEditorStyles.BeginCollapsibleSection("scene-language", "Scene language", defaultExpanded: true))
+            {
+                return;
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Language", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(64));
+
+            EditorGUI.BeginChangeCheck();
+            var picked = GrimoireLanguagePopup.Draw(
+                GrimoireSettings.Locale,
+                GrimoireGameLanguages.SourceLanguageLabel);
+            var changed = EditorGUI.EndChangeCheck();
+
+            using (new EditorGUI.DisabledScope(GrimoireGameLanguages.IsLoading))
+            {
+                if (GrimoireEditorStyles.ToolbarButton("Refresh", false, GUILayout.Width(64)))
+                {
+                    GrimoireGameLanguages.Refresh();
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            if (changed)
+            {
+                ApplySceneLanguage(picked);
+            }
+
+            var unavailable = GrimoireLanguagePopup.DescribeUnavailable();
+            if (unavailable != null)
+            {
+                EditorGUILayout.LabelField(unavailable, EditorStyles.wordWrappedMiniLabel);
+            }
+
+            EditorGUILayout.LabelField(DescribeSceneLanguage(), EditorStyles.wordWrappedMiniLabel);
+
+            if (_clearedOverrides > 0)
+            {
+                EditorGUILayout.LabelField(
+                    $"Cleared {_clearedOverrides} per-object preview " +
+                    $"{(_clearedOverrides == 1 ? "language" : "languages")} so every link follows the scene.",
+                    EditorStyles.wordWrappedMiniLabel);
+            }
+
+            GrimoireEditorStyles.EndCollapsibleSection();
+        }
+
+        private void ApplySceneLanguage(string languageCode)
+        {
+            _clearedOverrides = GrimoireTextLinkStore.ApplySceneLanguage(languageCode);
+            RequestRepaint();
+        }
+
+        private static string DescribeSceneLanguage()
+        {
+            var locale = GrimoireSettings.Locale;
+            var shown = string.IsNullOrEmpty(locale)
+                ? "source text"
+                : GrimoireGameLanguages.DisplayName(locale);
+
+            var count = TextLinkBuffer.Count;
+            if (count == 0)
+            {
+                return $"No Grimoire Text Links in the loaded scenes yet. " +
+                       $"Translatable object fields load in {shown}.";
+            }
+
+            var scenes = CountScenes();
+            var where = $"{count} text {(count == 1 ? "link" : "links")}" +
+                        (scenes > 1 ? $" across {scenes} loaded scenes" : "");
+
+            return $"Showing {shown} on {where}, and on translatable object fields.";
+        }
+
+        private static int CountScenes()
+        {
+            var scenes = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var link in TextLinkBuffer)
+            {
+                if (link != null && link.gameObject != null)
+                {
+                    scenes.Add(link.gameObject.scene.path ?? "");
+                }
+            }
+
+            return scenes.Count;
         }
 
         private void DrawFilterBar()
@@ -592,7 +698,12 @@ namespace Grimoire.PluginV2.Editor
 
         private void OnDirtyChanged() => RequestRepaint();
 
-        private void OnHierarchyChanged() => RequestRepaint();
+        private void OnHierarchyChanged()
+        {
+            // The note counts links that existed when the language was applied.
+            _clearedOverrides = 0;
+            RequestRepaint();
+        }
 
         private void OnSelectionChanged() => RequestRepaint();
 

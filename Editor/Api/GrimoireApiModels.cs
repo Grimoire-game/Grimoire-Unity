@@ -409,6 +409,12 @@ namespace Grimoire.PluginV2.Editor
         public string name;
         public string company_id;
         public string company_name;
+
+        /// <summary>Language codes this game is localized into, source language included.</summary>
+        public string[] languages;
+
+        /// <summary>The game's source language; empty when the game never set one.</summary>
+        public string default_language;
     }
 
     public class UserDirectoryEntry
