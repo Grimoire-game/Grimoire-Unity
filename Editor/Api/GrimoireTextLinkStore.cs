@@ -10,8 +10,16 @@ namespace Grimoire.PluginV2.Editor
     /// Keeps <see cref="GrimoireTextLink"/> copy in sync with GET /api/v1/strings
     /// and builds PATCH payloads for deviated translations.
     /// </summary>
+    [InitializeOnLoad]
     public static class GrimoireTextLinkStore
     {
+        static GrimoireTextLinkStore()
+        {
+            // Lets links resolve the shared editor language on their own, so
+            // previews survive domain reloads and newly added links pick it up.
+            GrimoireTextLink.EditorLanguageResolver = () => GrimoireSettings.Locale;
+        }
+
         public static event Action Changed;
 
         public sealed class DirtyTranslationChange
@@ -289,6 +297,48 @@ namespace Grimoire.PluginV2.Editor
             }
 
             return GrimoireSettings.Locale;
+        }
+
+        /// <summary>
+        /// Show <paramref name="languageCode"/> on every text link in the loaded
+        /// scenes: it becomes the shared editor language, per-object preview
+        /// overrides are dropped so nothing keeps its own locale, and the copy
+        /// on each GameObject is refreshed. Empty shows source text.
+        /// </summary>
+        /// <returns>How many per-object preview overrides were cleared.</returns>
+        public static int ApplySceneLanguage(string languageCode)
+        {
+            var code = languageCode?.Trim() ?? "";
+            var links = new List<GrimoireTextLink>();
+            CollectSceneLinks(links);
+
+            Undo.IncrementCurrentGroup();
+            Undo.SetCurrentGroupName("Set Grimoire scene language");
+
+            GrimoireSettings.Locale = code;
+
+            var cleared = 0;
+            foreach (var link in links)
+            {
+                if (link == null)
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(link.PreviewLanguage))
+                {
+                    Undo.RecordObject(link, "Set Grimoire scene language");
+                    link.PreviewLanguage = "";
+                    EditorUtility.SetDirty(link);
+                    cleared++;
+                }
+
+                link.ApplyResolvedText(code);
+            }
+
+            Undo.CollapseUndoOperations(Undo.GetCurrentGroup());
+            NotifyChanged();
+            return cleared;
         }
 
         private static string Clamp(GrimoireTextLink link, string value)

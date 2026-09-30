@@ -50,6 +50,15 @@ namespace Grimoire.PluginV2
         /// <summary>Raised when cached text changes so the editor can mark dirty state.</summary>
         public static event Action<GrimoireTextLink> TextChanged;
 
+#if UNITY_EDITOR
+        /// <summary>
+        /// Supplies the Edit Mode preview locale. The editor assembly installs
+        /// this so previews follow the scene language chosen in Grimoire
+        /// Connect, including after a domain reload.
+        /// </summary>
+        public static Func<string> EditorLanguageResolver;
+#endif
+
         /// <summary>The Grimoire string code (abbrev or UUID) for this link.</summary>
         public string TextCode
         {
@@ -279,7 +288,8 @@ namespace Grimoire.PluginV2
             }
 
 #if UNITY_EDITOR
-            return "";
+            var editorLanguage = EditorLanguageResolver?.Invoke();
+            return string.IsNullOrWhiteSpace(editorLanguage) ? "" : editorLanguage.Trim();
 #else
             var tkType = GrimoireReflect.FindType("TranslationKey");
             if (tkType != null)

@@ -754,22 +754,26 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.Space(4);
 
             EditorGUI.BeginChangeCheck();
-
             EditorGUILayout.LabelField("API base URL", GrimoireEditorStyles.FieldLabelStyle);
             var apiBaseUrl = EditorGUILayout.TextField(
                 new GUIContent("", "Default: " + GrimoireSettings.DefaultApiBaseUrl),
                 GrimoireSettings.ApiBaseUrl);
-
-            EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField("Locale", GrimoireEditorStyles.FieldLabelStyle);
-            var locale = EditorGUILayout.TextField(
-                new GUIContent("", "Language code for translatable fields; empty shows source text"),
-                GrimoireSettings.Locale);
-
             if (EditorGUI.EndChangeCheck())
             {
                 GrimoireSettings.ApiBaseUrl = apiBaseUrl;
-                GrimoireSettings.Locale = locale;
+                GrimoireObjectKeyResolver.InvalidateCache();
+            }
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField("Language", GrimoireEditorStyles.FieldLabelStyle);
+            EditorGUI.BeginChangeCheck();
+            var locale = GrimoireLanguagePopup.Draw(
+                GrimoireSettings.Locale,
+                GrimoireGameLanguages.SourceLanguageLabel);
+            if (EditorGUI.EndChangeCheck())
+            {
+                // Same switch as the Scene tab, so one language drives everything.
+                GrimoireTextLinkStore.ApplySceneLanguage(locale);
                 GrimoireObjectKeyResolver.InvalidateCache();
             }
 

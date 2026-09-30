@@ -114,6 +114,32 @@ namespace Grimoire.PluginV2.Editor
             }
 
             EditorGUILayout.Space(4);
+            using (new EditorGUI.DisabledScope(_syncing || Application.isPlaying))
+            {
+                if (GUILayout.Button("Create in Grimoire..."))
+                {
+                    if (!GrimoireSettings.IsConfigured)
+                    {
+                        _validationMessage = "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).";
+                        _validationType = MessageType.Warning;
+                    }
+                    else
+                    {
+                        GrimoireCreateObjectWindow.Open(link, (message, type) =>
+                        {
+                            if (this == null)
+                            {
+                                return;
+                            }
+
+                            _validationMessage = message;
+                            _validationType = type;
+                            Repaint();
+                        });
+                    }
+                }
+            }
+
             EditorGUILayout.BeginHorizontal();
 
             using (new EditorGUI.DisabledScope(_syncing || Application.isPlaying))

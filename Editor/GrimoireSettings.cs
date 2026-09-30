@@ -12,7 +12,14 @@ namespace Grimoire.PluginV2.Editor
     {
         public const string DefaultApiBaseUrl = "https://api.usegrimoire.com";
 
+        /// <summary>Workspace (company / game) selection changed.</summary>
         public static event System.Action Changed;
+
+        /// <summary>
+        /// The shared preview language changed. Separate from <see cref="Changed"/>
+        /// because switching language must not invalidate workspace-scoped caches.
+        /// </summary>
+        public static event System.Action LocaleChanged;
 
         private static string Key(string name) =>
             $"GrimoireV2_{PlayerSettings.productGUID}_{name}";
@@ -63,11 +70,25 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
-        /// <summary>Locale for translatable fields; empty shows source text.</summary>
+        /// <summary>
+        /// Shared language for translatable fields and text-link previews;
+        /// empty shows source text. Set it for every loaded scene at once from
+        /// the Scene tab in Grimoire Connect.
+        /// </summary>
         public static string Locale
         {
             get => EditorPrefs.GetString(Key("Locale"), "");
-            set => EditorPrefs.SetString(Key("Locale"), value?.Trim() ?? "");
+            set
+            {
+                var next = value?.Trim() ?? "";
+                if (next == Locale)
+                {
+                    return;
+                }
+
+                EditorPrefs.SetString(Key("Locale"), next);
+                LocaleChanged?.Invoke();
+            }
         }
 
         public static bool HasCompanyId => !string.IsNullOrEmpty(CompanyId);
