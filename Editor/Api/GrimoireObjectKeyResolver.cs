@@ -219,6 +219,56 @@ namespace Grimoire.PluginV2.Editor
             }
         }
 
+        /// <summary>
+        /// True when a full object listing for <paramref name="gameId"/> is cached
+        /// and still inside <see cref="CacheLifetime"/>.
+        /// </summary>
+        public static bool IsLibraryCacheReady(string gameId)
+        {
+            return !string.IsNullOrWhiteSpace(gameId) &&
+                   Caches.TryGetValue(gameId, out var cache) &&
+                   cache.Complete &&
+                   DateTime.UtcNow - cache.BuiltAtUtc <= CacheLifetime;
+        }
+
+        /// <summary>
+        /// Distinct templates seen on cached library objects, sorted by name.
+        /// Empty when the library has not been cached yet.
+        /// </summary>
+        public static ObjectTemplateRef[] ListCachedTemplates(string gameId)
+        {
+            if (string.IsNullOrWhiteSpace(gameId) || !Caches.TryGetValue(gameId, out var cache))
+            {
+                return Array.Empty<ObjectTemplateRef>();
+            }
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var list = new List<ObjectTemplateRef>();
+            foreach (var summary in cache.SummaryById.Values)
+            {
+                var template = summary?.template;
+                if (template == null || string.IsNullOrEmpty(template.id) || !seen.Add(template.id))
+                {
+                    continue;
+                }
+
+                list.Add(new ObjectTemplateRef
+                {
+                    id = template.id,
+                    name = template.name,
+                });
+            }
+
+            list.Sort((a, b) => string.Compare(
+                TemplateSortKey(a),
+                TemplateSortKey(b),
+                StringComparison.OrdinalIgnoreCase));
+            return list.ToArray();
+        }
+
+        private static string TemplateSortKey(ObjectTemplateRef template) =>
+            string.IsNullOrEmpty(template.name) ? template.id : template.name;
+
         public static void InvalidateCache(string gameId = null)
         {
             if (gameId == null)

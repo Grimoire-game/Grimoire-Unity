@@ -90,6 +90,54 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>
+        /// POST /api/v1/objects — create a library object immediately.
+        /// Engine PATCH is queued for review; this write is applied at once.
+        /// <see cref="GrimoireObjectCreate.Prepare"/> only allows a draft built
+        /// from a name or a template id.
+        /// </summary>
+        public static async Task<ApiResult<CreatedObject>> CreateObjectAsync(
+            string gameId, CreateObjectRequest request)
+        {
+            if (!GrimoireObjectCreate.IsUuid(gameId))
+            {
+                return ApiResult<CreatedObject>.Fail(
+                    "Choose a game in Grimoire Connect before creating an object.",
+                    "missing_parameter");
+            }
+
+            var prepared = GrimoireObjectCreate.Prepare(request);
+            if (!prepared.Success)
+            {
+                return ApiResult<CreatedObject>.Fail(prepared.Error, prepared.Code, prepared.HttpStatus);
+            }
+
+            var url = BuildUrl("/api/v1/objects", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId.Trim(),
+            });
+
+            var body = JsonConvert.SerializeObject(
+                prepared.Data,
+                new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
+
+            var result = await SendAsync<SingleEnvelope<CreatedObject>>("POST", url, body, ApiAuth.Bearer);
+            if (!result.Success)
+            {
+                return ApiResult<CreatedObject>.Fail(result.Error, result.Code, result.HttpStatus);
+            }
+
+            if (result.Data.data == null || string.IsNullOrEmpty(result.Data.data.id))
+            {
+                return ApiResult<CreatedObject>.Fail(
+                    "Grimoire created an object but did not return its id.",
+                    "malformed_response",
+                    result.HttpStatus);
+            }
+
+            return ApiResult<CreatedObject>.Ok(result.Data.data, result.HttpStatus);
+        }
+
+        /// <summary>
         /// GET /api/v1/strings — source strings with translations for a game.
         /// Pass <paramref name="includeContext"/> false for faster lookups on large games.
         /// </summary>
@@ -404,12 +452,18 @@ namespace Grimoire.PluginV2.Editor
                 : ApiResult<AuthSessionData>.Fail(result.Error, result.Code, result.HttpStatus);
         }
 
-        /// <summary>GET /api/v1/games — games the signed-in user can access.</summary>
-        public static async Task<ApiResult<GameDirectoryEntry[]>> ListGamesAsync(string companyId = null)
+        /// <summary>
+        /// GET /api/v1/games — games the signed-in user can access, with each
+        /// game's supported languages. Pass <paramref name="gameId"/> to fetch a
+        /// single game.
+        /// </summary>
+        public static async Task<ApiResult<GameDirectoryEntry[]>> ListGamesAsync(
+            string companyId = null, string gameId = null)
         {
             var url = BuildUrl("/api/v1/games", new Dictionary<string, string>
             {
                 ["company_id"] = string.IsNullOrWhiteSpace(companyId) ? null : companyId.Trim(),
+                ["game_id"] = string.IsNullOrWhiteSpace(gameId) ? null : gameId.Trim(),
             });
 
             var result = await SendAsync<ListEnvelope<GameDirectoryEntry>>("GET", url, null, ApiAuth.Bearer);
