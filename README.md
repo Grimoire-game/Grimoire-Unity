@@ -37,8 +37,8 @@ Add the package to your project via the Package Manager:
 3. **Choose your company and game** from the dropdowns.
 
 The selected company and game are stored per Unity project. Settings (API base
-URL, locale) are stored per-user in `EditorPrefs`; nothing is written to files
-that could be committed.
+URL, scene language) are stored per-user in `EditorPrefs`; nothing is written to
+files that could be committed.
 
 ## Usage
 
@@ -67,6 +67,23 @@ Linking also upserts this scene instance into the object's `game_engine_data`
 (so Grimoire knows it exists in the engine). Removing the component, deleting
 the GameObject, or clicking **Unlink** removes that entry again.
 
+### Creating an object
+
+**Create in Grimoire...** on a Grimoire Object Link, **Create object** on the
+Scene tab, or `Window > Grimoire > Create Object` creates a library object with
+`POST /api/v1/objects`.
+
+Creation saves a **draft** in the selected game as soon as you confirm. You
+choose a name and either a blank object (Grimoire's default Title field) or an
+existing template. A Code ID is optional; leave it empty and Grimoire generates
+one. If that Code ID is already used, creation stops.
+
+The confirmation names the game, whether the object is blank or built from a
+template, and any object that already has the same name. Linking the GameObject
+is a separate checkbox. It stays off unless you turn it on, and the transform
+sync that follows is still queued for review. Publish the draft in Grimoire
+when it is ready.
+
 On the component, choose which fields to sync (defaults on):
 
 - **Position** → `location`
@@ -90,6 +107,28 @@ assigned to you, or tasks assigned to a specific team member.
 
 Each open task gets a **Complete** button (moves it to the game's done status)
 and a status dropdown for other workflow moves.
+
+### Scene tab
+
+The **Scene** tab lists everything in the loaded scenes that is linked to
+Grimoire — `GrimoireObjectLink` objects and `GrimoireTextLink` copy — with change
+badges, search, and filters for kind / changed / template.
+
+**Scene language** switches the whole scene at once. The dropdown offers the
+languages configured for the game in Grimoire (Settings > Game Management), read
+from `GET /api/v1/games`; the first entry is the game's source language, meaning
+no translation. Picking one:
+
+- stores it as the shared editor language for this Unity project,
+- clears any per-object **Preview language** so nothing keeps its own locale,
+- refreshes the copy shown on every Unity UI Text / TextMesh Pro target,
+- and loads translatable object fields in that language.
+
+Links without copy for the chosen language preview as `not translated`, so gaps
+are visible while authoring; players still fall back to the source text.
+
+To preview a single object in a different language, set **Preview language** on
+its Grimoire Text Link. The next scene-language switch clears it again.
 
 ### Object tab
 
@@ -133,12 +172,15 @@ folder or Bootstrap component is required.
 | Endpoint | Purpose |
 | --- | --- |
 | `POST /api/v1/auth/login` / `verify-2fa` / `refresh` | User sign-in |
-| `GET /api/v1/games` | List games the signed-in user can access |
+| `GET /api/v1/games` | List games the signed-in user can access, with each game's supported languages |
 | `GET /api/v1/users` | Game members for task assignee filters |
 | `GET /api/v1/tasks` | List tasks for a game (optional assignee filter) |
 | `GET /api/v1/objects` | Object picker + key (`code_id`) resolution |
+| `POST /api/v1/objects` | Create a draft library object (blank or from a template) |
 | `GET /api/v1/objects/{id}` | Object View Document incl. attached tasks |
 | `PATCH /api/v1/objects/{id}` | Replace `game_engine_data`, or update `game_engine_editable` field values |
+| `GET /api/v1/strings` | String picker + code (abbrev) resolution, with translations |
+| `PATCH /api/v1/strings/{id}/translations/{language_code}` | Push edited translations |
 | `GET /api/v1/statuses?domain=tasks` | Valid task workflow statuses |
 | `PATCH /api/v1/tasks/{id}` | Update a task's status |
 | `GET /api/exports/versions` | List Unity export ZIPs for a game |
