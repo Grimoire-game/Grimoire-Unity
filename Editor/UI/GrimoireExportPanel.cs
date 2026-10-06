@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -245,7 +246,9 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            _versions = result.Data ?? Array.Empty<ExportVersion>();
+            _versions = (result.Data ?? Array.Empty<ExportVersion>())
+                .Where(v => !IsMarkdownExport(v))
+                .ToArray();
             _page = 0;
             _error = null;
             _status = _versions.Length > 0
@@ -319,6 +322,29 @@ namespace Grimoire.PluginV2.Editor
             }
 
             RequestRepaint();
+        }
+
+        private static bool IsMarkdownExport(ExportVersion version)
+        {
+            if (version == null)
+            {
+                return true;
+            }
+
+            var fileType = version.file_type?.Trim().ToLowerInvariant();
+            if (fileType == "md" || fileType == "markdown" || fileType == "text/markdown")
+            {
+                return true;
+            }
+
+            var path = version.storage_path ?? version.download_url ?? string.Empty;
+            var queryStart = path.IndexOf('?');
+            if (queryStart >= 0)
+            {
+                path = path.Substring(0, queryStart);
+            }
+
+            return path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
         }
 
         private void RequestRepaint()

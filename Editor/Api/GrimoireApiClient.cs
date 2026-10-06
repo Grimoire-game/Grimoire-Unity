@@ -67,6 +67,46 @@ namespace Grimoire.PluginV2.Editor
                 : ApiResult<ObjectSummary[]>.Fail(result.Error, result.Code, result.HttpStatus);
         }
 
+        /// <summary>GET /api/v1/dialogs — dialog summaries for a game.</summary>
+        public static async Task<ApiResult<DialogSummary[]>> ListDialogsAsync(
+            string gameId, string search = null, int limit = 50, int offset = 0)
+        {
+            var url = BuildUrl("/api/v1/dialogs", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+                ["search"] = string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
+                ["limit"] = limit.ToString(),
+                ["offset"] = offset.ToString(),
+            });
+
+            var result = await SendAsync<ListEnvelope<DialogSummary>>("GET", url, null, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<DialogSummary[]>.Ok(result.Data.data ?? Array.Empty<DialogSummary>())
+                : ApiResult<DialogSummary[]>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
+        /// <summary>GET /api/v1/dialogs/{id} — dialog metadata plus its node graph.</summary>
+        public static async Task<ApiResult<DialogResource>> GetDialogAsync(string gameId, string dialogId)
+        {
+            var url = BuildUrl($"/api/v1/dialogs/{UnityWebRequest.EscapeURL(dialogId)}", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+            });
+
+            var result = await SendAsync<SingleEnvelope<DialogResource>>("GET", url, null, ApiAuth.Bearer);
+            if (!result.Success)
+            {
+                return ApiResult<DialogResource>.Fail(result.Error, result.Code, result.HttpStatus);
+            }
+
+            if (result.Data.data == null)
+            {
+                return ApiResult<DialogResource>.Fail("Grimoire returned an empty dialog.", "malformed_response", result.HttpStatus);
+            }
+
+            return ApiResult<DialogResource>.Ok(result.Data.data);
+        }
+
         /// <summary>
         /// GET /api/v1/objects/{id} — the Object View Document, tasks included.
         /// </summary>

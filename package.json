@@ -6,7 +6,8 @@
   "unity": "2021.3",
   "documentationUrl": "https://api.usegrimoire.com/api/v1/docs",
   "dependencies": {
-    "com.unity.nuget.newtonsoft-json": "3.2.1"
+    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.unity.ugui": "1.0.0"
   },
   "keywords": [
     "grimoire",
