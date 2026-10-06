@@ -1,7 +1,9 @@
 {
     "name": "Grimoire.PluginV2.Runtime",
     "rootNamespace": "Grimoire.PluginV2",
-    "references": [],
+    "references": [
+        "UnityEngine.UI"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

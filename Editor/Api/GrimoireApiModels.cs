@@ -485,6 +485,170 @@ namespace Grimoire.PluginV2.Editor
     }
 
     // ---------------------------------------------------------------------
+    // Dialogs (GET /api/v1/dialogs, GET /api/v1/dialogs/{id})
+    // ---------------------------------------------------------------------
+
+    public class DialogSummary
+    {
+        public string id;
+        public string game_id;
+        public string name;
+        public string dialog_key;
+        public string[] tags;
+        public string folder;
+        public string status;
+        public string created_at;
+        public string updated_at;
+    }
+
+    public class DialogResource : DialogSummary
+    {
+        public string description;
+        public DialogDataDto data;
+    }
+
+    /// <summary>The dialog `data` blob. Legacy dialogs may only carry `sections`.</summary>
+    public class DialogDataDto
+    {
+        public DialogNodeDto[] nodes;
+        public string startingNode;
+        public DialogSectionDto[] sections;
+        public string startingSection;
+        public bool? translatable;
+        public string speakerMode;
+        public string speakerTypeId;
+        public string[] speakerTemplateIds;
+        public DialogVariableDto[] variables;
+    }
+
+    public class DialogSectionDto
+    {
+        public string id;
+        public string name;
+        public string section_identifier;
+        public int? order_index;
+        public DialogNodeDto[] fields;
+        public string[] fieldOrder;
+    }
+
+    /// <summary>
+    /// One node (or one legacy section field). Values typed as object hold the
+    /// raw JSON primitive: bool, long, double, or string.
+    /// </summary>
+    public class DialogNodeDto
+    {
+        public string id;
+        public string name;
+        public string node_identifier;
+        public int? order_index;
+        public string type;
+        public string text;
+        public bool? translatable;
+        public string string_id;
+        public string speaker;
+        public string next_node;
+        public string next_dialog;
+        public string next_dialog_node;
+        public DialogNodeConditionDto condition;
+        public ConditionOptionDto[] conditionOptions;
+        public DialogOptionDto[] options;
+        public bool? pickOnce;
+        public VariableActionDto setter;
+
+        public string next_section;
+        public string next_field;
+        public string next_dialog_section;
+        public string next_section_true;
+        public string next_section_false;
+        public string next_dialog_true;
+        public string next_dialog_false;
+        public string next_dialog_section_true;
+        public string next_dialog_section_false;
+    }
+
+    public class DialogNodeConditionDto
+    {
+        public string variable;
+        public string checkVariable;
+        public ValueRefDto subjectRef;
+        public ValueRefDto checkRef;
+    }
+
+    public class ConditionOptionDto
+    {
+        public string id;
+        public object condition_value;
+        public ValueRefDto valueRef;
+        public string @operator;
+        public string next_node;
+        public string next_dialog;
+        public string next_dialog_node;
+        public int? order_index;
+        public string next_section;
+        public string next_dialog_section;
+    }
+
+    public class DialogOptionDto
+    {
+        public string id;
+        public string option_text;
+        public bool? translatable;
+        public string string_id;
+        public string next_node;
+        public string next_dialog;
+        public string next_dialog_node;
+        public int? order_index;
+        public VariableActionDto variableAction;
+        public VariableConditionDto visibilityCondition;
+        public bool? alwaysAvailable;
+        public string next_section;
+        public string next_dialog_section;
+    }
+
+    public class VariableActionDto
+    {
+        public string variable;
+        public string @operator;
+        public object value;
+        public ValueRefDto targetRef;
+        public ValueRefDto valueRef;
+        public bool? enforceRange;
+    }
+
+    public class VariableConditionDto
+    {
+        public string variable;
+        public string @operator;
+        public object value;
+        public ValueRefDto subjectRef;
+        public ValueRefDto valueRef;
+    }
+
+    public class ValueRefDto
+    {
+        public string source;
+        public object value;
+        public string valueType;
+        public string variableName;
+        public string typeId;
+        public string elementId;
+        public string objectId;
+        public string sectionId;
+        public string fieldId;
+        public string label;
+    }
+
+    public class DialogVariableDto
+    {
+        public string name;
+        public string type;
+        public object initialValue;
+        public string description;
+        public double? rangeMin;
+        public double? rangeMax;
+    }
+
+    // ---------------------------------------------------------------------
     // Strings (GET /api/v1/strings, PATCH translations)
     // ---------------------------------------------------------------------
 

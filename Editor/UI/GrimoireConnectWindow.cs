@@ -6,7 +6,7 @@ namespace Grimoire.PluginV2.Editor
     /// <summary>
     /// Grimoire Connect: sign in, pick company and game, then browse tasks,
     /// scene links, inspect objects, sync game engine data, download exports,
-    /// or inspect live runtime values.
+    /// inspect live runtime values, or add dialogs to the scene.
     /// </summary>
     public class GrimoireConnectWindow : EditorWindow
     {
@@ -16,12 +16,14 @@ namespace Grimoire.PluginV2.Editor
         private const int TabSync = 3;
         private const int TabExport = 4;
         private const int TabRuntime = 5;
+        private const int TabDialogs = 6;
 
         private const int ObjectTabInfo = 0;
         private const int ObjectTabEditable = 1;
         private const int ObjectTabTasks = 2;
+        private const int ObjectTabVariables = 3;
 
-        private static readonly string[] ObjectTabLabels = { "Info", "Editable", "Tasks" };
+        private static readonly string[] ObjectTabLabels = { "Info", "Editable", "Tasks", "Variables" };
 
         private GrimoireObjectLink _link;
         private ObjectViewDocument _document;
@@ -32,6 +34,7 @@ namespace Grimoire.PluginV2.Editor
         private Vector2 _objectScroll;
         private Vector2 _editableScroll;
         private Vector2 _objectTasksScroll;
+        private Vector2 _variablesScroll;
         private int _selectedTab;
         private int _selectedObjectTab;
 
@@ -44,6 +47,7 @@ namespace Grimoire.PluginV2.Editor
         private GrimoireSyncPanel _syncPanel;
         private GrimoireExportPanel _exportPanel;
         private GrimoireRuntimePanel _runtimePanel;
+        private GrimoireDialogsPanel _dialogsPanel;
 
         [MenuItem("Window/Grimoire/Grimoire Connect")]
         public static void Open()
@@ -70,6 +74,16 @@ namespace Grimoire.PluginV2.Editor
             var window = GetWindow<GrimoireConnectWindow>();
             window._selectedTab = TabRuntime;
             window._runtimePanel?.Activate();
+            window.Repaint();
+        }
+
+        /// <summary>Open Connect focused on the Dialogs tab.</summary>
+        [MenuItem("Window/Grimoire/Dialogs")]
+        public static void OpenDialogs()
+        {
+            Open();
+            var window = GetWindow<GrimoireConnectWindow>();
+            window.SelectTab(TabDialogs);
             window.Repaint();
         }
 
@@ -108,6 +122,9 @@ namespace Grimoire.PluginV2.Editor
             _runtimePanel.RepaintNeeded += ScheduleRepaint;
             _runtimePanel.OpenVersionsRequested += OnOpenVersionsRequested;
 
+            _dialogsPanel = new GrimoireDialogsPanel();
+            _dialogsPanel.RepaintNeeded += ScheduleRepaint;
+
             Selection.selectionChanged += OnSelectionChanged;
             GrimoireAuthSession.Changed += OnAuthChanged;
             GrimoireSettings.Changed += OnSettingsChanged;
@@ -135,6 +152,10 @@ namespace Grimoire.PluginV2.Editor
             {
                 _runtimePanel.Activate();
             }
+            else if (_selectedTab == TabDialogs)
+            {
+                _dialogsPanel.Activate();
+            }
 
             OnSelectionChanged();
         }
@@ -159,6 +180,7 @@ namespace Grimoire.PluginV2.Editor
             _scenePanel?.Deactivate();
             _syncPanel?.Deactivate();
             _runtimePanel?.Deactivate();
+            _dialogsPanel?.Deactivate();
         }
 
         private void OnOpenVersionsRequested()
@@ -235,6 +257,7 @@ namespace Grimoire.PluginV2.Editor
             _objectTasksPanel.ResetStatusFetchState();
             _userTasksPanel.Reset();
             _userTasksPanel.Activate();
+            _dialogsPanel?.Reset();
             if (_selectedTab == TabScene)
             {
                 _scenePanel?.Activate();
@@ -242,6 +265,10 @@ namespace Grimoire.PluginV2.Editor
             else if (_selectedTab == TabExport)
             {
                 _exportPanel?.Activate();
+            }
+            else if (_selectedTab == TabDialogs)
+            {
+                _dialogsPanel?.Activate();
             }
 
             Repaint();
@@ -252,6 +279,7 @@ namespace Grimoire.PluginV2.Editor
             _error = null;
             _userTasksPanel.Reset();
             _userTasksPanel.Activate();
+            _dialogsPanel?.Reset();
             if (_selectedTab == TabScene)
             {
                 _scenePanel?.Activate();
@@ -259,6 +287,10 @@ namespace Grimoire.PluginV2.Editor
             else if (_selectedTab == TabExport)
             {
                 _exportPanel?.Activate();
+            }
+            else if (_selectedTab == TabDialogs)
+            {
+                _dialogsPanel?.Activate();
             }
 
             ReloadCurrent();
@@ -321,6 +353,11 @@ namespace Grimoire.PluginV2.Editor
             _objectTasksPanel.ResetStatusFetchState();
             _userTasksPanel.Refresh();
             _exportPanel.Refresh();
+            if (_selectedTab == TabDialogs)
+            {
+                _dialogsPanel.Refresh();
+            }
+
             RefreshObject();
             Repaint();
         }
@@ -501,6 +538,9 @@ namespace Grimoire.PluginV2.Editor
                 case TabRuntime:
                     DrawRuntimeTab();
                     break;
+                case TabDialogs:
+                    DrawDialogsTab();
+                    break;
             }
 
             GrimoireEditorStyles.EndContentArea();
@@ -510,49 +550,62 @@ namespace Grimoire.PluginV2.Editor
         {
             var dirty = GrimoireSyncPanel.TotalPendingCount();
             var syncLabel = dirty > 0 ? $"Sync ({dirty})" : "Sync";
-            var labels = new[] { "Tasks", "Scene", "Object", syncLabel, "Versions", "Runtime" };
+            var labels = new[] { "Tasks", "Scene", "Object", syncLabel, "Versions", "Runtime", "Dialogs" };
 
             var picked = GrimoireEditorStyles.DrawTabBar(_selectedTab, labels);
             if (picked != _selectedTab)
             {
-                if (_selectedTab == TabSync)
-                {
-                    _syncPanel?.Deactivate();
-                }
-                else if (_selectedTab == TabScene)
-                {
-                    _scenePanel?.Deactivate();
-                }
-                else if (_selectedTab == TabRuntime)
-                {
-                    _runtimePanel?.Deactivate();
-                }
+                SelectTab(picked);
+            }
+        }
 
-                _selectedTab = picked;
-                if (_selectedTab == TabObject)
-                {
-                    OnSelectionChanged();
-                }
-                else if (_selectedTab == TabTasks)
-                {
-                    _userTasksPanel.Activate();
-                }
-                else if (_selectedTab == TabScene)
-                {
-                    _scenePanel?.Activate();
-                }
-                else if (_selectedTab == TabSync)
-                {
-                    _syncPanel?.Activate();
-                }
-                else if (_selectedTab == TabExport)
-                {
-                    _exportPanel?.Activate();
-                }
-                else if (_selectedTab == TabRuntime)
-                {
-                    _runtimePanel?.Activate();
-                }
+        private void SelectTab(int tab)
+        {
+            if (_selectedTab == TabSync)
+            {
+                _syncPanel?.Deactivate();
+            }
+            else if (_selectedTab == TabScene)
+            {
+                _scenePanel?.Deactivate();
+            }
+            else if (_selectedTab == TabRuntime)
+            {
+                _runtimePanel?.Deactivate();
+            }
+            else if (_selectedTab == TabDialogs)
+            {
+                _dialogsPanel?.Deactivate();
+            }
+
+            _selectedTab = tab;
+            if (_selectedTab == TabObject)
+            {
+                OnSelectionChanged();
+            }
+            else if (_selectedTab == TabTasks)
+            {
+                _userTasksPanel.Activate();
+            }
+            else if (_selectedTab == TabScene)
+            {
+                _scenePanel?.Activate();
+            }
+            else if (_selectedTab == TabSync)
+            {
+                _syncPanel?.Activate();
+            }
+            else if (_selectedTab == TabExport)
+            {
+                _exportPanel?.Activate();
+            }
+            else if (_selectedTab == TabRuntime)
+            {
+                _runtimePanel?.Activate();
+            }
+            else if (_selectedTab == TabDialogs)
+            {
+                _dialogsPanel?.Activate();
             }
         }
 
@@ -579,6 +632,11 @@ namespace Grimoire.PluginV2.Editor
         private void DrawRuntimeTab()
         {
             _runtimePanel?.Draw();
+        }
+
+        private void DrawDialogsTab()
+        {
+            _dialogsPanel?.Draw();
         }
 
         private void DrawObjectTab()
@@ -623,6 +681,9 @@ namespace Grimoire.PluginV2.Editor
                     break;
                 case ObjectTabTasks:
                     DrawObjectTasksTab();
+                    break;
+                case ObjectTabVariables:
+                    DrawObjectVariablesTab();
                     break;
             }
         }
@@ -681,6 +742,13 @@ namespace Grimoire.PluginV2.Editor
         {
             _objectTasksScroll = EditorGUILayout.BeginScrollView(_objectTasksScroll);
             _objectTasksPanel.Draw(GrimoireSettings.GameId, _document.tasks);
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawObjectVariablesTab()
+        {
+            _variablesScroll = EditorGUILayout.BeginScrollView(_variablesScroll);
+            GrimoireVariablesRenderer.Draw(_document, _link);
             EditorGUILayout.EndScrollView();
         }
 
