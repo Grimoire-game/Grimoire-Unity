@@ -104,7 +104,7 @@ namespace Grimoire.PluginV2.Editor
                     new GUIContent("Create object", "Create a draft library object in the selected game."),
                     GUILayout.Width(120)))
             {
-                GrimoireCreateObjectWindow.Open();
+                GrimoireCreateObjectWindow.Open(null);
             }
 
             EditorGUILayout.EndHorizontal();

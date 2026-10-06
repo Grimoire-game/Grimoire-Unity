@@ -7,6 +7,8 @@ workflow for offline logic, translations, variables, and objects.
   `GrimoireObjectLink` component.
 - Open **Grimoire Connect** to sign in, pick your company and game, then browse
   tasks, inspect linked objects, or sync engine transforms.
+- Add a Grimoire dialog to the scene from the **Dialogs** tab with one click,
+  and play it with `GrimoireDialogPlayer`.
 - Optionally download a Unity export ZIP into `Assets/Grimoire/` and use
   `GrimoireBootstrap` at runtime for language, variables, objects, and logic.
 
@@ -145,6 +147,138 @@ With Grimoire Connect open, select a linked GameObject in the Hierarchy. The
 Use **Change workspace** in the toolbar to switch company or game for this Unity
 project.
 
+### Dialogs tab
+
+Play dialogs written in the Grimoire dialog editor without writing a login,
+download, or parser yourself.
+
+**Dialogs in 3 steps**
+
+1. Open `Window > Grimoire > Dialogs` (or the **Dialogs** tab in Grimoire Connect)
+   and click **Add Dialog to scene** at the top. Do this once per scene.
+2. Click **Import** on each dialog you need.
+3. Play one from code by passing the asset to the player:
+   `GrimoireDialogPlayer.Main.StartDialog(bedDialog);`
+
+**Add Dialog to scene** adds one `Grimoire Dialog` object to the open scene. It
+holds a **Grimoire Dialog Player** and a child canvas with a **Grimoire Dialog
+View** (speaker name, line, Continue button, one button per answer). An
+EventSystem is added when the scene has none. That single player plays every
+dialog; when the scene already has one, the button selects it instead.
+
+**Import** saves the dialog as an asset in `Assets/GrimoireDialogs/`. The asset
+contains the full node graph, the translations of every line and answer, and
+the speaker names. Builds read only this asset, so players never sign in or go
+online. Dialogs that this one jumps to are imported with it. When a dialog
+changes in Grimoire, click **Update**; **Select asset** shows it in the Project
+window.
+
+The language follows the Connect scene language in the editor and the export's
+`TranslationKey.CurrentLanguage` in builds. Set **Language** on the player to
+force one. Lines without a translation fall back to the source text.
+
+**Driving a dialog from code**
+
+`GrimoireDialogPlayer` is the only script you need. Give your own script a
+`GrimoireDialogAsset` field, drag the asset in from `Assets/GrimoireDialogs/`,
+and pass it to the player:
+
+```csharp
+using Grimoire.PluginV2;
+using UnityEngine;
+
+public class Bed : MonoBehaviour
+{
+    public GrimoireDialogAsset bedDialog;
+
+    public void Interact()
+    {
+        var dialogs = GrimoireDialogPlayer.Main;   // the player in the scene
+        if (!dialogs.IsPlaying)
+        {
+            dialogs.StartDialog(bedDialog);        // begin at the starting node
+        }
+    }
+}
+
+// dialogs.Next();                              // continue after a normal line
+// dialogs.Choose(0);                           // pick an answer on a question
+// dialogs.Stop();                              // end early
+// dialogs.SetVariable(bedDialog, "hasKey", true); // set before StartDialog
+// dialogs.GetVariable<bool>("hasKey");         // variable of the playing dialog
+```
+
+`GrimoireDialogPlayer.Main` is set when the player is enabled, so use it from
+`Start` or later (or keep a serialized reference to the player instead).
+Starting a dialog while another one plays stops the first one. Unless **Keep
+Variables Between Runs** is on, dialog variables go back to their Grimoire values
+when a dialog ends.
+
+**Your own UI**
+
+The default view only uses the player's events, so replacing it takes a few
+lines:
+
+```csharp
+using Grimoire.PluginV2;
+using UnityEngine;
+
+public class MyDialogUi : MonoBehaviour
+{
+    public GrimoireDialogPlayer player;
+
+    void OnEnable()
+    {
+        player.OnLine.AddListener(ShowLine);       // normal line: call Next()
+        player.OnChoices.AddListener(ShowChoices); // question: call Choose(index)
+        player.OnDialogEnded.AddListener(Hide);
+    }
+
+    void ShowLine(DialogLine line)
+    {
+        Debug.Log($"{line.Speaker}: {line.Text}");
+        // When the player clicks: player.Next();
+    }
+
+    void ShowChoices(DialogLine line)
+    {
+        Debug.Log(line.Text);
+        foreach (var choice in line.Choices)
+        {
+            Debug.Log($"  {choice.Index}: {choice.Text}");
+        }
+        // When the player picks one: player.Choose(choice.Index);
+    }
+
+    void Hide() { }
+}
+```
+
+`DialogLine` also carries `SpeakerId`, `VoiceUrl`, `NodeId`, and `IsLast`.
+
+**What plays automatically**
+
+Line and question nodes wait for the player. Context, condition, setter, jump,
+and external-dialog nodes are resolved on their own. Answer visibility
+conditions and "pick once" questions behave as in the Grimoire play view. An end
+node with text is shown before the dialog closes.
+
+Conditions and setters that use dialog variables work out of the box. Ones that
+reference an **object field** (for example `bed: interactionCount`) read and
+write the imported export's `ObjectRuntime`, so import a Unity export too. To use
+your own source instead (a save game, for example), assign
+`player.ReadExternalValue` / `player.WriteExternalValue`. When they return null,
+the player falls back to `ObjectRuntime`. **Type element** references always need
+these hooks. A value that can't be found is treated as empty and logged once. A
+condition where no branch matches also logs a warning, because the dialog ends
+there.
+
+Speaker names are filled in for **object** and **free text** speaker modes. In
+**type** mode only `DialogLine.SpeakerId` is set.
+
+In Play Mode the player's inspector lets you pick any dialog asset and start it,
+and shows the current node, Next / answer buttons, and the live variable values.
+
 ### Export tab (optional)
 
 Use the **Versions** tab in Grimoire Connect (or `Window > Grimoire > Export Importer`)
@@ -179,7 +313,9 @@ folder or Bootstrap component is required.
 | `POST /api/v1/objects` | Create a draft library object (blank or from a template) |
 | `GET /api/v1/objects/{id}` | Object View Document incl. attached tasks |
 | `PATCH /api/v1/objects/{id}` | Replace `game_engine_data`, or update `game_engine_editable` field values |
-| `GET /api/v1/strings` | String picker + code (abbrev) resolution, with translations |
+| `GET /api/v1/dialogs` | Dialog list on the Dialogs tab |
+| `GET /api/v1/dialogs/{id}` | Dialog node graph for importing into an asset |
+| `GET /api/v1/strings` | String picker + code (abbrev) resolution, with translations (also used for dialog translations) |
 | `PATCH /api/v1/strings/{id}/translations/{language_code}` | Push edited translations |
 | `GET /api/v1/statuses?domain=tasks` | Valid task workflow statuses |
 | `PATCH /api/v1/tasks/{id}` | Update a task's status |

@@ -2,7 +2,8 @@
     "name": "Grimoire.PluginV2.Editor",
     "rootNamespace": "Grimoire.PluginV2.Editor",
     "references": [
-        "Grimoire.PluginV2.Runtime"
+        "Grimoire.PluginV2.Runtime",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [
         "Editor"
