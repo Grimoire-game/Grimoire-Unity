@@ -18,6 +18,7 @@ namespace Grimoire.PluginV2.Internal
         private readonly HashSet<string> _pickedOptions = new HashSet<string>(StringComparer.Ordinal);
         private readonly List<GrimoireDialogOption> _visibleOptions = new List<GrimoireDialogOption>();
         private readonly HashSet<string> _warnedOnce = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, object> _objectFieldOverrides = new Dictionary<string, object>(StringComparer.Ordinal);
 
         public GrimoireDialogRunner(GrimoireDialogVariables variables)
         {
@@ -32,10 +33,10 @@ namespace Grimoire.PluginV2.Internal
         /// <summary>Options on the current question that pass visibility and pick-once rules.</summary>
         public IReadOnlyList<GrimoireDialogOption> VisibleOptions => _visibleOptions;
 
-        /// <summary>Reads type-element and object-field references. Optional; object fields fall back to ObjectRuntime.</summary>
+        /// <summary>Reads type-element and object-field references. Optional; object fields fall back to scene Object Links, then ObjectRuntime.</summary>
         public Func<GrimoireDialogValueRef, object> ReadExternalValue;
 
-        /// <summary>Writes type-element and object-field references. Optional; object fields fall back to ObjectRuntime.</summary>
+        /// <summary>Writes type-element and object-field references. Optional; object fields fall back to scene Object Links, then ObjectRuntime.</summary>
         public Action<GrimoireDialogValueRef, object> WriteExternalValue;
 
         /// <summary>Raised when the runner stops on a line or question.</summary>
@@ -111,7 +112,7 @@ namespace Grimoire.PluginV2.Internal
                 _pickedOptions.Add(PickKey(dialog, node, option));
             }
 
-            ApplyAction(option.action, dialog);
+            ApplyAction(option.action, dialog, $"{node.identifier} (answer {visibleIndex + 1})");
             Follow(dialog, option.link);
         }
 
@@ -151,6 +152,14 @@ namespace Grimoire.PluginV2.Internal
                 {
                     case GrimoireDialogNodeType.Line:
                     case GrimoireDialogNodeType.Question:
+                        // A variable branch is never spoken. Older imports can label it as a
+                        // line; still resolve it when it carries branches.
+                        if (HasBranches(node))
+                        {
+                            next = ResolveCondition(dialog, node);
+                            break;
+                        }
+
                         Show(dialog, node);
                         return true;
 
@@ -165,7 +174,7 @@ namespace Grimoire.PluginV2.Internal
                         return false;
 
                     case GrimoireDialogNodeType.Setter:
-                        ApplyAction(node.setter, dialog);
+                        ApplyAction(node.setter, dialog, node.identifier);
                         next = node.next;
                         break;
 
@@ -269,11 +278,14 @@ namespace Grimoire.PluginV2.Internal
             Ended?.Invoke(reason);
         }
 
+        private static bool HasBranches(GrimoireDialogNode node)
+        {
+            return node.conditionBranches != null && node.conditionBranches.Count > 0;
+        }
+
         private GrimoireDialogLink ResolveCondition(GrimoireDialogAsset dialog, GrimoireDialogNode node)
         {
-            var subject = node.conditionSubjectRef != null && node.conditionSubjectRef.IsSet
-                ? ResolveRef(node.conditionSubjectRef, dialog)
-                : _variables.Get(dialog, node.conditionVariable);
+            var subject = ResolveConditionSubject(dialog, node);
 
             if (node.conditionBranches != null && node.conditionBranches.Count > 0)
             {
@@ -284,13 +296,20 @@ namespace Grimoire.PluginV2.Internal
                         continue;
                     }
 
-                    var compare = branch.valueRef != null && branch.valueRef.IsSet
-                        ? ResolveRef(branch.valueRef, dialog)
-                        : branch.value?.ToObject();
+                    var compare = CompareValue(branch, dialog);
 
                     if (GrimoireDialogConditions.Compare(subject, compare, branch.op))
                     {
-                        return branch.link;
+                        if (branch.link != null && !branch.link.IsEmpty)
+                        {
+                            return branch.link;
+                        }
+
+                        WarnOnce("nolink:" + dialog.DialogId + "/" + node.identifier,
+                            $"Variable branch '{DescribeSubject(node)}' in '{dialog.DisplayName}' matched " +
+                            $"{branch.op} {DescribeValue(compare)}, but that branch is not connected. " +
+                            "Connect it in Grimoire, then click Update on the dialog.");
+                        return node.next != null && !node.next.IsEmpty ? node.next : null;
                     }
                 }
 
@@ -301,6 +320,45 @@ namespace Grimoire.PluginV2.Internal
             }
 
             return GrimoireDialogConditions.ToBool(subject) ? node.whenTrue : node.whenFalse;
+        }
+
+        private object ResolveConditionSubject(GrimoireDialogAsset dialog, GrimoireDialogNode node)
+        {
+            var declared = dialog.FindVariable(node.conditionVariable);
+            var checkName = node.conditionCheckVariable;
+            var checkRef = node.conditionCheckRef;
+            if (declared != null &&
+                (declared.type == "range" || declared.type == "range-selector") &&
+                ((checkRef != null && checkRef.IsSet) || !string.IsNullOrEmpty(checkName)))
+            {
+                return checkRef != null && checkRef.IsSet
+                    ? ResolveRef(checkRef, dialog)
+                    : _variables.Get(dialog, checkName);
+            }
+
+            if (node.conditionSubjectRef != null && node.conditionSubjectRef.IsSet)
+            {
+                return ResolveRef(node.conditionSubjectRef, dialog);
+            }
+
+            var name = !string.IsNullOrEmpty(node.conditionVariable) ? node.conditionVariable : checkName;
+            return _variables.Get(dialog, name);
+        }
+
+        private object CompareValue(GrimoireDialogConditionBranch branch, GrimoireDialogAsset dialog)
+        {
+            object compare = null;
+            if (branch.valueRef != null && branch.valueRef.IsSet)
+            {
+                compare = ResolveRef(branch.valueRef, dialog);
+            }
+
+            if (compare == null && branch.value != null && branch.value.HasValue)
+            {
+                compare = branch.value.ToObject();
+            }
+
+            return compare;
         }
 
         private bool Evaluate(GrimoireDialogCondition condition, GrimoireDialogAsset dialog)
@@ -314,7 +372,7 @@ namespace Grimoire.PluginV2.Internal
             return GrimoireDialogConditions.Compare(subject, compare, condition.op);
         }
 
-        private void ApplyAction(GrimoireDialogVariableAction action, GrimoireDialogAsset dialog)
+        private void ApplyAction(GrimoireDialogVariableAction action, GrimoireDialogAsset dialog, string where)
         {
             if (action == null || !action.IsSet)
             {
@@ -335,15 +393,39 @@ namespace Grimoire.PluginV2.Internal
 
                 var current = ResolveRef(target, dialog);
                 var updated = GrimoireDialogConditions.ComputeNext(current, incoming, action.op);
+
                 if (WriteExternalValue != null)
                 {
                     WriteExternalValue(target, updated);
+                    if (target.source == GrimoireDialogValueRef.SourceObjectField)
+                    {
+                        _objectFieldOverrides[ObjectFieldKey(target)] = updated;
+                    }
+
+                    return;
                 }
-                else if (target.source != GrimoireDialogValueRef.SourceObjectField ||
-                         !GrimoireDialogExportBridge.TryWriteObjectField(target, updated))
+
+                if (target.source != GrimoireDialogValueRef.SourceObjectField)
                 {
-                    WarnOnce("write:" + target.source + ":" + target.objectId + target.fieldId,
-                        $"A setter writes to a Grimoire {Describe(target)}. {MissingExternalHint(target, "WriteExternalValue")}");
+                    WarnOnce("write:" + target.source + ":" + target.typeId + target.elementId,
+                        $"A setter writes to a Grimoire {Describe(target)}. Assign GrimoireDialogPlayer.WriteExternalValue to handle it.");
+                    return;
+                }
+
+                if (GrimoireDialogObjectResolver.TryWrite(target, updated, $"Dialog '{dialog.DisplayName}' / {where}"))
+                {
+                    _objectFieldOverrides.Remove(ObjectFieldKey(target));
+                    return;
+                }
+
+                // No Object Link in the scene: remember the value for this run so later
+                // conditions see the change even when the export is missing too.
+                _objectFieldOverrides[ObjectFieldKey(target)] = updated;
+                if (!GrimoireDialogExportBridge.TryWriteObjectField(target, updated))
+                {
+                    WarnOnce("write:object_field:" + ObjectFieldKey(target),
+                        $"A setter writes to {GrimoireDialogObjectResolver.Describe(target)}, but no Object Link for it is in the scene. " +
+                        $"The change only lasts for this dialog run. {AddLinkHint(target)}");
                 }
 
                 return;
@@ -364,6 +446,12 @@ namespace Grimoire.PluginV2.Internal
                     return _variables.Get(dialog, reference.variableName);
             }
 
+            if (reference.source == GrimoireDialogValueRef.SourceObjectField &&
+                _objectFieldOverrides.TryGetValue(ObjectFieldKey(reference), out var overridden))
+            {
+                return overridden;
+            }
+
             if (ReadExternalValue != null)
             {
                 var provided = ReadExternalValue(reference);
@@ -373,35 +461,76 @@ namespace Grimoire.PluginV2.Internal
                 }
             }
 
-            if (reference.source == GrimoireDialogValueRef.SourceObjectField &&
-                GrimoireDialogExportBridge.TryReadObjectField(reference, out var fromExport))
+            if (reference.source == GrimoireDialogValueRef.SourceObjectField)
             {
-                return fromExport;
+                return ResolveObjectField(reference);
+            }
+
+            if (reference.authoredValue != null && reference.authoredValue.HasValue)
+            {
+                return reference.authoredValue.ToObject();
             }
 
             if (ReadExternalValue == null)
             {
-                WarnOnce("read:" + reference.source + ":" + reference.objectId + reference.fieldId,
-                    $"A condition reads a Grimoire {Describe(reference)}. {MissingExternalHint(reference, "ReadExternalValue")} It counts as empty for now.");
+                WarnOnce("read:" + reference.source + ":" + reference.typeId + reference.elementId,
+                    $"A condition reads a Grimoire {Describe(reference)}. Assign GrimoireDialogPlayer.ReadExternalValue to handle it. It counts as empty for now.");
             }
 
             return null;
         }
 
-        private static string MissingExternalHint(GrimoireDialogValueRef reference, string hook)
+        // Scene Object Link first, then the export's ObjectRuntime, then the library value baked in at import.
+        private object ResolveObjectField(GrimoireDialogValueRef reference)
         {
-            if (reference.source != GrimoireDialogValueRef.SourceObjectField)
+            var warnKey = "read:object_field:" + ObjectFieldKey(reference);
+            var linkFound = GrimoireDialogObjectResolver.TryFindLink(reference, out _, out var snapshot);
+            if (linkFound)
             {
-                return $"Assign GrimoireDialogPlayer.{hook} to handle it.";
+                if (GrimoireDialogObjectResolver.TryFindField(snapshot, reference, out var field))
+                {
+                    return GrimoireDialogObjectResolver.ToValue(field);
+                }
+
+                WarnOnce(warnKey,
+                    $"The Object Link for {GrimoireDialogObjectResolver.Describe(reference)} is in the scene, but its snapshot has no such field. " +
+                    "Select the Object Link and click Refresh so the snapshot includes the field. The dialog uses the library value for now.");
             }
 
-            if (!GrimoireDialogExportBridge.HasObjectRuntime)
+            if (GrimoireDialogExportBridge.TryReadObjectField(reference, out var fromExport))
             {
-                return $"Import a Unity export (Grimoire Connect > Export) so the value comes from ObjectRuntime, or assign GrimoireDialogPlayer.{hook}.";
+                return fromExport;
             }
 
-            return $"ObjectRuntime has no value for '{GrimoireDialogExportBridge.DescribeKey(reference)}'. " +
-                   $"Re-import the export and click Update on the dialog, or assign GrimoireDialogPlayer.{hook}.";
+            if (reference.authoredValue != null && reference.authoredValue.HasValue)
+            {
+                if (!linkFound)
+                {
+                    WarnOnce(warnKey,
+                        $"No Object Link for {GrimoireDialogObjectResolver.Describe(reference)} is in the scene, so the dialog uses the value from the Grimoire library " +
+                        $"({reference.authoredValue}). {AddLinkHint(reference)}");
+                }
+
+                return reference.authoredValue.ToObject();
+            }
+
+            WarnOnce(warnKey,
+                $"A condition reads {GrimoireDialogObjectResolver.Describe(reference)}, but no value is available. {AddLinkHint(reference)} It counts as empty for now.");
+            return null;
+        }
+
+        private static string ObjectFieldKey(GrimoireDialogValueRef reference)
+        {
+            return (reference.objectId ?? "") + "\n" + (reference.fieldId ?? "");
+        }
+
+        private static string AddLinkHint(GrimoireDialogValueRef reference)
+        {
+            var key = !string.IsNullOrEmpty(reference.objectKey) ? reference.objectKey
+                : !string.IsNullOrEmpty(reference.objectName) ? reference.objectName
+                : reference.objectId;
+            return $"Add an Object Link for '{key}' to the scene (select the dialog asset > Required Grimoire objects > Add to scene), " +
+                   "or assign GrimoireDialogPlayer.ReadExternalValue / WriteExternalValue.";
         }
 
         private static string DescribeSubject(GrimoireDialogNode node)

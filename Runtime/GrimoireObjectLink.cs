@@ -54,11 +54,20 @@ namespace Grimoire.PluginV2
         [HideInInspector]
         private List<GrimoireObjectSnapshot> _nestedSnapshots = new List<GrimoireObjectSnapshot>();
 
+        [NonSerialized]
+        private List<GrimoireRuntimeFieldChange> _runtimeChanges;
+
         /// <summary>
         /// Fired in the editor when this component is destroyed so the editor
         /// assembly can remove the matching <c>game_engine_data</c> entry.
         /// </summary>
         public static event Action<GrimoireObjectLink> EditorDestroyed;
+
+        /// <summary>
+        /// Fired when a field value on this link changes while playing (dialog
+        /// setter or <see cref="SetFieldValue(string, string, string)"/>).
+        /// </summary>
+        public static event Action<GrimoireObjectLink, GrimoireRuntimeFieldChange> RuntimeFieldChanged;
 
         /// <summary>
         /// Fired when a nested snapshot is persisted in Edit Mode so the editor
@@ -298,6 +307,84 @@ namespace Grimoire.PluginV2
             return false;
         }
 
+        /// <summary>Field values changed while playing, oldest first. Not saved with the scene.</summary>
+        public IReadOnlyList<GrimoireRuntimeFieldChange> RuntimeChanges =>
+            (IReadOnlyList<GrimoireRuntimeFieldChange>)_runtimeChanges ?? Array.Empty<GrimoireRuntimeFieldChange>();
+
+        public bool HasRuntimeChanges => _runtimeChanges != null && _runtimeChanges.Count > 0;
+
+        /// <summary>The most recent runtime change of a field, if any.</summary>
+        public bool TryGetRuntimeChange(string fieldId, out GrimoireRuntimeFieldChange change)
+        {
+            change = null;
+            if (string.IsNullOrEmpty(fieldId) || _runtimeChanges == null)
+            {
+                return false;
+            }
+
+            for (var i = _runtimeChanges.Count - 1; i >= 0; i--)
+            {
+                var candidate = _runtimeChanges[i];
+                if (candidate != null && string.Equals(candidate.FieldId, fieldId, StringComparison.Ordinal))
+                {
+                    change = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public void ClearRuntimeChanges()
+        {
+            _runtimeChanges?.Clear();
+        }
+
+        /// <summary>
+        /// Set a field on this object while playing, e.g. <c>SetFieldValue("has beard", "true", "Barber script")</c>.
+        /// Updates the editable field (when the field is one) and the snapshot, and
+        /// records the change so the Object Link inspector shows it. Returns false
+        /// when the snapshot has no such field.
+        /// </summary>
+        public bool SetFieldValue(string fieldName, string value, string source = null)
+        {
+            if (_snapshot == null || !_snapshot.TryGetField(fieldName, out var field))
+            {
+                return false;
+            }
+
+            value = value ?? "";
+            var previous = field.Value ?? "";
+            if (TryGetLinkedField(field.FieldId, out var linked))
+            {
+                previous = linked.LocalValue ?? "";
+                linked.LocalValue = value;
+            }
+
+            if (field.Multiple)
+            {
+                field.Values.Clear();
+                foreach (var part in value.Split(new[] { ',', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    field.Values.Add(part.Trim());
+                }
+            }
+
+            field.Value = value;
+
+            var change = new GrimoireRuntimeFieldChange(field.FieldId, field.DisplayLabel, previous, value, source);
+            (_runtimeChanges ?? (_runtimeChanges = new List<GrimoireRuntimeFieldChange>())).Add(change);
+            RuntimeFieldChanged?.Invoke(this, change);
+            GrimoireObjectCache.NotifyUpdated();
+            return true;
+        }
+
+        public bool SetFieldValue(string fieldName, bool value, string source = null) =>
+            SetFieldValue(fieldName, value ? "true" : "false", source);
+
+        public bool SetFieldValue(string fieldName, double value, string source = null) =>
+            SetFieldValue(fieldName, value.ToString(System.Globalization.CultureInfo.InvariantCulture), source);
+
         public bool TryGetString(string fieldName, out string value)
         {
             value = "";
@@ -505,5 +592,33 @@ namespace Grimoire.PluginV2
             EditorDestroyed?.Invoke(this);
         }
 #endif
+    }
+
+    /// <summary>One field value change made on an Object Link while playing.</summary>
+    public sealed class GrimoireRuntimeFieldChange
+    {
+        public GrimoireRuntimeFieldChange(string fieldId, string label, string previousValue, string value, string source)
+        {
+            FieldId = fieldId ?? "";
+            Label = string.IsNullOrEmpty(label) ? FieldId : label;
+            PreviousValue = previousValue ?? "";
+            Value = value ?? "";
+            Source = source ?? "";
+            Time = DateTime.Now;
+            GameTime = Application.isPlaying ? UnityEngine.Time.time : 0f;
+        }
+
+        public string FieldId { get; }
+        public string Label { get; }
+        public string PreviousValue { get; }
+        public string Value { get; }
+
+        /// <summary>Who made the change, e.g. "Dialog 'Barber' / node set_beard".</summary>
+        public string Source { get; }
+
+        public DateTime Time { get; }
+        public float GameTime { get; }
+
+        public bool IsSameValue => string.Equals(PreviousValue, Value, StringComparison.Ordinal);
     }
 }

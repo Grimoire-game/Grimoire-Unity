@@ -32,6 +32,9 @@ namespace Grimoire.PluginV2
         [Tooltip("Keep variable values after a dialog ends. Off = every run starts from the values authored in Grimoire.")]
         public bool keepVariablesBetweenRuns;
 
+        [Tooltip("When a dialog starts, log one warning listing the Grimoire objects it reads that have no Object Link in the scene.")]
+        public bool warnAboutMissingObjects = true;
+
         [Header("Events")]
         [Tooltip("A normal line is shown. Call Next() to continue.")]
         public UnityEvent<DialogLine> OnLine = new UnityEvent<DialogLine>();
@@ -45,6 +48,7 @@ namespace Grimoire.PluginV2
         private GrimoireDialogVariables _variables;
         private GrimoireDialogRunner _runner;
         private bool _switching;
+        private readonly Dictionary<GrimoireDialogAsset, string> _checkedObjects = new Dictionary<GrimoireDialogAsset, string>();
 
         /// <summary>The dialog player in the scene (the last one enabled).</summary>
         public static GrimoireDialogPlayer Main { get; private set; }
@@ -67,7 +71,8 @@ namespace Grimoire.PluginV2
         /// <summary>
         /// Optional: supply values for conditions that read a Grimoire type element
         /// or object field (for example from your save game). Return null if unknown;
-        /// object fields then come from the imported export's ObjectRuntime.
+        /// object fields then come from the Grimoire Object Link in the scene, the
+        /// imported export's ObjectRuntime, or the library value baked in at import.
         /// </summary>
         public Func<GrimoireDialogValueRef, object> ReadExternalValue
         {
@@ -77,7 +82,8 @@ namespace Grimoire.PluginV2
 
         /// <summary>
         /// Optional: apply setters that write to a Grimoire type element or object field.
-        /// Without it, object fields are written to the imported export's ObjectRuntime.
+        /// Without it, object fields are written to the Grimoire Object Link in the scene,
+        /// or to the imported export's ObjectRuntime.
         /// </summary>
         public Action<GrimoireDialogValueRef, object> WriteExternalValue
         {
@@ -135,8 +141,39 @@ namespace Grimoire.PluginV2
 
             LastStartedDialog = dialog;
             CurrentLine = null;
+            if (warnAboutMissingObjects)
+            {
+                WarnAboutMissingObjects(dialog);
+            }
+
             OnDialogStarted.Invoke();
             _runner.Start(dialog);
+        }
+
+        /// <summary>
+        /// The Grimoire objects and fields <paramref name="dialog"/> (and the dialogs
+        /// it jumps to) read or write, so you can check them before playing.
+        /// </summary>
+        public static List<GrimoireDialogObjectRequirement> GetRequiredObjects(GrimoireDialogAsset dialog, bool includeLinkedDialogs = true)
+        {
+            return GrimoireDialogObjectRequirements.Collect(dialog, includeLinkedDialogs);
+        }
+
+        // Once per asset import, so a dialog that is started repeatedly does not spam the console.
+        private void WarnAboutMissingObjects(GrimoireDialogAsset dialog)
+        {
+            var stamp = dialog.ImportedAt ?? "";
+            if (_checkedObjects.TryGetValue(dialog, out var seen) && seen == stamp)
+            {
+                return;
+            }
+
+            _checkedObjects[dialog] = stamp;
+            var report = GrimoireDialogObjectRequirements.BuildMissingReport(dialog, GrimoireDialogObjectRequirements.Collect(dialog));
+            if (!string.IsNullOrEmpty(report))
+            {
+                Debug.LogWarning("[Grimoire Dialog] " + report, this);
+            }
         }
 
         /// <summary>Continue after a normal line.</summary>
