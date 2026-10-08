@@ -585,6 +585,7 @@ namespace Grimoire.PluginV2.Editor
         public string next_dialog_node;
         public int? order_index;
         public string next_section;
+        public string next_field;
         public string next_dialog_section;
     }
 
@@ -602,6 +603,7 @@ namespace Grimoire.PluginV2.Editor
         public VariableConditionDto visibilityCondition;
         public bool? alwaysAvailable;
         public string next_section;
+        public string next_field;
         public string next_dialog_section;
     }
 

@@ -22,6 +22,9 @@ namespace Grimoire.PluginV2.Editor
 
         public static event Action<GrimoireDialogAsset> Imported;
 
+        /// <summary>Non-fatal remarks from the last import (e.g. referenced objects without a Code ID).</summary>
+        public static List<string> LastImportNotes { get; } = new List<string>();
+
         /// <summary>Imported dialog assets in the project, keyed by Grimoire dialog id.</summary>
         public static Dictionary<string, GrimoireDialogAsset> FindAllImported()
         {
@@ -65,6 +68,7 @@ namespace Grimoire.PluginV2.Editor
                 return ApiResult<GrimoireDialogAsset>.Fail("Your Grimoire session has expired. Sign in again.");
             }
 
+            LastImportNotes.Clear();
             var fetched = new Dictionary<string, DialogResource>(StringComparer.Ordinal);
             var nodesById = new Dictionary<string, List<DialogNodeDto>>(StringComparer.Ordinal);
             var startById = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -202,6 +206,7 @@ namespace Grimoire.PluginV2.Editor
                     node.node_identifier = FirstNonEmpty(node.node_identifier, node.id);
                 }
 
+                OverlaySectionFields(data, nodes);
                 startingNode = FirstNonEmpty(data.startingNode, data.startingSection, nodes.FirstOrDefault()?.node_identifier);
                 return nodes;
             }
@@ -247,6 +252,110 @@ namespace Grimoire.PluginV2.Editor
 
             startingNode = FirstNonEmpty(data.startingSection, data.startingNode, firstIdentifiers.FirstOrDefault());
             return result;
+        }
+
+        /// <summary>
+        /// Nodes are the saved source of truth, but the flow editor writes branch
+        /// targets onto the section copy (next_section / next_field) and an older
+        /// node copy can be missing them. Copy those across so a variable branch
+        /// still has somewhere to go.
+        /// </summary>
+        private static void OverlaySectionFields(DialogDataDto data, List<DialogNodeDto> nodes)
+        {
+            if (data.sections == null)
+            {
+                return;
+            }
+
+            var fieldsById = new Dictionary<string, DialogNodeDto>(StringComparer.Ordinal);
+            foreach (var section in data.sections)
+            {
+                if (section?.fields == null)
+                {
+                    continue;
+                }
+
+                foreach (var field in section.fields)
+                {
+                    if (field != null && !string.IsNullOrEmpty(field.id) && !fieldsById.ContainsKey(field.id))
+                    {
+                        fieldsById[field.id] = field;
+                    }
+                }
+            }
+
+            foreach (var node in nodes)
+            {
+                if (node == null || string.IsNullOrEmpty(node.id) || !fieldsById.TryGetValue(node.id, out var field))
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(node.type))
+                {
+                    node.type = field.type;
+                }
+
+                if (node.condition == null)
+                {
+                    node.condition = field.condition;
+                }
+
+                if (string.IsNullOrEmpty(FirstNonEmpty(node.next_node, node.next_section, node.next_field, node.next_dialog)))
+                {
+                    node.next_node = field.next_node;
+                    node.next_section = field.next_section;
+                    node.next_field = field.next_field;
+                    node.next_dialog = field.next_dialog;
+                    node.next_dialog_node = FirstNonEmpty(node.next_dialog_node, field.next_dialog_node);
+                    node.next_dialog_section = FirstNonEmpty(node.next_dialog_section, field.next_dialog_section);
+                }
+                else if (string.IsNullOrEmpty(node.next_field))
+                {
+                    node.next_field = field.next_field;
+                }
+
+                if ((node.conditionOptions == null || node.conditionOptions.Length == 0) &&
+                    field.conditionOptions != null && field.conditionOptions.Length > 0)
+                {
+                    node.conditionOptions = field.conditionOptions;
+                    continue;
+                }
+
+                if (node.conditionOptions == null || field.conditionOptions == null)
+                {
+                    continue;
+                }
+
+                for (var i = 0; i < node.conditionOptions.Length && i < field.conditionOptions.Length; i++)
+                {
+                    var target = node.conditionOptions[i];
+                    var source = field.conditionOptions[i];
+                    if (target == null || source == null)
+                    {
+                        continue;
+                    }
+
+                    if (string.IsNullOrEmpty(FirstNonEmpty(target.next_node, target.next_section, target.next_field, target.next_dialog)))
+                    {
+                        target.next_node = source.next_node;
+                        target.next_section = source.next_section;
+                        target.next_field = source.next_field;
+                        target.next_dialog = source.next_dialog;
+                        target.next_dialog_node = source.next_dialog_node;
+                        target.next_dialog_section = source.next_dialog_section;
+                    }
+                    else if (string.IsNullOrEmpty(target.next_field))
+                    {
+                        target.next_field = source.next_field;
+                    }
+
+                    if (string.IsNullOrEmpty(target.next_section))
+                    {
+                        target.next_section = source.next_section;
+                    }
+                }
+            }
         }
 
         private static List<DialogNodeDto> OrderedFields(DialogSectionDto section)
@@ -307,6 +416,20 @@ namespace Grimoire.PluginV2.Editor
             string gameId,
             Dictionary<string, StringResource> strings)
         {
+            var known = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var dto in source)
+            {
+                if (!string.IsNullOrEmpty(dto.node_identifier))
+                {
+                    known.Add(dto.node_identifier);
+                }
+
+                if (!string.IsNullOrEmpty(dto.id))
+                {
+                    known.Add(dto.id);
+                }
+            }
+
             var nodes = new List<GrimoireDialogNode>(source.Count);
             foreach (var dto in source)
             {
@@ -323,11 +446,13 @@ namespace Grimoire.PluginV2.Editor
                     translations = ToTranslations(str),
                     speakerId = dto.speaker ?? "",
                     speakerName = SpeakerName(dto.speaker, speakerMode, gameId),
-                    next = ToLink(FirstNonEmpty(dto.next_node, dto.next_section), dto.next_dialog,
-                        FirstNonEmpty(dto.next_dialog_node, dto.next_dialog_section)),
+                    next = ToNavigationLink(known, dto.next_node, dto.next_section, dto.next_field, dto.next_dialog,
+                        dto.next_dialog_node, dto.next_dialog_section),
                     pickOnce = dto.pickOnce ?? false,
                     conditionVariable = dto.condition?.variable ?? "",
+                    conditionCheckVariable = dto.condition?.checkVariable ?? "",
                     conditionSubjectRef = ToRef(dto.condition?.subjectRef),
+                    conditionCheckRef = ToRef(dto.condition?.checkRef),
                     whenTrue = ToLink(dto.next_section_true, dto.next_dialog_true, dto.next_dialog_section_true),
                     whenFalse = ToLink(dto.next_section_false, dto.next_dialog_false, dto.next_dialog_section_false),
                     setter = ToAction(dto.setter),
@@ -344,8 +469,8 @@ namespace Grimoire.PluginV2.Editor
                             text = FirstNonEmpty(option.option_text, optionString?.source_text) ?? "",
                             stringId = option.string_id ?? "",
                             translations = ToTranslations(optionString),
-                            link = ToLink(FirstNonEmpty(option.next_node, option.next_section), option.next_dialog,
-                                FirstNonEmpty(option.next_dialog_node, option.next_dialog_section)),
+                            link = ToNavigationLink(known, option.next_node, option.next_section, option.next_field,
+                                option.next_dialog, option.next_dialog_node, option.next_dialog_section),
                             action = ToAction(option.variableAction),
                             visibleWhen = ToCondition(option.visibilityCondition),
                             alwaysAvailable = option.alwaysAvailable ?? false,
@@ -362,8 +487,8 @@ namespace Grimoire.PluginV2.Editor
                             op = string.IsNullOrEmpty(branch.@operator) ? "==" : branch.@operator,
                             value = GrimoireDialogValue.From(branch.condition_value),
                             valueRef = ToRef(branch.valueRef),
-                            link = ToLink(FirstNonEmpty(branch.next_node, branch.next_section), branch.next_dialog,
-                                FirstNonEmpty(branch.next_dialog_node, branch.next_dialog_section)),
+                            link = ToNavigationLink(known, branch.next_node, branch.next_section, branch.next_field,
+                                branch.next_dialog, branch.next_dialog_node, branch.next_dialog_section),
                         });
                     }
                 }
@@ -406,11 +531,14 @@ namespace Grimoire.PluginV2.Editor
 
         private static GrimoireDialogNodeType MapType(string type)
         {
-            switch (type)
+            switch ((type ?? "").Trim().ToLowerInvariant())
             {
                 case "question": return GrimoireDialogNodeType.Question;
                 case "context": return GrimoireDialogNodeType.Context;
-                case "condition": return GrimoireDialogNodeType.Condition;
+                case "condition":
+                case "variable-branch":
+                case "variable_branch":
+                    return GrimoireDialogNodeType.Condition;
                 case "setter": return GrimoireDialogNodeType.Setter;
                 case "jump": return GrimoireDialogNodeType.Jump;
                 case "external-dialog": return GrimoireDialogNodeType.ExternalDialog;
@@ -420,6 +548,53 @@ namespace Grimoire.PluginV2.Editor
                 default:
                     return GrimoireDialogNodeType.Line;
             }
+        }
+
+        /// <summary>
+        /// The flow editor stores a branch target as next_section (what the play
+        /// view follows) plus next_field (the exact node id). next_node is often
+        /// a stale copy. Pick the first candidate that names a node in this dialog.
+        /// </summary>
+        private static GrimoireDialogLink ToNavigationLink(
+            HashSet<string> known,
+            string nextNode,
+            string nextSection,
+            string nextField,
+            string nextDialog,
+            string nextDialogNode,
+            string nextDialogSection)
+        {
+            if (!string.IsNullOrWhiteSpace(nextDialog))
+            {
+                return ToLink("", nextDialog, FirstNonEmpty(nextDialogNode, nextDialogSection));
+            }
+
+            return ToLink(ChooseLocalTarget(known, nextSection, nextNode, nextField), "", "");
+        }
+
+        private static string ChooseLocalTarget(HashSet<string> known, params string[] candidates)
+        {
+            string fallback = null;
+            foreach (var candidate in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(candidate))
+                {
+                    continue;
+                }
+
+                var trimmed = candidate.Trim();
+                if (fallback == null)
+                {
+                    fallback = trimmed;
+                }
+
+                if (known != null && known.Contains(trimmed))
+                {
+                    return trimmed;
+                }
+            }
+
+            return fallback;
         }
 
         private static GrimoireDialogLink ToLink(string nextNode, string nextDialog, string nextDialogNode)
@@ -511,6 +686,7 @@ namespace Grimoire.PluginV2.Editor
             await GrimoireObjectKeyResolver.EnsureLibraryCachedAsync(gameId);
 
             var views = new Dictionary<string, ObjectViewDocument>(StringComparer.Ordinal);
+            var withoutKey = new HashSet<string>(StringComparer.Ordinal);
             foreach (var reference in refs)
             {
                 if (!views.TryGetValue(reference.objectId, out var view))
@@ -524,22 +700,106 @@ namespace Grimoire.PluginV2.Editor
                     }
                 }
 
-                reference.objectKey = GrimoireObjectKeyResolver.TryGetSummary(gameId, reference.objectId, null, out var summary) &&
-                                      !string.IsNullOrEmpty(summary.code_id)
-                    ? summary.code_id
-                    : view?.@object?.code_id ?? "";
+                GrimoireObjectKeyResolver.TryGetSummary(gameId, reference.objectId, null, out var summary);
+                reference.objectKey = FirstNonEmpty(summary?.code_id, view?.@object?.code_id) ?? "";
+                reference.objectName = FirstNonEmpty(summary?.name, view?.@object?.name, LabelObjectPart(reference.label)) ?? "";
 
                 var field = view?.sections?
                     .Where(s => s?.fields != null)
                     .SelectMany(s => s.fields)
                     .FirstOrDefault(f => f != null && f.id == reference.fieldId);
                 reference.fieldName = FirstNonEmpty(field?.label, LabelFieldPart(reference.label)) ?? "";
+                reference.fieldType = field?.kind ?? "";
+                var authored = ReadAuthoredFieldValue(field);
+                if (authored != null)
+                {
+                    reference.authoredValue = GrimoireDialogValue.From(authored);
+                }
+
+                if (string.IsNullOrEmpty(reference.objectKey) && withoutKey.Add(reference.objectId))
+                {
+                    var shown = string.IsNullOrEmpty(reference.objectName) ? reference.objectId : reference.objectName;
+                    LastImportNotes.Add(
+                        $"'{shown}' has no Code ID in Grimoire. The dialog can only match it to an Object Link by UUID; " +
+                        "give the object a Code ID in Grimoire so the link stays stable.");
+                }
             }
+        }
+
+        // Dialog editor labels look like "Hendrik: has beard".
+        private static string LabelObjectPart(string label)
+        {
+            if (string.IsNullOrEmpty(label))
+            {
+                return null;
+            }
+
+            var colon = label.LastIndexOf(':');
+            return colon > 0 ? label.Substring(0, colon).Trim() : null;
+        }
+
+        /// <summary>Library value a variable branch can use before ObjectRuntime is written.</summary>
+        private static object ReadAuthoredFieldValue(ViewField field)
+        {
+            if (field?.values == null || field.values.Length == 0)
+            {
+                return null;
+            }
+
+            if (field.multiple)
+            {
+                var parts = new List<string>();
+                foreach (var value in field.values)
+                {
+                    var piece = ReadAuthoredValue(field.kind, value);
+                    if (piece != null)
+                    {
+                        parts.Add(Convert.ToString(piece, System.Globalization.CultureInfo.InvariantCulture) ?? "");
+                    }
+                }
+
+                return parts.Count == 0 ? null : string.Join(",", parts);
+            }
+
+            return ReadAuthoredValue(field.kind, field.values[0]);
+        }
+
+        private static object ReadAuthoredValue(string kind, ViewValue value)
+        {
+            if (value == null)
+            {
+                return null;
+            }
+
+            if (kind == ObjectViewKinds.Boolean && value.boolean != null)
+            {
+                return value.boolean.value;
+            }
+
+            if (kind == ObjectViewKinds.Number && value.number != null)
+            {
+                return value.number.integer
+                    ? (object)(long)Math.Round(value.number.value)
+                    : value.number.value;
+            }
+
+            if (value.reference != null && !string.IsNullOrEmpty(value.reference.id))
+            {
+                return value.reference.id;
+            }
+
+            if (!string.IsNullOrEmpty(value.text?.content))
+            {
+                return value.text.content;
+            }
+
+            return string.IsNullOrEmpty(value.plain) ? null : value.plain;
         }
 
         private static IEnumerable<GrimoireDialogValueRef> AllRefs(GrimoireDialogNode node)
         {
             yield return node.conditionSubjectRef;
+            yield return node.conditionCheckRef;
             yield return node.setter?.targetRef;
             yield return node.setter?.valueRef;
 
