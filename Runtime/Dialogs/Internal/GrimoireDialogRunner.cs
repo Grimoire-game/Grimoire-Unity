@@ -5,9 +5,10 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Internal
 {
     /// <summary>
-    /// Walks a <see cref="GrimoireDialogAsset"/> graph. Lines and questions wait
-    /// for input; context, condition, setter, jump, and external-dialog nodes are
-    /// resolved automatically. <see cref="GrimoireDialogPlayer"/> wraps this.
+    /// Walks a <see cref="GrimoireDialogAsset"/> graph. Lines, questions, and
+    /// shown context notes wait for input; hidden context notes, conditions,
+    /// setters, jumps, and external-dialog nodes are resolved automatically.
+    /// <see cref="GrimoireDialogPlayer"/> wraps this.
     /// </summary>
     public sealed class GrimoireDialogRunner
     {
@@ -173,6 +174,16 @@ namespace Grimoire.PluginV2.Internal
                         Finish(GrimoireDialogEndReason.Completed);
                         return false;
 
+                    case GrimoireDialogNodeType.Context:
+                        if (dialog.ShowContextNotes && HasReadableText(node))
+                        {
+                            Show(dialog, node);
+                            return true;
+                        }
+
+                        next = node.next;
+                        break;
+
                     case GrimoireDialogNodeType.Setter:
                         ApplyAction(node.setter, dialog, node.identifier);
                         next = node.next;
@@ -276,6 +287,29 @@ namespace Grimoire.PluginV2.Internal
             CurrentNode = null;
             _visibleOptions.Clear();
             Ended?.Invoke(reason);
+        }
+
+        private static bool HasReadableText(GrimoireDialogNode node)
+        {
+            if (!string.IsNullOrWhiteSpace(node.text))
+            {
+                return true;
+            }
+
+            if (node.translations == null)
+            {
+                return false;
+            }
+
+            foreach (var translation in node.translations)
+            {
+                if (translation != null && !string.IsNullOrWhiteSpace(translation.text))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool HasBranches(GrimoireDialogNode node)

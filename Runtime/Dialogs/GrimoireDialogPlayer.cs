@@ -305,16 +305,18 @@ namespace Grimoire.PluginV2
                     option.id));
             }
 
+            var isContext = node.type == GrimoireDialogNodeType.Context;
             var isLast = node.type == GrimoireDialogNodeType.End || (choices.Count == 0 && node.next.IsEmpty);
             return new DialogLine(
                 current,
                 node.identifier,
-                node.speakerName,
-                node.speakerId,
+                isContext ? "" : node.speakerName,
+                isContext ? "" : node.speakerId,
                 GrimoireDialogLocalization.Text(node.text, node.translations, activeLanguage),
-                GrimoireDialogLocalization.Voice(node.voiceUrl, node.translations, activeLanguage),
+                isContext ? "" : GrimoireDialogLocalization.Voice(node.voiceUrl, node.translations, activeLanguage),
                 choices,
-                isLast);
+                isLast,
+                isContext);
         }
 
         private static T ConvertValue<T>(object value)

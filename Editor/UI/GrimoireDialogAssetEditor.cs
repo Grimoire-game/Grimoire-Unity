@@ -44,6 +44,15 @@ namespace Grimoire.PluginV2.Editor
             Row("Nodes", dialog.Nodes.Count.ToString());
             Row("Start node", string.IsNullOrEmpty(dialog.StartingNode) ? "-" : dialog.StartingNode);
             Row("Speakers", dialog.SpeakerMode);
+
+            serializedObject.Update();
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("_showContextNotes"),
+                new GUIContent(
+                    "Show context notes",
+                    "Context notes have no speaker. On: their text is shown and the player continues with Next(). Off: they are skipped. Updating from Grimoire does not change this."));
+            serializedObject.ApplyModifiedProperties();
+
             Row("Updated in Grimoire", GrimoireExportImporterService.FormatDate(dialog.UpdatedAt));
             Row("Imported", GrimoireExportImporterService.FormatDate(dialog.ImportedAt));
             if (dialog.LinkedDialogs.Count > 0)

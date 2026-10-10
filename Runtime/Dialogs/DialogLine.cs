@@ -31,7 +31,8 @@ namespace Grimoire.PluginV2
             string text,
             string voiceUrl,
             IReadOnlyList<DialogChoice> choices,
-            bool isLast)
+            bool isLast,
+            bool isContext = false)
         {
             Dialog = dialog;
             NodeId = nodeId ?? "";
@@ -41,6 +42,7 @@ namespace Grimoire.PluginV2
             VoiceUrl = voiceUrl ?? "";
             Choices = choices ?? NoChoices;
             IsLast = isLast;
+            IsContext = isContext;
         }
 
         /// <summary>The dialog this line belongs to (changes after a jump to another dialog).</summary>
@@ -69,7 +71,10 @@ namespace Grimoire.PluginV2
         /// <summary>True when this line has no follow-up node, so Next() ends the dialog.</summary>
         public bool IsLast { get; }
 
-        public bool HasSpeaker => Speaker.Length > 0;
+        /// <summary>True for a context note. These lines have no speaker.</summary>
+        public bool IsContext { get; }
+
+        public bool HasSpeaker => !IsContext && Speaker.Length > 0;
     }
 
     /// <summary>One answer the player can pick. Pass <see cref="Index"/> to Choose().</summary>
