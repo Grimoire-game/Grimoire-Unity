@@ -16,7 +16,10 @@ namespace Grimoire.PluginV2
         /// <summary>A line with answer options. Waits for Choose().</summary>
         Question,
 
-        /// <summary>Writer-facing context. Skipped during playback.</summary>
+        /// <summary>
+        /// Context note. Has no speaker. Shown when the dialog asset's
+        /// <see cref="GrimoireDialogAsset.ShowContextNotes"/> is on; otherwise skipped.
+        /// </summary>
         Context,
 
         /// <summary>Branches on a variable. Resolved automatically.</summary>

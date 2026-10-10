@@ -19,6 +19,9 @@ namespace Grimoire.PluginV2
         [SerializeField] private string _updatedAt = "";
         [SerializeField] private string _importedAt = "";
         [SerializeField] private string _speakerMode = "none";
+        [SerializeField]
+        [Tooltip("When on, context notes are shown as lines with no speaker. When off, they are skipped.")]
+        private bool _showContextNotes;
         [SerializeField] private string _startingNode = "";
         [SerializeField] private List<GrimoireDialogVariable> _variables = new List<GrimoireDialogVariable>();
         [SerializeField] private List<GrimoireDialogNode> _nodes = new List<GrimoireDialogNode>();
@@ -37,6 +40,13 @@ namespace Grimoire.PluginV2
         public string UpdatedAt => _updatedAt;
         public string ImportedAt => _importedAt;
         public string SpeakerMode => _speakerMode;
+
+        /// <summary>
+        /// When true, context notes are shown during playback (no speaker).
+        /// When false, they are skipped. Stored on this asset and left alone by re-import.
+        /// </summary>
+        public bool ShowContextNotes => _showContextNotes;
+
         public string StartingNode => _startingNode;
         public IReadOnlyList<GrimoireDialogVariable> Variables => _variables;
         public IReadOnlyList<GrimoireDialogNode> Nodes => _nodes;
