@@ -63,7 +63,7 @@ namespace Grimoire.PluginV2
         /// <summary>The node's name in Grimoire. Empty when it has none.</summary>
         public string NodeName => Node != null ? Node.name ?? "" : "";
 
-        /// <summary>Line, Question, or End.</summary>
+        /// <summary>Line, Question, Context, or End.</summary>
         public GrimoireDialogNodeType NodeType => Node != null ? Node.type : GrimoireDialogNodeType.Line;
 
         /// <summary>Grimoire string id of the text, if the line uses one.</summary>
