@@ -22,17 +22,29 @@ namespace Grimoire.PluginV2.Editor
         private bool _fieldsFoldout = true;
         private bool _refsFoldout = true;
 
+        private bool _runtimeFoldout = true;
+
         private void OnEnable()
         {
             GrimoireLinkedFieldStore.Changed += OnLinkedFieldsChanged;
+            GrimoireObjectLink.RuntimeFieldChanged += OnRuntimeFieldChanged;
         }
 
         private void OnDisable()
         {
             GrimoireLinkedFieldStore.Changed -= OnLinkedFieldsChanged;
+            GrimoireObjectLink.RuntimeFieldChanged -= OnRuntimeFieldChanged;
         }
 
         private void OnLinkedFieldsChanged() => Repaint();
+
+        private void OnRuntimeFieldChanged(GrimoireObjectLink link, GrimoireRuntimeFieldChange change)
+        {
+            if (link == target)
+            {
+                Repaint();
+            }
+        }
 
         public override void OnInspectorGUI()
         {
@@ -46,6 +58,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             DrawSyncSection(link);
+            DrawRuntimeChangesSection(link);
             DrawEditableFieldsSection(link);
             DrawReferencedObjectsSection(link);
 
@@ -230,6 +243,77 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndHorizontal();
         }
 
+        // Values set while playing by dialog setters or scripts, including fields
+        // that are not game-engine editable and so never appear under Editable fields.
+        private void DrawRuntimeChangesSection(GrimoireObjectLink link)
+        {
+            if (!link.HasRuntimeChanges)
+            {
+                return;
+            }
+
+            EditorGUILayout.Space(10);
+            var changes = link.RuntimeChanges;
+            var previousColor = GUI.contentColor;
+            GUI.contentColor = GrimoireEditorStyles.Teal;
+            _runtimeFoldout = EditorGUILayout.Foldout(
+                _runtimeFoldout, $"Changed at runtime ({changes.Count})", true, EditorStyles.foldoutHeader);
+            GUI.contentColor = previousColor;
+            if (!_runtimeFoldout)
+            {
+                return;
+            }
+
+            EditorGUILayout.HelpBox(
+                "Fields set while playing (by dialog setters or SetFieldValue in your scripts). " +
+                "They are not saved with the scene and reset when Play Mode ends.",
+                MessageType.None);
+
+            // Latest change per field first, so the current state is readable at a glance.
+            var latestByField = new Dictionary<string, GrimoireRuntimeFieldChange>(StringComparer.Ordinal);
+            var order = new List<string>();
+            var countByField = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var change in changes)
+            {
+                if (change == null)
+                {
+                    continue;
+                }
+
+                if (!latestByField.ContainsKey(change.FieldId))
+                {
+                    order.Add(change.FieldId);
+                }
+
+                latestByField[change.FieldId] = change;
+                countByField[change.FieldId] = countByField.TryGetValue(change.FieldId, out var n) ? n + 1 : 1;
+            }
+
+            foreach (var fieldId in order)
+            {
+                var change = latestByField[fieldId];
+                var was = string.IsNullOrEmpty(change.PreviousValue) ? "(empty)" : change.PreviousValue;
+                var now = string.IsNullOrEmpty(change.Value) ? "(empty)" : change.Value;
+                var times = countByField[fieldId] > 1 ? $" · {countByField[fieldId]}x" : "";
+
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField(
+                    new GUIContent(change.Label, $"Field id: {change.FieldId}\nLast change at {change.Time:HH:mm:ss} (game time {change.GameTime:0.0}s)"),
+                    GUILayout.Width(FieldLabelWidth));
+                EditorGUILayout.BeginVertical();
+                EditorGUILayout.LabelField($"{was}  →  {now}", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField($"by {change.Source}{times}", EditorStyles.miniLabel);
+                EditorGUILayout.EndVertical();
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.Space(2);
+            }
+
+            if (GUILayout.Button(new GUIContent("Clear list", "Forget these changes in the inspector. Values stay as they are."), GUILayout.Width(90)))
+            {
+                link.ClearRuntimeChanges();
+            }
+        }
+
         private void DrawEditableFieldsSection(GrimoireObjectLink link)
         {
             EditorGUILayout.Space(10);
@@ -323,13 +407,26 @@ namespace Grimoire.PluginV2.Editor
                 label += " •";
             }
 
-            EditorGUILayout.LabelField(
-                new GUIContent(
-                    label,
-                    field.IsDeviated
-                        ? $"Differs from Grimoire ({field.GrimoireValue})"
-                        : $"{field.FieldType} ({field.Kind})"),
-                GUILayout.Width(FieldLabelWidth));
+            var changedAtRuntime = link.TryGetRuntimeChange(field.FieldId, out var runtimeChange);
+            if (changedAtRuntime)
+            {
+                label += " ▶";
+            }
+
+            var tooltip = changedAtRuntime
+                ? $"Set while playing by {runtimeChange.Source} (was '{runtimeChange.PreviousValue}')"
+                : field.IsDeviated
+                    ? $"Differs from Grimoire ({field.GrimoireValue})"
+                    : $"{field.FieldType} ({field.Kind})";
+
+            var previousColor = GUI.contentColor;
+            if (changedAtRuntime)
+            {
+                GUI.contentColor = GrimoireEditorStyles.Teal;
+            }
+
+            EditorGUILayout.LabelField(new GUIContent(label, tooltip), GUILayout.Width(FieldLabelWidth));
+            GUI.contentColor = previousColor;
 
             EditorGUILayout.BeginVertical();
             EditorGUI.BeginDisabledGroup(field.ReadOnly);
@@ -371,11 +468,19 @@ namespace Grimoire.PluginV2.Editor
 
             EditorGUI.EndDisabledGroup();
 
+            if (changedAtRuntime)
+            {
+                var was = string.IsNullOrEmpty(runtimeChange.PreviousValue) ? "(empty)" : runtimeChange.PreviousValue;
+                EditorGUILayout.LabelField(
+                    new GUIContent($"Set at runtime by {runtimeChange.Source} · was {was}", runtimeChange.Time.ToString("HH:mm:ss")),
+                    EditorStyles.miniLabel);
+            }
+
             if (field.ReadOnly)
             {
                 EditorGUILayout.LabelField("Read-only", EditorStyles.miniLabel);
             }
-            else if (field.IsDeviated)
+            else if (field.IsDeviated && !changedAtRuntime)
             {
                 var preview = string.IsNullOrEmpty(field.GrimoireValue) ? "(empty)" : field.GrimoireValue;
                 if (preview.Length > 60)

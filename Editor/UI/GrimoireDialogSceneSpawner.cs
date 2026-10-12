@@ -1,4 +1,6 @@
 using System;
+using System.Threading.Tasks;
+using Grimoire.PluginV2.Internal;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -47,6 +49,106 @@ namespace Grimoire.PluginV2.Editor
             }
 
             return Spawn();
+        }
+
+        /// <summary>
+        /// Adds a GameObject with a <see cref="GrimoireObjectLink"/> for a Grimoire
+        /// object a dialog needs, loads its field snapshot, and registers the
+        /// instance with Grimoire (same steps as "Pick from Grimoire..." on an
+        /// Object Link). <paramref name="status"/> receives progress text.
+        /// </summary>
+        public static async Task<GrimoireObjectLink> AddObjectLinkAsync(
+            GrimoireDialogObjectRequirement requirement, Action<string> status = null)
+        {
+            if (requirement == null)
+            {
+                return null;
+            }
+
+            var name = requirement.DisplayName;
+            var go = new GameObject(string.IsNullOrEmpty(name) ? "Grimoire Object" : name);
+            Undo.RegisterCreatedObjectUndo(go, "Add Grimoire Object Link");
+            var link = go.AddComponent<GrimoireObjectLink>();
+            link.ObjectKey = requirement.objectKey ?? "";
+            link.CachedObjectId = requirement.objectId ?? "";
+            if (requirement.HasKey && !string.IsNullOrEmpty(requirement.objectId))
+            {
+                GrimoireObjectKeyResolver.Remember(GrimoireSettings.GameId, requirement.objectKey, requirement.objectId);
+            }
+
+            EditorUtility.SetDirty(link);
+            Selection.activeGameObject = go;
+            EditorGUIUtility.PingObject(go);
+            GrimoireDialogObjectResolver.InvalidateSceneScan();
+
+            if (!GrimoireSettings.IsConfigured)
+            {
+                status?.Invoke($"Added '{go.name}'. Sign in (Window > Grimoire > Grimoire Connect) and click Refresh on it to load its fields.");
+                return link;
+            }
+
+            status?.Invoke($"Loading fields of '{go.name}'...");
+            var refreshed = await GrimoireLinkedFieldStore.RefreshFromGrimoireAsync(link, preserveLocalEdits: false);
+            if (link == null)
+            {
+                return null;
+            }
+
+            if (!refreshed.Success)
+            {
+                status?.Invoke($"Added '{go.name}', but its fields could not be loaded: {refreshed.Error}");
+                return link;
+            }
+
+            GrimoireObjectCache.Register(link);
+            GrimoireDialogObjectResolver.InvalidateSceneScan();
+
+            if (!GrimoireGameEngineSync.IsPlayModeBlocked)
+            {
+                var upsert = await GrimoireGameEngineSync.UpsertAsync(link);
+                if (link == null)
+                {
+                    return null;
+                }
+
+                if (upsert.Success)
+                {
+                    GrimoireGameEngineSyncHooks.Remember(link);
+                }
+                else if (!string.IsNullOrEmpty(upsert.Error))
+                {
+                    Debug.LogWarning($"[Grimoire] '{go.name}' was added, but registering it in Grimoire failed: {upsert.Error}");
+                }
+            }
+
+            var count = link.Snapshot?.Fields.Count ?? 0;
+            status?.Invoke($"Added '{go.name}' with {count} field{(count == 1 ? "" : "s")}.");
+            return link;
+        }
+
+        /// <summary>Reloads an Object Link's snapshot from Grimoire so new fields show up.</summary>
+        public static async Task<string> RefreshObjectLinkAsync(GrimoireObjectLink link)
+        {
+            if (link == null)
+            {
+                return "The Object Link no longer exists.";
+            }
+
+            var refreshed = await GrimoireLinkedFieldStore.RefreshFromGrimoireAsync(link, preserveLocalEdits: true);
+            if (link == null)
+            {
+                return null;
+            }
+
+            if (!refreshed.Success)
+            {
+                return $"Refresh failed: {refreshed.Error}";
+            }
+
+            GrimoireObjectCache.Register(link);
+            GrimoireObjectCache.NotifyUpdated();
+            GrimoireDialogObjectResolver.InvalidateSceneScan();
+            return null;
         }
 
         public static GrimoireDialogPlayer Spawn()

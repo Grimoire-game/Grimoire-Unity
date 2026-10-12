@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Grimoire.PluginV2.Internal;
 using UnityEditor;
 using UnityEngine;
 
@@ -27,12 +28,18 @@ namespace Grimoire.PluginV2.Editor
         private string _busyDialogId;
         private string _busyMessage;
 
+        // Object requirements per imported asset, keyed by asset instance id + import stamp.
+        private readonly Dictionary<string, List<GrimoireDialogObjectRequirement>> _requirementCache =
+            new Dictionary<string, List<GrimoireDialogObjectRequirement>>(StringComparer.Ordinal);
+
         public event Action RepaintNeeded;
 
         public void Activate()
         {
             EditorApplication.projectChanged -= RefreshImported;
             EditorApplication.projectChanged += RefreshImported;
+            EditorApplication.hierarchyChanged -= OnHierarchyChanged;
+            EditorApplication.hierarchyChanged += OnHierarchyChanged;
             RefreshImported();
 
             if (GrimoireSettings.IsConfigured && _dialogs == null && !_loading)
@@ -44,6 +51,13 @@ namespace Grimoire.PluginV2.Editor
         public void Deactivate()
         {
             EditorApplication.projectChanged -= RefreshImported;
+            EditorApplication.hierarchyChanged -= OnHierarchyChanged;
+        }
+
+        private void OnHierarchyChanged()
+        {
+            GrimoireDialogObjectResolver.InvalidateSceneScan();
+            RequestRepaint();
         }
 
         /// <summary>Re-fetch the dialog list from the server.</summary>
@@ -223,6 +237,7 @@ namespace Grimoire.PluginV2.Editor
             GUILayout.FlexibleSpace();
             if (asset != null)
             {
+                DrawObjectsBadge(asset);
                 var outdated = !string.Equals(asset.UpdatedAt, dialog.updated_at ?? "", StringComparison.Ordinal);
                 GUILayout.Label(outdated ? "Update available" : "Imported", GrimoireEditorStyles.MiniSecondaryStyle);
             }
@@ -281,6 +296,44 @@ namespace Grimoire.PluginV2.Editor
             GUILayout.FlexibleSpace();
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.EndVertical();
+        }
+
+        // "2 objects, 1 not in scene" next to the import state; click to open the asset.
+        private void DrawObjectsBadge(GrimoireDialogAsset asset)
+        {
+            var requirements = RequirementsFor(asset);
+            GrimoireDialogRequirementsDrawer.Summarize(requirements, out var objects, out var missing);
+            if (objects == 0)
+            {
+                return;
+            }
+
+            var text = missing == 0
+                ? $"{objects} object{(objects == 1 ? "" : "s")} in scene"
+                : $"{objects} object{(objects == 1 ? "" : "s")}, {missing} not in scene";
+            var tooltip = missing == 0
+                ? "Every Grimoire object this dialog reads has an Object Link in the open scene."
+                : "Some Grimoire objects this dialog reads have no Object Link in the open scene. Click to see them.";
+            var style = missing == 0 ? GrimoireEditorStyles.MiniSecondaryStyle : EditorStyles.miniBoldLabel;
+            if (GUILayout.Button(new GUIContent(text, tooltip), style))
+            {
+                Selection.activeObject = asset;
+                EditorGUIUtility.PingObject(asset);
+            }
+
+            GUILayout.Space(8);
+        }
+
+        private List<GrimoireDialogObjectRequirement> RequirementsFor(GrimoireDialogAsset asset)
+        {
+            var key = asset.GetInstanceID() + "|" + asset.ImportedAt;
+            if (!_requirementCache.TryGetValue(key, out var requirements))
+            {
+                requirements = GrimoireDialogObjectRequirements.Collect(asset);
+                _requirementCache[key] = requirements;
+            }
+
+            return requirements;
         }
 
         private void DrawPaging()
@@ -392,6 +445,12 @@ namespace Grimoire.PluginV2.Editor
 
             RefreshImported();
             _status = $"Imported '{name}' to {AssetDatabase.GetAssetPath(result.Data)}.";
+            if (GrimoireDialogImporter.LastImportNotes.Count > 0)
+            {
+                _status += "\n" + string.Join("\n", GrimoireDialogImporter.LastImportNotes);
+            }
+
+            _requirementCache.Clear();
             EditorGUIUtility.PingObject(result.Data);
             RequestRepaint();
         }

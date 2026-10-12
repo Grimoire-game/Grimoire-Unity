@@ -95,7 +95,10 @@ namespace Grimoire.PluginV2
         /// <summary>True when this line has no follow-up node, so Next() ends the dialog.</summary>
         public bool IsLast { get; }
 
-        public bool HasSpeaker => Speaker.Length > 0;
+        /// <summary>True for a context note. These lines have no speaker.</summary>
+        public bool IsContext { get; }
+
+        public bool HasSpeaker => !IsContext && Speaker.Length > 0;
     }
 
     /// <summary>One answer the player can pick. Pass <see cref="Index"/> to Choose().</summary>

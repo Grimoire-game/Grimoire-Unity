@@ -16,7 +16,10 @@ namespace Grimoire.PluginV2
         /// <summary>A line with answer options. Waits for Choose().</summary>
         Question,
 
-        /// <summary>Writer-facing context. Skipped during playback.</summary>
+        /// <summary>
+        /// Context note. Has no speaker. Shown when the dialog asset's
+        /// <see cref="GrimoireDialogAsset.ShowContextNotes"/> is on; otherwise skipped.
+        /// </summary>
         Context,
 
         /// <summary>Branches on a variable. Resolved automatically.</summary>
@@ -119,8 +122,9 @@ namespace Grimoire.PluginV2
 
     /// <summary>
     /// Points at a value: a literal, a dialog variable, a Grimoire type element,
-    /// or an object field. Object fields are read from the imported export's
-    /// ObjectRuntime when it exists; type elements need a resolver on
+    /// or an object field. Object fields are read from a Grimoire Object Link in
+    /// the scene first, then from the imported export's ObjectRuntime, then from
+    /// the library value baked in at import; type elements need a resolver on
     /// GrimoireDialogPlayer.
     /// </summary>
     [Serializable]
@@ -146,6 +150,19 @@ namespace Grimoire.PluginV2
 
         /// <summary>Field name as used by the export (e.g. "interactionCount"), filled in on import.</summary>
         public string fieldName = "";
+
+        /// <summary>Object display name (e.g. "Hendrik"), filled in on import.</summary>
+        public string objectName = "";
+
+        /// <summary>Field kind in Grimoire ("boolean", "number", "text", "reference", ...), filled in on import.</summary>
+        public string fieldType = "";
+
+        /// <summary>
+        /// Object-field value copied at import. Used when play has no
+        /// ObjectRuntime entry yet, matching the Grimoire play view which
+        /// starts from the library value.
+        /// </summary>
+        public GrimoireDialogValue authoredValue = new GrimoireDialogValue();
 
         public bool IsSet => !string.IsNullOrEmpty(source);
     }
@@ -243,7 +260,9 @@ namespace Grimoire.PluginV2
         public bool pickOnce;
 
         public string conditionVariable = "";
+        public string conditionCheckVariable = "";
         public GrimoireDialogValueRef conditionSubjectRef = new GrimoireDialogValueRef();
+        public GrimoireDialogValueRef conditionCheckRef = new GrimoireDialogValueRef();
         public List<GrimoireDialogConditionBranch> conditionBranches = new List<GrimoireDialogConditionBranch>();
         public GrimoireDialogLink whenTrue = new GrimoireDialogLink();
         public GrimoireDialogLink whenFalse = new GrimoireDialogLink();

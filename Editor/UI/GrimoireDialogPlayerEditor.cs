@@ -24,6 +24,7 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.Space(4);
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(GrimoireDialogPlayer.language)));
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(GrimoireDialogPlayer.keepVariablesBetweenRuns)));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(GrimoireDialogPlayer.warnAboutMissingObjects)));
 
             EditorGUILayout.Space(4);
             _eventsExpanded = EditorGUILayout.Foldout(_eventsExpanded, "Events", true);

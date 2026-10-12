@@ -114,7 +114,17 @@ namespace Grimoire.PluginV2.Internal
             {
                 case null: return "";
                 case bool b: return b ? "true" : "false";
+                case string s: return s;
                 case IFormattable formattable: return formattable.ToString(null, CultureInfo.InvariantCulture);
+                case IEnumerable enumerable:
+                    // Multi-value fields read like the Grimoire play view: "a,b,c".
+                    var parts = new System.Collections.Generic.List<string>();
+                    foreach (var item in enumerable)
+                    {
+                        parts.Add(AsString(item));
+                    }
+
+                    return string.Join(",", parts);
                 default: return value.ToString();
             }
         }
@@ -126,9 +136,9 @@ namespace Grimoire.PluginV2.Internal
                 return false;
             }
 
+            var needle = AsString(item);
             if (collection is IEnumerable enumerable && !(collection is string))
             {
-                var needle = AsString(item);
                 foreach (var entry in enumerable)
                 {
                     if (AsString(entry) == needle)
@@ -140,7 +150,22 @@ namespace Grimoire.PluginV2.Internal
                 return false;
             }
 
-            return AsString(collection).IndexOf(AsString(item), StringComparison.Ordinal) >= 0;
+            var text = AsString(collection);
+            if (text.IndexOf(',') >= 0 || text.IndexOf('\n') >= 0)
+            {
+                var parts = text.Split(new[] { ',', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var part in parts)
+                {
+                    if (part.Trim() == needle)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            return text == needle;
         }
 
         // Range-variable element ids need the Grimoire types store, which is not
