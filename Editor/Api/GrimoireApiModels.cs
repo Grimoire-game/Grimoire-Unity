@@ -651,6 +651,45 @@ namespace Grimoire.PluginV2.Editor
     }
 
     // ---------------------------------------------------------------------
+    // Variables (GET /api/v1/variables) - `types` rows with their elements
+    // ---------------------------------------------------------------------
+
+    public class VariableResource
+    {
+        public string id;
+        public string game_id;
+        public string name;
+        /// <summary>string, number, percentage, range, type, or boolean.</summary>
+        public string element_type;
+        public string description;
+        public string group;
+        public string folder;
+        public string[] tags;
+        public string status;
+        public bool translation;
+        public string version;
+        public string created_at;
+        public string updated_at;
+        public VariableElementDto[] elements;
+    }
+
+    public class VariableElementDto
+    {
+        public string id;
+        public string name;
+        public string description;
+        public int? order_index;
+        /// <summary>Number for number / percentage, bool for boolean, otherwise null.</summary>
+        public object value;
+        public double? range_min;
+        public double? range_max;
+        public double? increment;
+        public string linked_variable_id;
+        public string linked_element_id;
+        public string string_id;
+    }
+
+    // ---------------------------------------------------------------------
     // Strings (GET /api/v1/strings, PATCH translations)
     // ---------------------------------------------------------------------
 

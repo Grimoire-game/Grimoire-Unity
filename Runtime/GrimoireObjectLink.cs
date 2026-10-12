@@ -371,6 +371,10 @@ namespace Grimoire.PluginV2
             }
 
             field.Value = value;
+            if (field.IsReferenceField)
+            {
+                field.SetReferencesFromText(value);
+            }
 
             var change = new GrimoireRuntimeFieldChange(field.FieldId, field.DisplayLabel, previous, value, source);
             (_runtimeChanges ?? (_runtimeChanges = new List<GrimoireRuntimeFieldChange>())).Add(change);
@@ -407,6 +411,22 @@ namespace Grimoire.PluginV2
         {
             value = Vector3.zero;
             return _snapshot != null && _snapshot.TryGetVector(fieldName, out value);
+        }
+
+        /// <summary>
+        /// The variable element a <c>types</c> field holds, e.g. TryGetVariableElement("Mood", out var mood)
+        /// gives mood.Name == "Angry". Follows runtime changes such as dialog setters.
+        /// </summary>
+        public bool TryGetVariableElement(string fieldName, out GrimoireVariableElement element)
+        {
+            element = null;
+            return _snapshot != null && _snapshot.TryGetVariableElement(fieldName, out element);
+        }
+
+        /// <summary>Every variable element a <c>types</c> or <c>typesList</c> field holds.</summary>
+        public IReadOnlyList<GrimoireVariableElement> GetVariableElements(string fieldName)
+        {
+            return _snapshot != null ? _snapshot.GetVariableElements(fieldName) : Array.Empty<GrimoireVariableElement>();
         }
 
         /// <summary>Reference stubs for a field such as <c>levels</c>. Never hits the network.</summary>

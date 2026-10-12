@@ -85,6 +85,23 @@ namespace Grimoire.PluginV2.Editor
                 : ApiResult<DialogSummary[]>.Fail(result.Error, result.Code, result.HttpStatus);
         }
 
+        /// <summary>GET /api/v1/variables — variables (Grimoire types) with their elements.</summary>
+        public static async Task<ApiResult<VariableResource[]>> ListVariablesAsync(
+            string gameId, int limit = 200, int offset = 0)
+        {
+            var url = BuildUrl("/api/v1/variables", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+                ["limit"] = limit.ToString(),
+                ["offset"] = offset.ToString(),
+            });
+
+            var result = await SendAsync<ListEnvelope<VariableResource>>("GET", url, null, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<VariableResource[]>.Ok(result.Data.data ?? Array.Empty<VariableResource>())
+                : ApiResult<VariableResource[]>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
         /// <summary>GET /api/v1/dialogs/{id} — dialog metadata plus its node graph.</summary>
         public static async Task<ApiResult<DialogResource>> GetDialogAsync(string gameId, string dialogId)
         {

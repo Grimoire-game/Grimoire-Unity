@@ -150,7 +150,125 @@ namespace Grimoire.PluginV2
         public bool IsReference =>
             string.Equals(_kind, "reference", StringComparison.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// True for <c>types</c> / <c>typesList</c> fields, which hold Grimoire variable
+        /// element ids. Resolve them with <see cref="GrimoireObjectSnapshot.GetVariableElements"/>.
+        /// </summary>
+        public bool IsVariableField => IsVariableFieldType(_fieldType);
+
+        /// <summary>
+        /// True for fields that point at other Grimoire data (objects, variable elements,
+        /// dialogs, documents), even when an empty value was cached as text.
+        /// </summary>
+        public bool IsReferenceField => IsReference || IsReferenceFieldType(_fieldType);
+
         public string DisplayLabel => string.IsNullOrEmpty(_label) ? _fieldId : _label;
+
+        public static bool IsVariableFieldType(string fieldType)
+        {
+            return string.Equals(fieldType, "types", StringComparison.Ordinal)
+                   || string.Equals(fieldType, "typesList", StringComparison.Ordinal);
+        }
+
+        public static bool IsReferenceFieldType(string fieldType)
+        {
+            switch (fieldType)
+            {
+                case "types":
+                case "typesList":
+                case "glossaryItem":
+                case "objectList":
+                case "dialog":
+                case "document":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The ids this field points at: its reference stubs, or the ids in its text
+        /// value when it has no stubs (a value written by code or a dialog setter).
+        /// </summary>
+        public List<string> ReferencedIds()
+        {
+            var ids = new List<string>();
+            if (_references != null && _references.Count > 0)
+            {
+                foreach (var stub in _references)
+                {
+                    if (stub != null && (stub.HasId || stub.HasKey))
+                    {
+                        ids.Add(stub.HasId ? stub.Id : stub.CodeId);
+                    }
+                }
+
+                return ids;
+            }
+
+            foreach (var part in SplitValue(_multiple && Values.Count > 0 ? string.Join(",", Values) : _value))
+            {
+                ids.Add(part);
+            }
+
+            return ids;
+        }
+
+        /// <summary>
+        /// Replace the reference stubs with the ids in <paramref name="text"/> (comma or
+        /// newline separated). Known stubs are kept; new ones get their name from the
+        /// synced variables or the object cache.
+        /// </summary>
+        internal void SetReferencesFromText(string text)
+        {
+            var previous = References;
+            var next = new List<GrimoireObjectRef>();
+            foreach (var id in SplitValue(text))
+            {
+                var stub = previous.Find(r => r != null &&
+                    (string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(r.CodeId, id, StringComparison.OrdinalIgnoreCase)));
+                next.Add(stub ?? CreateStub(id));
+            }
+
+            _references = next;
+        }
+
+        private GrimoireObjectRef CreateStub(string id)
+        {
+            var stub = new GrimoireObjectRef { Id = id };
+            if (IsVariableField)
+            {
+                if (GrimoireVariables.TryGetElement(id, out var element))
+                {
+                    stub.Name = element.Name;
+                }
+            }
+            else if (GrimoireObjectCache.TryGet(id, out var snapshot) && snapshot != null)
+            {
+                stub.Name = snapshot.Name;
+                stub.CodeId = snapshot.ObjectKey;
+            }
+
+            return stub;
+        }
+
+        private static IEnumerable<string> SplitValue(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                yield break;
+            }
+
+            foreach (var part in text.Split(new[] { ',', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var trimmed = part.Trim();
+                if (trimmed.Length > 0)
+                {
+                    yield return trimmed;
+                }
+            }
+        }
 
         public bool MatchesName(string query)
         {
@@ -357,6 +475,45 @@ namespace Grimoire.PluginV2
             return field.References;
         }
 
+        /// <summary>
+        /// The variable element a <c>types</c> field points at, e.g. "Angry" for Mood.
+        /// Needs synced variables (Grimoire Connect &gt; Dialogs &gt; Sync variables) for
+        /// values written at runtime; values from Grimoire carry their name already.
+        /// </summary>
+        public bool TryGetVariableElement(string name, out GrimoireVariableElement element)
+        {
+            var elements = GetVariableElements(name);
+            element = elements.Count > 0 ? elements[0] : null;
+            return element != null;
+        }
+
+        /// <summary>Every variable element a <c>types</c> or <c>typesList</c> field points at.</summary>
+        public IReadOnlyList<GrimoireVariableElement> GetVariableElements(string name)
+        {
+            if (!TryGetField(name, out var field))
+            {
+                return Array.Empty<GrimoireVariableElement>();
+            }
+
+            var elements = new List<GrimoireVariableElement>();
+            foreach (var id in field.ReferencedIds())
+            {
+                if (GrimoireVariables.TryGetElement(id, out var element))
+                {
+                    elements.Add(element);
+                    continue;
+                }
+
+                var stub = field.References.Find(r => r != null && string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase));
+                if (stub != null && !string.IsNullOrEmpty(stub.Name))
+                {
+                    elements.Add(new GrimoireVariableElement(id, stub.Name, "", null, ""));
+                }
+            }
+
+            return elements;
+        }
+
         public void SetFieldValue(string fieldId, string value)
         {
             if (string.IsNullOrEmpty(fieldId) || _fields == null)
@@ -371,6 +528,11 @@ namespace Grimoire.PluginV2
                     && string.Equals(field.FieldId, fieldId, StringComparison.Ordinal))
                 {
                     field.Value = value ?? "";
+                    if (field.IsReferenceField)
+                    {
+                        field.SetReferencesFromText(field.Value);
+                    }
+
                     return;
                 }
             }

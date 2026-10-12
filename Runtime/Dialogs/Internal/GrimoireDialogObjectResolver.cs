@@ -138,6 +138,11 @@ namespace Grimoire.PluginV2.Internal
             }
 
             field.Value = text;
+            if (field.IsReferenceField)
+            {
+                field.SetReferencesFromText(text);
+            }
+
             GrimoireObjectCache.NotifyUpdated();
             return true;
         }
@@ -197,6 +202,49 @@ namespace Grimoire.PluginV2.Internal
             }
 
             return raw;
+        }
+
+        /// <summary>A cached field as text for the player to read: reference names, or values joined with ", ".</summary>
+        public static string ToDisplayText(GrimoireCachedField field)
+        {
+            if (field == null)
+            {
+                return "";
+            }
+
+            if (field.IsVariableField)
+            {
+                var elementNames = new List<string>();
+                foreach (var id in field.ReferencedIds())
+                {
+                    var stub = field.References.Find(r => r != null && r.Id == id);
+                    elementNames.Add(GrimoireVariables.TryGetElement(id, out var element) ? element.Name
+                        : stub != null ? stub.DisplayName : id);
+                }
+
+                return string.Join(", ", elementNames);
+            }
+
+            if (field.IsReference)
+            {
+                var names = new List<string>();
+                foreach (var stub in field.References)
+                {
+                    if (stub != null)
+                    {
+                        names.Add(stub.DisplayName);
+                    }
+                }
+
+                return string.Join(", ", names);
+            }
+
+            if (field.Multiple && field.Values.Count > 1)
+            {
+                return string.Join(", ", field.Values);
+            }
+
+            return field.Value ?? "";
         }
 
         /// <summary>"character 'Hendrik' (characters/hendrik), field 'has beard'" for messages.</summary>

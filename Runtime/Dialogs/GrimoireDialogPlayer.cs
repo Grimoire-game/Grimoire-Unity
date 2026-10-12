@@ -34,6 +34,9 @@ namespace Grimoire.PluginV2
         [Tooltip("Keep variable values after a dialog ends. Off = every run starts from the values authored in Grimoire.")]
         public bool keepVariablesBetweenRuns;
 
+        [Tooltip("Show context notes as lines with no speaker; continue past them with Next(). Off = context notes are skipped.")]
+        public bool showContextNotes = true;
+
         [Tooltip("When a dialog starts, log one warning listing the Grimoire objects it reads that have no Object Link in the scene.")]
         public bool warnAboutMissingObjects = true;
 
@@ -150,6 +153,7 @@ namespace Grimoire.PluginV2
 
             OnDialogStarted.Invoke();
             GrimoireDialog.RaiseStarted(this, dialog);
+            _runner.ShowContextNotes = showContextNotes;
             _runner.Start(dialog);
         }
 
@@ -184,6 +188,7 @@ namespace Grimoire.PluginV2
         {
             if (IsPlaying)
             {
+                _runner.ShowContextNotes = showContextNotes;
                 _runner.Advance();
             }
         }
@@ -193,6 +198,7 @@ namespace Grimoire.PluginV2
         {
             if (IsPlaying)
             {
+                _runner.ShowContextNotes = showContextNotes;
                 _runner.Choose(choiceIndex);
             }
         }
@@ -231,7 +237,7 @@ namespace Grimoire.PluginV2
         public T GetVariable<T>(GrimoireDialogAsset dialog, string variableName)
         {
             var value = dialog != null ? Runner.Variables.Get(dialog, variableName) : null;
-            return ConvertValue<T>(value);
+            return GrimoireDialogConditions.ConvertTo<T>(value);
         }
 
         /// <summary>Show the current line again, e.g. after changing <see cref="language"/>.</summary>
@@ -307,7 +313,7 @@ namespace Grimoire.PluginV2
                 var option = options[i];
                 choices.Add(new DialogChoice(
                     i,
-                    GrimoireDialogLocalization.Text(option.text, option.translations, activeLanguage),
+                    _runner.ResolveText(current, node, GrimoireDialogLocalization.Text(option.text, option.translations, activeLanguage)),
                     option.id,
                     option.stringId));
             }
@@ -319,7 +325,7 @@ namespace Grimoire.PluginV2
                 node.identifier,
                 isContext ? "" : node.speakerName,
                 isContext ? "" : node.speakerId,
-                GrimoireDialogLocalization.Text(node.text, node.translations, activeLanguage),
+                _runner.ResolveText(current, node, GrimoireDialogLocalization.Text(node.text, node.translations, activeLanguage)),
                 isContext ? "" : GrimoireDialogLocalization.Voice(node.voiceUrl, node.translations, activeLanguage),
                 choices,
                 isLast,
@@ -327,52 +333,5 @@ namespace Grimoire.PluginV2
                 activeLanguage);
         }
 
-        private static T ConvertValue<T>(object value)
-        {
-            if (value == null)
-            {
-                return default;
-            }
-
-            if (value is T typed)
-            {
-                return typed;
-            }
-
-            var type = typeof(T);
-            if (type == typeof(bool))
-            {
-                return (T)(object)GrimoireDialogConditions.ToBool(value);
-            }
-
-            if (type == typeof(string))
-            {
-                return (T)(object)GrimoireDialogConditions.AsString(value);
-            }
-
-            if (type == typeof(int))
-            {
-                return (T)(object)(int)Math.Round(GrimoireDialogConditions.ToNumber(value));
-            }
-
-            if (type == typeof(float))
-            {
-                return (T)(object)(float)GrimoireDialogConditions.ToNumber(value);
-            }
-
-            if (type == typeof(double))
-            {
-                return (T)(object)GrimoireDialogConditions.ToNumber(value);
-            }
-
-            try
-            {
-                return (T)Convert.ChangeType(value, type, System.Globalization.CultureInfo.InvariantCulture);
-            }
-            catch (Exception)
-            {
-                return default;
-            }
-        }
     }
 }

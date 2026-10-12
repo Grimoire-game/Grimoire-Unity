@@ -279,6 +279,14 @@ namespace Grimoire.PluginV2
                     }
                 }
 
+                if (node.textRefs != null)
+                {
+                    foreach (var textRef in node.textRefs)
+                    {
+                        Add(byObject, result, dialog, textRef, where, false);
+                    }
+                }
+
                 if (speakerIsObject && !string.IsNullOrEmpty(node.speakerId))
                 {
                     var speaker = GetOrAdd(byObject, result, node.speakerId, "", node.speakerName, true);

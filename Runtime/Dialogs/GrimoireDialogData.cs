@@ -17,8 +17,8 @@ namespace Grimoire.PluginV2
         Question,
 
         /// <summary>
-        /// Context note. Has no speaker. Shown when the dialog asset's
-        /// <see cref="GrimoireDialogAsset.ShowContextNotes"/> is on; otherwise skipped.
+        /// Context note. Has no speaker. Shown when the player's
+        /// <see cref="GrimoireDialogPlayer.showContextNotes"/> is on; otherwise skipped.
         /// </summary>
         Context,
 
@@ -250,6 +250,12 @@ namespace Grimoire.PluginV2
         public string stringId = "";
         public string voiceUrl = "";
         public List<GrimoireDialogTranslation> translations = new List<GrimoireDialogTranslation>();
+
+        /// <summary>
+        /// Object fields that the text, its translations, or the answers show inline
+        /// (<c>#object:objectId;fieldId#</c>). Filled in on import.
+        /// </summary>
+        public List<GrimoireDialogValueRef> textRefs = new List<GrimoireDialogValueRef>();
 
         public string speakerId = "";
         public string speakerName = "";
