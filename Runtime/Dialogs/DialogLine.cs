@@ -31,7 +31,9 @@ namespace Grimoire.PluginV2
             string text,
             string voiceUrl,
             IReadOnlyList<DialogChoice> choices,
-            bool isLast)
+            bool isLast,
+            GrimoireDialogNode node = null,
+            string language = "")
         {
             Dialog = dialog;
             NodeId = nodeId ?? "";
@@ -41,6 +43,8 @@ namespace Grimoire.PluginV2
             VoiceUrl = voiceUrl ?? "";
             Choices = choices ?? NoChoices;
             IsLast = isLast;
+            Node = node;
+            Language = language ?? "";
         }
 
         /// <summary>The dialog this line belongs to (changes after a jump to another dialog).</summary>
@@ -48,6 +52,28 @@ namespace Grimoire.PluginV2
 
         /// <summary>The node identifier in Grimoire, handy for logging and save games.</summary>
         public string NodeId { get; }
+
+        /// <summary>
+        /// The imported node behind this line, with the untranslated text, translations,
+        /// and every option (including hidden ones). Read it, don't change it: it is
+        /// the asset's data.
+        /// </summary>
+        public GrimoireDialogNode Node { get; }
+
+        /// <summary>The node's name in Grimoire. Empty when it has none.</summary>
+        public string NodeName => Node != null ? Node.name ?? "" : "";
+
+        /// <summary>Line, Question, or End.</summary>
+        public GrimoireDialogNodeType NodeType => Node != null ? Node.type : GrimoireDialogNodeType.Line;
+
+        /// <summary>Grimoire string id of the text, if the line uses one.</summary>
+        public string StringId => Node != null ? Node.stringId ?? "" : "";
+
+        /// <summary>
+        /// Language code used to pick <see cref="Text"/>. Empty means the source language.
+        /// Lines without that translation still show the source text.
+        /// </summary>
+        public string Language { get; }
 
         /// <summary>Display name of the speaker. Empty when the line has no speaker.</summary>
         public string Speaker { get; }
@@ -75,15 +101,19 @@ namespace Grimoire.PluginV2
     /// <summary>One answer the player can pick. Pass <see cref="Index"/> to Choose().</summary>
     public sealed class DialogChoice
     {
-        public DialogChoice(int index, string text, string optionId)
+        public DialogChoice(int index, string text, string optionId, string stringId = "")
         {
             Index = index;
             Text = text ?? "";
             OptionId = optionId ?? "";
+            StringId = stringId ?? "";
         }
 
         public int Index { get; }
         public string Text { get; }
         public string OptionId { get; }
+
+        /// <summary>Grimoire string id of the answer text, if it uses one.</summary>
+        public string StringId { get; }
     }
 }

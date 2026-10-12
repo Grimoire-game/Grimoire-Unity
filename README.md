@@ -254,7 +254,39 @@ public class MyDialogUi : MonoBehaviour
 }
 ```
 
-`DialogLine` also carries `SpeakerId`, `VoiceUrl`, `NodeId`, and `IsLast`.
+`DialogLine` also carries `SpeakerId`, `VoiceUrl`, `NodeId`, `NodeName`,
+`NodeType`, `StringId`, `Language`, and `IsLast`. `line.Node` is the imported
+node itself (untranslated text, all translations, every option including hidden
+ones) for when you need more; read it but don't change it.
+
+**Reading the current line from anywhere**
+
+`GrimoireDialog` is a static shortcut to the player in the scene, so any script
+can ask what is on screen without a player reference:
+
+```csharp
+if (GrimoireDialog.IsPlaying)
+{
+    Debug.Log($"{GrimoireDialog.Speaker}: {GrimoireDialog.Text}");
+    foreach (var choice in GrimoireDialog.Choices)
+    {
+        Debug.Log($"  {choice.Index}: {choice.Text}");
+    }
+}
+
+if (GrimoireDialog.TryGetCurrent(out var line))
+{
+    portrait.Show(line.SpeakerId);              // everything from DialogLine
+}
+
+// React to every line, question, start, and end:
+GrimoireDialog.LineShown += line => Debug.Log(line.Text);
+GrimoireDialog.Started += (player, dialog) => { };
+GrimoireDialog.Ended += (player, reason) => { };
+```
+
+It also has `Current`, `CurrentDialog`, `SpeakerId`, `NodeId`, and `IsChoice`.
+Unsubscribe from the events in `OnDisable` like any C# event.
 
 **What plays automatically**
 
