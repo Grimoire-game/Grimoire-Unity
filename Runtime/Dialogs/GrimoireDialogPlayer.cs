@@ -22,6 +22,8 @@ namespace Grimoire.PluginV2
     /// Listen to <see cref="OnLine"/>, <see cref="OnChoices"/>, and
     /// <see cref="OnDialogEnded"/> to drive your own UI, or use the
     /// <see cref="GrimoireDialogView"/> that Grimoire Connect sets up for you.
+    /// To read the current line from anywhere without a player reference, use
+    /// <see cref="GrimoireDialog"/>.
     /// </summary>
     [AddComponentMenu("Grimoire/Grimoire Dialog Player")]
     public class GrimoireDialogPlayer : MonoBehaviour
@@ -147,6 +149,7 @@ namespace Grimoire.PluginV2
             }
 
             OnDialogStarted.Invoke();
+            GrimoireDialog.RaiseStarted(this, dialog);
             _runner.Start(dialog);
         }
 
@@ -275,6 +278,8 @@ namespace Grimoire.PluginV2
             {
                 OnLine.Invoke(CurrentLine);
             }
+
+            GrimoireDialog.RaiseLineShown(CurrentLine);
         }
 
         private void HandleEnded(GrimoireDialogEndReason reason)
@@ -289,6 +294,7 @@ namespace Grimoire.PluginV2
             }
 
             OnDialogEnded.Invoke();
+            GrimoireDialog.RaiseEnded(this, reason);
         }
 
         private DialogLine BuildLine(GrimoireDialogAsset current, GrimoireDialogNode node, IReadOnlyList<GrimoireDialogOption> options)
@@ -302,7 +308,8 @@ namespace Grimoire.PluginV2
                 choices.Add(new DialogChoice(
                     i,
                     GrimoireDialogLocalization.Text(option.text, option.translations, activeLanguage),
-                    option.id));
+                    option.id,
+                    option.stringId));
             }
 
             var isContext = node.type == GrimoireDialogNodeType.Context;
@@ -316,7 +323,8 @@ namespace Grimoire.PluginV2
                 isContext ? "" : GrimoireDialogLocalization.Voice(node.voiceUrl, node.translations, activeLanguage),
                 choices,
                 isLast,
-                isContext);
+                node,
+                activeLanguage);
         }
 
         private static T ConvertValue<T>(object value)
