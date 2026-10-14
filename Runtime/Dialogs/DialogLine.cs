@@ -96,7 +96,7 @@ namespace Grimoire.PluginV2
         public bool IsLast { get; }
 
         /// <summary>True for a context note. These lines have no speaker.</summary>
-        public bool IsContext { get; }
+        public bool IsContext => Node != null && Node.type == GrimoireDialogNodeType.Context;
 
         public bool HasSpeaker => !IsContext && Speaker.Length > 0;
     }

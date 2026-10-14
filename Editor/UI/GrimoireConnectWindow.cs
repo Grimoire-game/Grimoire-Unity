@@ -6,7 +6,7 @@ namespace Grimoire.PluginV2.Editor
     /// <summary>
     /// Grimoire Connect: sign in, pick company and game, then browse tasks,
     /// scene links, inspect objects, sync game engine data, download exports,
-    /// inspect live runtime values, or add dialogs to the scene.
+    /// inspect live runtime values, add dialogs to the scene, or sync and browse variables.
     /// </summary>
     public class GrimoireConnectWindow : EditorWindow
     {
@@ -17,6 +17,7 @@ namespace Grimoire.PluginV2.Editor
         private const int TabExport = 4;
         private const int TabRuntime = 5;
         private const int TabDialogs = 6;
+        private const int TabVariables = 7;
 
         private const int ObjectTabInfo = 0;
         private const int ObjectTabEditable = 1;
@@ -48,6 +49,7 @@ namespace Grimoire.PluginV2.Editor
         private GrimoireExportPanel _exportPanel;
         private GrimoireRuntimePanel _runtimePanel;
         private GrimoireDialogsPanel _dialogsPanel;
+        private GrimoireVariablesPanel _variablesPanel;
 
         [MenuItem("Window/Grimoire/Grimoire Connect")]
         public static void Open()
@@ -84,6 +86,16 @@ namespace Grimoire.PluginV2.Editor
             Open();
             var window = GetWindow<GrimoireConnectWindow>();
             window.SelectTab(TabDialogs);
+            window.Repaint();
+        }
+
+        /// <summary>Open Connect focused on the Variables tab.</summary>
+        [MenuItem("Window/Grimoire/Variables")]
+        public static void OpenVariables()
+        {
+            Open();
+            var window = GetWindow<GrimoireConnectWindow>();
+            window.SelectTab(TabVariables);
             window.Repaint();
         }
 
@@ -125,6 +137,9 @@ namespace Grimoire.PluginV2.Editor
             _dialogsPanel = new GrimoireDialogsPanel();
             _dialogsPanel.RepaintNeeded += ScheduleRepaint;
 
+            _variablesPanel = new GrimoireVariablesPanel();
+            _variablesPanel.RepaintNeeded += ScheduleRepaint;
+
             Selection.selectionChanged += OnSelectionChanged;
             GrimoireAuthSession.Changed += OnAuthChanged;
             GrimoireSettings.Changed += OnSettingsChanged;
@@ -155,6 +170,10 @@ namespace Grimoire.PluginV2.Editor
             else if (_selectedTab == TabDialogs)
             {
                 _dialogsPanel.Activate();
+            }
+            else if (_selectedTab == TabVariables)
+            {
+                _variablesPanel.Activate();
             }
 
             OnSelectionChanged();
@@ -357,6 +376,10 @@ namespace Grimoire.PluginV2.Editor
             {
                 _dialogsPanel.Refresh();
             }
+            else if (_selectedTab == TabVariables)
+            {
+                _variablesPanel.Sync();
+            }
 
             RefreshObject();
             Repaint();
@@ -541,6 +564,9 @@ namespace Grimoire.PluginV2.Editor
                 case TabDialogs:
                     DrawDialogsTab();
                     break;
+                case TabVariables:
+                    _variablesPanel?.Draw();
+                    break;
             }
 
             GrimoireEditorStyles.EndContentArea();
@@ -550,7 +576,7 @@ namespace Grimoire.PluginV2.Editor
         {
             var dirty = GrimoireSyncPanel.TotalPendingCount();
             var syncLabel = dirty > 0 ? $"Sync ({dirty})" : "Sync";
-            var labels = new[] { "Tasks", "Scene", "Object", syncLabel, "Versions", "Runtime", "Dialogs" };
+            var labels = new[] { "Tasks", "Scene", "Object", syncLabel, "Versions", "Runtime", "Dialogs", "Variables" };
 
             var picked = GrimoireEditorStyles.DrawTabBar(_selectedTab, labels);
             if (picked != _selectedTab)
@@ -606,6 +632,10 @@ namespace Grimoire.PluginV2.Editor
             else if (_selectedTab == TabDialogs)
             {
                 _dialogsPanel?.Activate();
+            }
+            else if (_selectedTab == TabVariables)
+            {
+                _variablesPanel?.Activate();
             }
         }
 

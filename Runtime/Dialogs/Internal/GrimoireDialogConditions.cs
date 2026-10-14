@@ -129,6 +129,54 @@ namespace Grimoire.PluginV2.Internal
             }
         }
 
+        public static T ConvertTo<T>(object value)
+        {
+            if (value == null)
+            {
+                return default;
+            }
+
+            if (value is T typed)
+            {
+                return typed;
+            }
+
+            var type = typeof(T);
+            if (type == typeof(bool))
+            {
+                return (T)(object)ToBool(value);
+            }
+
+            if (type == typeof(string))
+            {
+                return (T)(object)AsString(value);
+            }
+
+            if (type == typeof(int))
+            {
+                return (T)(object)(int)Math.Round(ToNumber(value));
+            }
+
+            if (type == typeof(float))
+            {
+                return (T)(object)(float)ToNumber(value);
+            }
+
+            if (type == typeof(double))
+            {
+                return (T)(object)ToNumber(value);
+            }
+
+            try
+            {
+                return (T)Convert.ChangeType(value, type, CultureInfo.InvariantCulture);
+            }
+            catch (Exception)
+            {
+                return default;
+            }
+        }
+
         private static bool CollectionContains(object collection, object item)
         {
             if (collection == null || item == null)
@@ -168,11 +216,16 @@ namespace Grimoire.PluginV2.Internal
             return text == needle;
         }
 
-        // Range-variable element ids need the Grimoire types store, which is not
-        // exported here; only the "min..max" literal form is evaluated.
+        // A range is a range-variable element id (needs synced variables) or a "min..max" literal.
         private static bool InRange(object subject, object range)
         {
             var text = AsString(range);
+            if (GrimoireVariables.TryGetElement(text, out var element) && element.HasRange)
+            {
+                var value = ToNumber(subject);
+                return value >= element.RangeMin && value <= element.RangeMax;
+            }
+
             var separator = text.IndexOf("..", StringComparison.Ordinal);
             if (separator > 0 &&
                 double.TryParse(text.Substring(0, separator), NumberStyles.Float, CultureInfo.InvariantCulture, out var min) &&

@@ -31,6 +31,9 @@ namespace Grimoire.PluginV2.Internal
         public GrimoireDialogNode CurrentNode { get; private set; }
         public bool IsActive => CurrentNode != null;
 
+        /// <summary>When true, context notes with text stop like a line. When false, they are skipped.</summary>
+        public bool ShowContextNotes { get; set; } = true;
+
         /// <summary>Options on the current question that pass visibility and pick-once rules.</summary>
         public IReadOnlyList<GrimoireDialogOption> VisibleOptions => _visibleOptions;
 
@@ -175,7 +178,7 @@ namespace Grimoire.PluginV2.Internal
                         return false;
 
                     case GrimoireDialogNodeType.Context:
-                        if (dialog.ShowContextNotes && HasReadableText(node))
+                        if (ShowContextNotes && HasReadableText(node))
                         {
                             Show(dialog, node);
                             return true;
@@ -280,6 +283,75 @@ namespace Grimoire.PluginV2.Internal
             }
 
             NodeEntered?.Invoke(node);
+        }
+
+        /// <summary>
+        /// <paramref name="text"/> with its inline object-field tokens replaced by the
+        /// field values, read the same way conditions read them.
+        /// </summary>
+        public string ResolveText(GrimoireDialogAsset dialog, GrimoireDialogNode node, string text)
+        {
+            return GrimoireDialogTextTokens.Replace(text, node?.textRefs, reference => ReadDisplayText(reference, dialog));
+        }
+
+        private string ReadDisplayText(GrimoireDialogValueRef reference, GrimoireDialogAsset dialog)
+        {
+            if (_objectFieldOverrides.TryGetValue(ObjectFieldKey(reference), out var overridden))
+            {
+                return ToDisplayText(overridden);
+            }
+
+            if (ReadExternalValue != null)
+            {
+                var provided = ReadExternalValue(reference);
+                if (provided != null)
+                {
+                    return ToDisplayText(provided);
+                }
+            }
+
+            string sceneName = null;
+            if (GrimoireDialogObjectResolver.TryFindLink(reference, out _, out var snapshot))
+            {
+                if (GrimoireDialogObjectResolver.TryFindField(snapshot, reference, out var field))
+                {
+                    return GrimoireDialogObjectResolver.ToDisplayText(field);
+                }
+
+                sceneName = snapshot?.Name;
+            }
+
+            if (GrimoireDialogExportBridge.TryReadObjectField(reference, out var fromExport))
+            {
+                return ToDisplayText(fromExport);
+            }
+
+            if (reference.authoredValue != null && reference.authoredValue.HasValue)
+            {
+                return ToDisplayText(reference.authoredValue.ToObject());
+            }
+
+            var fallback = !string.IsNullOrEmpty(reference.objectName) ? reference.objectName : sceneName ?? "";
+            WarnOnce("text:" + ObjectFieldKey(reference),
+                $"A text in '{(dialog != null ? dialog.DisplayName : "?")}' shows {GrimoireDialogObjectResolver.Describe(reference)}, " +
+                $"but no value is available, so it shows '{fallback}'. Update the dialog in Grimoire Connect. {AddLinkHint(reference)}");
+            return fallback;
+        }
+
+        private static string ToDisplayText(object value)
+        {
+            if (value is System.Collections.IEnumerable list && !(value is string))
+            {
+                var parts = new List<string>();
+                foreach (var item in list)
+                {
+                    parts.Add(GrimoireDialogConditions.AsString(item));
+                }
+
+                return string.Join(", ", parts);
+            }
+
+            return GrimoireDialogConditions.AsString(value);
         }
 
         private void Finish(GrimoireDialogEndReason reason)
@@ -439,10 +511,16 @@ namespace Grimoire.PluginV2.Internal
                     return;
                 }
 
+                if (target.source == GrimoireDialogValueRef.SourceTypeElement && GrimoireVariables.IsAvailable)
+                {
+                    GrimoireVariables.SetValue(target.elementId, updated);
+                    return;
+                }
+
                 if (target.source != GrimoireDialogValueRef.SourceObjectField)
                 {
                     WarnOnce("write:" + target.source + ":" + target.typeId + target.elementId,
-                        $"A setter writes to a Grimoire {Describe(target)}. Assign GrimoireDialogPlayer.WriteExternalValue to handle it.");
+                        $"A setter writes to a Grimoire {Describe(target)}. {MissingVariablesHint()}");
                     return;
                 }
 
@@ -500,6 +578,15 @@ namespace Grimoire.PluginV2.Internal
                 return ResolveObjectField(reference);
             }
 
+            if (reference.source == GrimoireDialogValueRef.SourceTypeElement)
+            {
+                var fromVariables = GrimoireVariables.GetValue(reference.elementId);
+                if (fromVariables != null)
+                {
+                    return fromVariables;
+                }
+            }
+
             if (reference.authoredValue != null && reference.authoredValue.HasValue)
             {
                 return reference.authoredValue.ToObject();
@@ -508,10 +595,19 @@ namespace Grimoire.PluginV2.Internal
             if (ReadExternalValue == null)
             {
                 WarnOnce("read:" + reference.source + ":" + reference.typeId + reference.elementId,
-                    $"A condition reads a Grimoire {Describe(reference)}. Assign GrimoireDialogPlayer.ReadExternalValue to handle it. It counts as empty for now.");
+                    $"A condition reads a Grimoire {Describe(reference)}. {MissingVariablesHint()} It counts as empty for now.");
             }
 
             return null;
+        }
+
+        private static string MissingVariablesHint()
+        {
+            return GrimoireVariables.IsAvailable
+                ? "The synced variables do not contain it. Click Sync variables in Grimoire Connect > Dialogs, " +
+                  "or assign GrimoireDialogPlayer.ReadExternalValue / WriteExternalValue."
+                : "Click Sync variables in Grimoire Connect > Dialogs so the dialog can use Grimoire variables, " +
+                  "or assign GrimoireDialogPlayer.ReadExternalValue / WriteExternalValue.";
         }
 
         // Scene Object Link first, then the export's ObjectRuntime, then the library value baked in at import.

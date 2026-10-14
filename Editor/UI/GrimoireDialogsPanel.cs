@@ -27,7 +27,6 @@ namespace Grimoire.PluginV2.Editor
         private int _loadGeneration;
         private string _busyDialogId;
         private string _busyMessage;
-
         // Object requirements per imported asset, keyed by asset instance id + import stamp.
         private readonly Dictionary<string, List<GrimoireDialogObjectRequirement>> _requirementCache =
             new Dictionary<string, List<GrimoireDialogObjectRequirement>>(StringComparer.Ordinal);

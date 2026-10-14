@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Grimoire.PluginV2.Internal;
 using UnityEditor;
 using UnityEngine;
 
@@ -114,6 +115,13 @@ namespace Grimoire.PluginV2.Editor
 
             progress?.Invoke("Downloading translations...");
             var strings = await LoadStringsAsync(gameId);
+
+            var variables = await GrimoireVariableSync.SyncAsync(gameId, progress);
+            if (!variables.Success)
+            {
+                LastImportNotes.Add(
+                    $"Variables were not synced ({variables.Error}). Type values such as moods show as ids until they are.");
+            }
 
             if (fetched.Values.Any(d => d.data?.speakerMode == "object"))
             {
@@ -493,10 +501,34 @@ namespace Grimoire.PluginV2.Editor
                     }
                 }
 
+                CollectTextRefs(node);
                 nodes.Add(node);
             }
 
             return nodes;
+        }
+
+        private static void CollectTextRefs(GrimoireDialogNode node)
+        {
+            GrimoireDialogTextTokens.Collect(node.text, node.textRefs);
+            foreach (var translation in node.translations)
+            {
+                GrimoireDialogTextTokens.Collect(translation?.text, node.textRefs);
+            }
+
+            foreach (var option in node.options)
+            {
+                GrimoireDialogTextTokens.Collect(option?.text, node.textRefs);
+                if (option?.translations == null)
+                {
+                    continue;
+                }
+
+                foreach (var translation in option.translations)
+                {
+                    GrimoireDialogTextTokens.Collect(translation?.text, node.textRefs);
+                }
+            }
         }
 
         private static List<GrimoireDialogVariable> BuildVariables(DialogVariableDto[] source)
@@ -674,9 +706,11 @@ namespace Grimoire.PluginV2.Editor
         private static async Task ResolveObjectFieldsAsync(
             string gameId, IEnumerable<GrimoireDialogNode> nodes, Action<string> progress)
         {
-            var refs = nodes.SelectMany(AllRefs)
+            var nodeList = nodes.ToList();
+            var refs = nodeList.SelectMany(AllRefs)
                 .Where(r => r != null && r.source == GrimoireDialogValueRef.SourceObjectField && !string.IsNullOrEmpty(r.objectId))
                 .ToList();
+            var textRefs = new HashSet<GrimoireDialogValueRef>(nodeList.SelectMany(n => n.textRefs));
             if (refs.Count == 0)
             {
                 return;
@@ -710,7 +744,9 @@ namespace Grimoire.PluginV2.Editor
                     .FirstOrDefault(f => f != null && f.id == reference.fieldId);
                 reference.fieldName = FirstNonEmpty(field?.label, LabelFieldPart(reference.label)) ?? "";
                 reference.fieldType = field?.kind ?? "";
-                var authored = ReadAuthoredFieldValue(field);
+                var authored = textRefs.Contains(reference)
+                    ? ReadAuthoredDisplayText(field) ?? (field == null ? NullIfEmpty(reference.objectName) : null)
+                    : ReadAuthoredFieldValue(field);
                 if (authored != null)
                 {
                     reference.authoredValue = GrimoireDialogValue.From(authored);
@@ -764,6 +800,34 @@ namespace Grimoire.PluginV2.Editor
             return ReadAuthoredValue(field.kind, field.values[0]);
         }
 
+        /// <summary>Library value as the player reads it in a text: reference names, values joined with ", ".</summary>
+        private static string ReadAuthoredDisplayText(ViewField field)
+        {
+            if (field?.values == null || field.values.Length == 0)
+            {
+                return NullIfEmpty(field?.plain);
+            }
+
+            var parts = new List<string>();
+            foreach (var value in field.values)
+            {
+                var piece = value?.reference != null
+                    ? FirstNonEmpty(value.reference.name, value.reference.code_id, value.reference.id)
+                    : Convert.ToString(ReadAuthoredValue(field.kind, value), System.Globalization.CultureInfo.InvariantCulture);
+                if (!string.IsNullOrEmpty(piece))
+                {
+                    parts.Add(piece);
+                }
+            }
+
+            return parts.Count == 0 ? NullIfEmpty(field.plain) : string.Join(", ", parts);
+        }
+
+        private static string NullIfEmpty(string value)
+        {
+            return string.IsNullOrEmpty(value) ? null : value;
+        }
+
         private static object ReadAuthoredValue(string kind, ViewValue value)
         {
             if (value == null)
@@ -814,6 +878,11 @@ namespace Grimoire.PluginV2.Editor
                 yield return option?.action?.valueRef;
                 yield return option?.visibleWhen?.subjectRef;
                 yield return option?.visibleWhen?.valueRef;
+            }
+
+            foreach (var textRef in node.textRefs)
+            {
+                yield return textRef;
             }
         }
 

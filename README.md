@@ -300,16 +300,53 @@ reference an **object field** (for example `bed: interactionCount`) read and
 write the imported export's `ObjectRuntime`, so import a Unity export too. To use
 your own source instead (a save game, for example), assign
 `player.ReadExternalValue` / `player.WriteExternalValue`. When they return null,
-the player falls back to `ObjectRuntime`. **Type element** references always need
-these hooks. A value that can't be found is treated as empty and logged once. A
-condition where no branch matches also logs a warning, because the dialog ends
-there.
+the player falls back to `ObjectRuntime`. **Type element** references use the
+synced variables (see below), or these hooks when variables aren't synced. A
+value that can't be found is treated as empty and logged once. A condition where
+no branch matches also logs a warning, because the dialog ends there.
+
+**Variables (types such as Mood)**
+
+Grimoire stores a `types` field as an element id, so a setter like
+`Bofur: Mood → Angry` writes `d8797c69-…`, not "Angry". Sync the game's variables
+on the **Variables** tab (see below; importing a dialog syncs them too). Then turn
+ids into names anywhere:
+
+```csharp
+if (bofurLink.TryGetVariableElement("Mood", out var mood))
+{
+    Debug.Log(mood.Name);                        // "Angry", also after a dialog setter
+    Debug.Log(mood.Variable?.Name);              // "Mood"
+}
+
+GrimoireVariables.ElementName(id);               // "Angry"
+GrimoireVariables.TryFindElement("Mood", "Angry", out var angry);
+GrimoireVariables.GetValue<float>("Difficulty", "Easy");
+```
+
+Dialog setters that write a variable element change its value for the play
+session (`GrimoireVariables.SetValue`, with a `ValueChanged` event); the asset is
+never modified. Range conditions on range variables use the synced min and max.
 
 Speaker names are filled in for **object** and **free text** speaker modes. In
 **type** mode only `DialogLine.SpeakerId` is set.
 
 In Play Mode the player's inspector lets you pick any dialog asset and start it,
 and shows the current node, Next / answer buttons, and the live variable values.
+
+### Variables tab
+
+Open the **Variables** tab in Grimoire Connect (or `Window > Grimoire > Variables`)
+to sync and browse the game's variables, such as Mood with Neutral, Happy and
+Angry. **Sync variables** saves them to
+`Assets/GrimoireVariables/Resources/GrimoireVariables.asset`; builds read that
+asset, so no sign-in is needed. The first visit syncs automatically.
+
+Variables are grouped like on the Grimoire Variables page and can be searched by
+variable name, element name or element id. Each element has **Copy** (a ready
+code snippet, such as checking whether an object's Mood field is Angry, or
+reading a number with `GrimoireVariables.GetValue<float>`) and **Copy ID** (the
+element id stored in object fields and dialog setters).
 
 ### Export tab (optional)
 
@@ -347,6 +384,7 @@ folder or Bootstrap component is required.
 | `PATCH /api/v1/objects/{id}` | Replace `game_engine_data`, or update `game_engine_editable` field values |
 | `GET /api/v1/dialogs` | Dialog list on the Dialogs tab |
 | `GET /api/v1/dialogs/{id}` | Dialog node graph for importing into an asset |
+| `GET /api/v1/variables` | Variables (types) with their elements on the Variables tab, synced to `Assets/GrimoireVariables/Resources` |
 | `GET /api/v1/strings` | String picker + code (abbrev) resolution, with translations (also used for dialog translations) |
 | `PATCH /api/v1/strings/{id}/translations/{language_code}` | Push edited translations |
 | `GET /api/v1/statuses?domain=tasks` | Valid task workflow statuses |
