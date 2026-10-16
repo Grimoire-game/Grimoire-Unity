@@ -51,6 +51,100 @@ namespace Grimoire.PluginV2.Editor
             return snapshot;
         }
 
+        /// <summary>
+        /// Merge display copy from one localized Object View into a source
+        /// snapshot. Raw values remain untouched so conditions and engine writes
+        /// keep using language-neutral data.
+        /// </summary>
+        public static void MergeLocalizedDocument(
+            GrimoireObjectSnapshot snapshot,
+            ObjectViewDocument document,
+            string languageCode)
+        {
+            if (snapshot == null || document == null || string.IsNullOrWhiteSpace(languageCode))
+            {
+                return;
+            }
+
+            var code = languageCode.Trim();
+            if (!string.IsNullOrEmpty(document.@object?.name))
+            {
+                snapshot.SetLocalizedName(code, document.@object.name);
+            }
+
+            if (document.sections == null)
+            {
+                return;
+            }
+
+            foreach (var section in document.sections)
+            {
+                if (section?.fields == null)
+                {
+                    continue;
+                }
+
+                foreach (var viewField in section.fields)
+                {
+                    if (viewField == null ||
+                        !snapshot.TryGetField(viewField.id, out var cached))
+                    {
+                        continue;
+                    }
+
+                    var localized = FromViewField(
+                        viewField,
+                        string.IsNullOrEmpty(section.title) ? "Fields" : section.title);
+                    cached.SetLocalizedLabel(code, viewField.label);
+                    if (cached.IsReference)
+                    {
+                        MergeReferenceNames(cached, localized, code);
+                        continue;
+                    }
+
+                    cached.SetLocalizedValues(
+                        code,
+                        localized.Value,
+                        new List<string>(localized.Values));
+                }
+            }
+        }
+
+        private static void MergeReferenceNames(
+            GrimoireCachedField target,
+            GrimoireCachedField localized,
+            string languageCode)
+        {
+            for (var i = 0; i < localized.References.Count; i++)
+            {
+                var source = localized.References[i];
+                if (source == null || string.IsNullOrEmpty(source.Name))
+                {
+                    continue;
+                }
+
+                GrimoireObjectRef destination = null;
+                for (var r = 0; r < target.References.Count; r++)
+                {
+                    var candidate = target.References[r];
+                    if (candidate != null &&
+                        ((!string.IsNullOrEmpty(source.Id) && candidate.Id == source.Id) ||
+                         (!string.IsNullOrEmpty(source.CodeId) && candidate.CodeId == source.CodeId)))
+                    {
+                        destination = candidate;
+                        break;
+                    }
+                }
+
+                if (destination == null && i < target.References.Count)
+                {
+                    destination = target.References[i];
+                }
+
+                destination?.SetLocalizedName(languageCode, source.Name);
+            }
+        }
+
         private static GrimoireCachedField FromViewField(ViewField field, string sectionTitle)
         {
             var kind = GrimoireFieldSync.ResolveEditKind(field);
@@ -106,6 +200,7 @@ namespace Grimoire.PluginV2.Editor
                     Id = reference.id ?? "",
                     CodeId = reference.code_id ?? "",
                     Name = reference.name ?? "",
+                    Kind = reference.ref_kind ?? "",
                 });
             }
         }

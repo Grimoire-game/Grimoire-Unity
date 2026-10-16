@@ -111,20 +111,19 @@ namespace Grimoire.PluginV2.Editor
                     id = resolved.Data;
                 }
 
-                var view = await GrimoireApiClient.GetObjectViewAsync(
-                    gameId, id, GrimoireSettings.Locale);
-                if (!view.Success)
+                var loaded = await GrimoireLocalizedObjectLoader.LoadAsync(gameId, id);
+                if (!loaded.Success)
                 {
-                    Debug.LogWarning($"[Grimoire] Could not load object '{objectKey ?? id}': {view.Error}");
+                    Debug.LogWarning($"[Grimoire] Could not load object '{objectKey ?? id}': {loaded.Error}");
                     return null;
                 }
 
-                if (view.Data?.@object != null)
+                if (loaded.Data.Source?.@object != null)
                 {
-                    GrimoireObjectKeyResolver.RememberSummary(gameId, view.Data.@object);
+                    GrimoireObjectKeyResolver.RememberSummary(gameId, loaded.Data.Source.@object);
                 }
 
-                return GrimoireObjectSnapshotMapper.FromDocument(view.Data);
+                return loaded.Data.Snapshot;
             }
         }
     }

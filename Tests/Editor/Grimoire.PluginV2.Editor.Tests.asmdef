@@ -1,0 +1,22 @@
+{
+    "name": "Grimoire.PluginV2.Editor.Tests",
+    "rootNamespace": "Grimoire.PluginV2.Tests",
+    "references": [
+        "Grimoire.PluginV2.Runtime",
+        "Grimoire.PluginV2.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

@@ -5,6 +5,32 @@ using UnityEngine;
 
 namespace Grimoire.PluginV2
 {
+    [Serializable]
+    public class GrimoireLocalizedValues
+    {
+        [SerializeField] private string _languageCode = "";
+        [SerializeField] private string _value = "";
+        [SerializeField] private List<string> _values = new List<string>();
+
+        public string LanguageCode
+        {
+            get => _languageCode;
+            set => _languageCode = value ?? "";
+        }
+
+        public string Value
+        {
+            get => _value;
+            set => _value = value ?? "";
+        }
+
+        public List<string> Values
+        {
+            get => _values ?? (_values = new List<string>());
+            set => _values = value ?? new List<string>();
+        }
+    }
+
     /// <summary>
     /// A pointer to another Grimoire object (id / key / name). Nested field
     /// data is not loaded until a script or the inspector asks for it.
@@ -20,6 +46,12 @@ namespace Grimoire.PluginV2
 
         [SerializeField]
         private string _name = "";
+
+        [SerializeField]
+        private string _kind = "";
+
+        [SerializeField]
+        private List<GrimoireLocalizedText> _localizedNames = new List<GrimoireLocalizedText>();
 
         public string Id
         {
@@ -39,14 +71,61 @@ namespace Grimoire.PluginV2
             set => _name = value ?? "";
         }
 
+        public string Kind
+        {
+            get => _kind;
+            set => _kind = value ?? "";
+        }
+
         public bool HasId => !string.IsNullOrWhiteSpace(_id);
 
         public bool HasKey => !string.IsNullOrWhiteSpace(_codeId);
 
-        public string DisplayName =>
-            !string.IsNullOrEmpty(_name) ? _name
-            : !string.IsNullOrEmpty(_codeId) ? _codeId
-            : _id ?? "";
+        public string DisplayName
+        {
+            get
+            {
+                var name = GetDisplayName();
+                return !string.IsNullOrEmpty(name) ? name
+                    : !string.IsNullOrEmpty(_codeId) ? _codeId
+                    : _id ?? "";
+            }
+        }
+
+        public List<GrimoireLocalizedText> LocalizedNames =>
+            _localizedNames ?? (_localizedNames = new List<GrimoireLocalizedText>());
+
+        public string GetDisplayName(string languageCode = null) =>
+            GrimoireLocalization.Resolve(_name, LocalizedNames, languageCode);
+
+        public void SetLocalizedName(string languageCode, string name)
+        {
+            SetLocalizedText(LocalizedNames, languageCode, name);
+        }
+
+        internal static void SetLocalizedText(
+            List<GrimoireLocalizedText> rows,
+            string languageCode,
+            string text)
+        {
+            if (rows == null || string.IsNullOrWhiteSpace(languageCode))
+            {
+                return;
+            }
+
+            var code = languageCode.Trim();
+            for (var i = 0; i < rows.Count; i++)
+            {
+                if (rows[i] != null &&
+                    string.Equals(rows[i].LanguageCode, code, StringComparison.OrdinalIgnoreCase))
+                {
+                    rows[i].Text = text ?? "";
+                    return;
+                }
+            }
+
+            rows.Add(new GrimoireLocalizedText(code, text));
+        }
     }
 
     /// <summary>
@@ -61,6 +140,9 @@ namespace Grimoire.PluginV2
 
         [SerializeField]
         private string _label = "";
+
+        [SerializeField]
+        private List<GrimoireLocalizedText> _localizedLabels = new List<GrimoireLocalizedText>();
 
         [SerializeField]
         private string _kind = "";
@@ -85,6 +167,9 @@ namespace Grimoire.PluginV2
 
         [SerializeField]
         private List<GrimoireObjectRef> _references = new List<GrimoireObjectRef>();
+
+        [SerializeField]
+        private List<GrimoireLocalizedValues> _localizedValues = new List<GrimoireLocalizedValues>();
 
         public string FieldId
         {
@@ -147,6 +232,81 @@ namespace Grimoire.PluginV2
             set => _references = value ?? new List<GrimoireObjectRef>();
         }
 
+        public List<GrimoireLocalizedValues> LocalizedValues =>
+            _localizedValues ?? (_localizedValues = new List<GrimoireLocalizedValues>());
+
+        public string GetDisplayValue(string languageCode = null)
+        {
+            var localized = FindLocalized(languageCode);
+            return localized != null && !string.IsNullOrEmpty(localized.Value)
+                ? localized.Value
+                : _value ?? "";
+        }
+
+        public IReadOnlyList<string> GetDisplayValues(string languageCode = null)
+        {
+            var localized = FindLocalized(languageCode);
+            return localized != null && localized.Values.Count > 0
+                ? (IReadOnlyList<string>)localized.Values
+                : Values;
+        }
+
+        public void SetLocalizedValues(
+            string languageCode,
+            string value,
+            List<string> values)
+        {
+            if (string.IsNullOrWhiteSpace(languageCode))
+            {
+                return;
+            }
+
+            var localized = FindLocalizedExact(languageCode) ?? new GrimoireLocalizedValues
+            {
+                LanguageCode = languageCode.Trim(),
+            };
+            if (!LocalizedValues.Contains(localized))
+            {
+                LocalizedValues.Add(localized);
+            }
+
+            localized.Value = value ?? "";
+            localized.Values = values ?? new List<string>();
+        }
+
+        public void ClearLocalizedValues()
+        {
+            _localizedValues?.Clear();
+        }
+
+        private GrimoireLocalizedValues FindLocalized(string languageCode)
+        {
+            var code = string.IsNullOrWhiteSpace(languageCode)
+                ? GrimoireLocalization.ActiveLanguage
+                : languageCode.Trim();
+            return FindLocalizedExact(code);
+        }
+
+        private GrimoireLocalizedValues FindLocalizedExact(string languageCode)
+        {
+            if (string.IsNullOrEmpty(languageCode) || _localizedValues == null)
+            {
+                return null;
+            }
+
+            for (var i = 0; i < _localizedValues.Count; i++)
+            {
+                var row = _localizedValues[i];
+                if (row != null &&
+                    string.Equals(row.LanguageCode, languageCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    return row;
+                }
+            }
+
+            return null;
+        }
+
         public bool IsReference =>
             string.Equals(_kind, "reference", StringComparison.OrdinalIgnoreCase);
 
@@ -162,7 +322,22 @@ namespace Grimoire.PluginV2
         /// </summary>
         public bool IsReferenceField => IsReference || IsReferenceFieldType(_fieldType);
 
-        public string DisplayLabel => string.IsNullOrEmpty(_label) ? _fieldId : _label;
+        public string DisplayLabel
+        {
+            get
+            {
+                var localized = GrimoireLocalization.Resolve(_label, _localizedLabels);
+                return string.IsNullOrEmpty(localized) ? _fieldId : localized;
+            }
+        }
+
+        public void SetLocalizedLabel(string languageCode, string label)
+        {
+            GrimoireObjectRef.SetLocalizedText(
+                _localizedLabels ?? (_localizedLabels = new List<GrimoireLocalizedText>()),
+                languageCode,
+                label);
+        }
 
         public static bool IsVariableFieldType(string fieldType)
         {
@@ -241,7 +416,7 @@ namespace Grimoire.PluginV2
             {
                 if (GrimoireVariables.TryGetElement(id, out var element))
                 {
-                    stub.Name = element.Name;
+                    stub.Name = element.DisplayName;
                 }
             }
             else if (GrimoireObjectCache.TryGet(id, out var snapshot) && snapshot != null)
@@ -300,6 +475,9 @@ namespace Grimoire.PluginV2
         private string _name = "";
 
         [SerializeField]
+        private List<GrimoireLocalizedText> _localizedNames = new List<GrimoireLocalizedText>();
+
+        [SerializeField]
         private List<GrimoireCachedField> _fields = new List<GrimoireCachedField>();
 
         public string ObjectId
@@ -318,6 +496,19 @@ namespace Grimoire.PluginV2
         {
             get => _name;
             set => _name = value ?? "";
+        }
+
+        public string DisplayName => GetDisplayName();
+
+        public string GetDisplayName(string languageCode = null) =>
+            GrimoireLocalization.Resolve(_name, _localizedNames, languageCode);
+
+        public List<GrimoireLocalizedText> LocalizedNames =>
+            _localizedNames ?? (_localizedNames = new List<GrimoireLocalizedText>());
+
+        public void SetLocalizedName(string languageCode, string name)
+        {
+            GrimoireObjectRef.SetLocalizedText(LocalizedNames, languageCode, name);
         }
 
         public List<GrimoireCachedField> Fields
@@ -387,6 +578,19 @@ namespace Grimoire.PluginV2
             }
 
             value = field.Value ?? "";
+            return true;
+        }
+
+        /// <summary>Localized display copy without changing the raw value used by logic.</summary>
+        public bool TryGetDisplayString(string name, out string value, string languageCode = null)
+        {
+            value = "";
+            if (!TryGetField(name, out var field) || field.IsReference)
+            {
+                return false;
+            }
+
+            value = field.GetDisplayValue(languageCode);
             return true;
         }
 
@@ -528,6 +732,7 @@ namespace Grimoire.PluginV2
                     && string.Equals(field.FieldId, fieldId, StringComparison.Ordinal))
                 {
                     field.Value = value ?? "";
+                    field.ClearLocalizedValues();
                     if (field.IsReferenceField)
                     {
                         field.SetReferencesFromText(field.Value);
@@ -572,6 +777,73 @@ namespace Grimoire.PluginV2
                         destination.Add(stub.CodeId);
                     }
                 }
+            }
+        }
+
+        /// <summary>Reference stubs used by this snapshot (one hop), deduplicated.</summary>
+        public List<GrimoireObjectRef> CollectReferences()
+        {
+            return CollectReferences(objectOnly: false);
+        }
+
+        /// <summary>Only references that can be loaded through the objects endpoint.</summary>
+        public List<GrimoireObjectRef> CollectObjectReferences()
+        {
+            return CollectReferences(objectOnly: true);
+        }
+
+        private List<GrimoireObjectRef> CollectReferences(bool objectOnly)
+        {
+            var result = new List<GrimoireObjectRef>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_fields == null)
+            {
+                return result;
+            }
+
+            foreach (var field in _fields)
+            {
+                if (field?.References == null)
+                {
+                    continue;
+                }
+
+                foreach (var reference in field.References)
+                {
+                    if (reference == null || (!reference.HasId && !reference.HasKey))
+                    {
+                        continue;
+                    }
+
+                    if (objectOnly &&
+                        !IsObjectReferenceField(field.FieldType) &&
+                        !string.Equals(reference.Kind, "object", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var key = reference.HasId ? reference.Id : reference.CodeId;
+                    if (seen.Add(key))
+                    {
+                        result.Add(reference);
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        private static bool IsObjectReferenceField(string fieldType)
+        {
+            switch (fieldType)
+            {
+                case "glossaryItem":
+                case "object":
+                case "objectList":
+                case "objects":
+                    return true;
+                default:
+                    return false;
             }
         }
     }

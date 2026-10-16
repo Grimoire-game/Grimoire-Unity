@@ -62,6 +62,8 @@ namespace Grimoire.PluginV2.Editor
                     "Editable field commits can still be prepared after Play.");
             }
 
+            DrawSyncEverything();
+
             var entries = BuildEntries(out var selectedEntry, out var others);
             BuildTextEntries(out var selectedTextEntry, out var otherTextEntries);
             var dirtyTotal = CountDirtyEntries(entries) + CountDirtyTextEntries(selectedTextEntry, otherTextEntries);
@@ -116,6 +118,81 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndScrollView();
 
             DrawTextLinksSection(selectedTextEntry, otherTextEntries);
+        }
+
+        private void DrawSyncEverything()
+        {
+            EditorGUILayout.LabelField("Pull from Grimoire", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(
+                "Fetch every configured language and update variables, imported dialogs, " +
+                "text links, object links and their cached nested objects.",
+                GrimoireEditorStyles.MiniSecondaryStyle);
+
+            using (new EditorGUI.DisabledScope(_busy || EditorApplication.isPlayingOrWillChangePlaymode))
+            {
+                if (GUILayout.Button(
+                        new GUIContent(
+                            _busy ? "Syncing..." : "Sync Everything",
+                            "Update every Grimoire resource used by this Unity project."),
+                        GrimoireEditorStyles.PrimaryButtonStyle,
+                        GUILayout.Height(30)))
+                {
+                    SyncEverythingAsync();
+                }
+            }
+
+            EditorGUILayout.Space(8);
+        }
+
+        private async void SyncEverythingAsync()
+        {
+            if (_busy)
+            {
+                return;
+            }
+
+            var generation = ++_opGeneration;
+            _busy = true;
+            _status = "Starting full sync...";
+            _error = null;
+            RequestRepaint();
+
+            ApiResult<GrimoireSyncEverything.Summary> result;
+            try
+            {
+                result = await GrimoireSyncEverything.RunAsync((message, amount) =>
+                {
+                    _status = message;
+                    RequestRepaint();
+                    return EditorUtility.DisplayCancelableProgressBar(
+                        "Grimoire — Sync Everything", message, amount);
+                });
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+            }
+
+            if (generation != _opGeneration)
+            {
+                return;
+            }
+
+            _busy = false;
+            if (!result.Success)
+            {
+                _status = null;
+                _error = result.Error ?? "Sync failed.";
+            }
+            else
+            {
+                _status = result.Data.ToString();
+                _error = result.Data.Errors.Count > 0
+                    ? string.Join("\n", result.Data.Errors)
+                    : null;
+            }
+
+            RequestRepaint();
         }
 
         private void DrawTextLinksSection(TextSyncEntry selectedEntry, List<TextSyncEntry> others)

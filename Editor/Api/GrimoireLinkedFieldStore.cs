@@ -30,7 +30,8 @@ namespace Grimoire.PluginV2.Editor
         public static void ApplyFromDocument(
             GrimoireObjectLink link,
             ObjectViewDocument document,
-            bool preserveLocalEdits = true)
+            bool preserveLocalEdits = true,
+            GrimoireObjectSnapshot localizedSnapshot = null)
         {
             if (link == null)
             {
@@ -72,7 +73,7 @@ namespace Grimoire.PluginV2.Editor
                     ReadOnly = field.hints != null && field.hints.read_only,
                     CharacterLimit = field.hints?.character_limit ?? 0,
                     GrimoireValue = buffer,
-                    LocalValue = preserveLocalEdits && prior != null
+                    LocalValue = preserveLocalEdits && prior != null && prior.IsDeviated
                         ? prior.LocalValue
                         : buffer,
                 };
@@ -82,7 +83,7 @@ namespace Grimoire.PluginV2.Editor
 
             Undo.RecordObject(link, "Update Grimoire linked fields");
             link.ReplaceLinkedFields(next);
-            var snapshot = GrimoireObjectSnapshotMapper.FromDocument(document);
+            var snapshot = localizedSnapshot ?? GrimoireObjectSnapshotMapper.FromDocument(document);
             foreach (var linked in next)
             {
                 if (linked == null || string.IsNullOrEmpty(linked.FieldId))
@@ -90,7 +91,10 @@ namespace Grimoire.PluginV2.Editor
                     continue;
                 }
 
-                snapshot.SetFieldValue(linked.FieldId, linked.LocalValue);
+                if (linked.IsDeviated)
+                {
+                    snapshot.SetFieldValue(linked.FieldId, linked.LocalValue);
+                }
             }
 
             link.ReplaceSnapshot(snapshot);
@@ -290,7 +294,9 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>Fetch the object view and apply linked fields for a scene link.</summary>
         public static async System.Threading.Tasks.Task<ApiResult<ObjectViewDocument>> RefreshFromGrimoireAsync(
             GrimoireObjectLink link,
-            bool preserveLocalEdits = true)
+            bool preserveLocalEdits = true,
+            GrimoireTranslationCatalog catalog = null,
+            Action<string> progress = null)
         {
             if (link == null)
             {
@@ -329,20 +335,25 @@ namespace Grimoire.PluginV2.Editor
                 EditorUtility.SetDirty(link);
             }
 
-            var view = await GrimoireApiClient.GetObjectViewAsync(
-                gameId, objectId, GrimoireSettings.Locale);
-            if (!view.Success)
+            var loaded = await GrimoireLocalizedObjectLoader.LoadAsync(
+                gameId, objectId, catalog, progress);
+            if (!loaded.Success)
             {
-                return view;
+                return ApiResult<ObjectViewDocument>.Fail(
+                    loaded.Error, loaded.Code, loaded.HttpStatus);
             }
 
-            ApplyFromDocument(link, view.Data, preserveLocalEdits);
-            if (view.Data?.@object != null)
+            ApplyFromDocument(
+                link,
+                loaded.Data.Source,
+                preserveLocalEdits,
+                loaded.Data.Snapshot);
+            if (loaded.Data.Source?.@object != null)
             {
-                GrimoireObjectKeyResolver.RememberSummary(gameId, view.Data.@object);
+                GrimoireObjectKeyResolver.RememberSummary(gameId, loaded.Data.Source.@object);
             }
 
-            return view;
+            return ApiResult<ObjectViewDocument>.Ok(loaded.Data.Source);
         }
 
         public static int CountDeviationsInScene()

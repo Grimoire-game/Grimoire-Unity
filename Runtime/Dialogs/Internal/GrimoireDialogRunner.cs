@@ -289,12 +289,22 @@ namespace Grimoire.PluginV2.Internal
         /// <paramref name="text"/> with its inline object-field tokens replaced by the
         /// field values, read the same way conditions read them.
         /// </summary>
-        public string ResolveText(GrimoireDialogAsset dialog, GrimoireDialogNode node, string text)
+        public string ResolveText(
+            GrimoireDialogAsset dialog,
+            GrimoireDialogNode node,
+            string text,
+            string languageCode = null)
         {
-            return GrimoireDialogTextTokens.Replace(text, node?.textRefs, reference => ReadDisplayText(reference, dialog));
+            return GrimoireDialogTextTokens.Replace(
+                text,
+                node?.textRefs,
+                reference => ReadDisplayText(reference, dialog, languageCode));
         }
 
-        private string ReadDisplayText(GrimoireDialogValueRef reference, GrimoireDialogAsset dialog)
+        private string ReadDisplayText(
+            GrimoireDialogValueRef reference,
+            GrimoireDialogAsset dialog,
+            string languageCode)
         {
             if (_objectFieldOverrides.TryGetValue(ObjectFieldKey(reference), out var overridden))
             {
@@ -315,10 +325,10 @@ namespace Grimoire.PluginV2.Internal
             {
                 if (GrimoireDialogObjectResolver.TryFindField(snapshot, reference, out var field))
                 {
-                    return GrimoireDialogObjectResolver.ToDisplayText(field);
+                    return GrimoireDialogObjectResolver.ToDisplayText(field, languageCode);
                 }
 
-                sceneName = snapshot?.Name;
+                sceneName = snapshot?.DisplayName;
             }
 
             if (GrimoireDialogExportBridge.TryReadObjectField(reference, out var fromExport))
@@ -328,7 +338,7 @@ namespace Grimoire.PluginV2.Internal
 
             if (reference.authoredValue != null && reference.authoredValue.HasValue)
             {
-                return ToDisplayText(reference.authoredValue.ToObject());
+                return reference.GetAuthoredDisplayText(languageCode);
             }
 
             var fallback = !string.IsNullOrEmpty(reference.objectName) ? reference.objectName : sceneName ?? "";

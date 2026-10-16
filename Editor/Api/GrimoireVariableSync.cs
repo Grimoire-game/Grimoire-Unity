@@ -28,7 +28,11 @@ namespace Grimoire.PluginV2.Editor
             return AssetDatabase.LoadAssetAtPath<GrimoireVariableLibrary>(AssetPath);
         }
 
-        public static async Task<ApiResult<GrimoireVariableLibrary>> SyncAsync(string gameId, Action<string> progress = null)
+        public static async Task<ApiResult<GrimoireVariableLibrary>> SyncAsync(
+            string gameId,
+            Action<string> progress = null,
+            GrimoireTranslationCatalog catalog = null,
+            bool saveAssets = true)
         {
             if (string.IsNullOrEmpty(gameId))
             {
@@ -38,6 +42,21 @@ namespace Grimoire.PluginV2.Editor
             if (!await GrimoireAuthSession.EnsureFreshTokenAsync())
             {
                 return ApiResult<GrimoireVariableLibrary>.Fail("Your Grimoire session has expired. Sign in again.");
+            }
+
+            if (catalog == null)
+            {
+                var catalogResult = await GrimoireTranslationCatalog.LoadAsync(gameId, progress);
+                if (catalogResult.Success)
+                {
+                    catalog = catalogResult.Data;
+                }
+                else
+                {
+                    Debug.LogWarning(
+                        $"[Grimoire Variables] Translations could not be downloaded; " +
+                        $"source names were kept: {catalogResult.Error}");
+                }
             }
 
             var resources = new List<VariableResource>();
@@ -65,22 +84,34 @@ namespace Grimoire.PluginV2.Editor
                 AssetDatabase.CreateAsset(library, AssetPath);
             }
 
-            library.SetSyncedData(gameId, resources.Select(ToVariable).ToList());
+            library.SetSyncedData(gameId, resources.Select(r => ToVariable(r, catalog)).ToList());
             EditorUtility.SetDirty(library);
-            AssetDatabase.SaveAssets();
+            if (saveAssets)
+            {
+                AssetDatabase.SaveAssets();
+            }
 
             GrimoireVariables.Reload();
             Synced?.Invoke(library);
             return ApiResult<GrimoireVariableLibrary>.Ok(library);
         }
 
-        private static GrimoireVariable ToVariable(VariableResource resource)
+        private static GrimoireVariable ToVariable(
+            VariableResource resource,
+            GrimoireTranslationCatalog catalog)
         {
             var elements = (resource.elements ?? Array.Empty<VariableElementDto>())
                 .Where(e => e != null && !string.IsNullOrEmpty(e.id))
                 .OrderBy(e => e.order_index ?? int.MaxValue)
                 .Select(e => new GrimoireVariableElement(
-                    e.id, e.name, e.description, e.value, e.string_id, e.range_min, e.range_max))
+                    e.id,
+                    e.name,
+                    e.description,
+                    e.value,
+                    e.string_id,
+                    e.range_min,
+                    e.range_max,
+                    catalog?.GetTranslations(e.string_id)))
                 .ToList();
 
             return new GrimoireVariable(

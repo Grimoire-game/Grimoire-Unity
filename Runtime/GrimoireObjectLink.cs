@@ -395,6 +395,20 @@ namespace Grimoire.PluginV2
             return _snapshot != null && _snapshot.TryGetString(fieldName, out value);
         }
 
+        /// <summary>
+        /// Read localized display copy for a text field. Conditions and setters
+        /// should continue using <see cref="TryGetString"/>.
+        /// </summary>
+        public bool TryGetDisplayString(
+            string fieldName,
+            out string value,
+            string languageCode = null)
+        {
+            value = "";
+            return _snapshot != null &&
+                   _snapshot.TryGetDisplayString(fieldName, out value, languageCode);
+        }
+
         public bool TryGetNumber(string fieldName, out double value)
         {
             value = 0;
