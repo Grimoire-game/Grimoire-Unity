@@ -163,8 +163,18 @@ namespace Grimoire.PluginV2
         /// starts from the library value.
         /// </summary>
         public GrimoireDialogValue authoredValue = new GrimoireDialogValue();
+        public List<GrimoireLocalizedText> localizedAuthoredText =
+            new List<GrimoireLocalizedText>();
 
         public bool IsSet => !string.IsNullOrEmpty(source);
+
+        public string GetAuthoredDisplayText(string languageCode = null)
+        {
+            var source = authoredValue != null && authoredValue.HasValue
+                ? Convert.ToString(authoredValue.ToObject(), CultureInfo.InvariantCulture) ?? ""
+                : "";
+            return GrimoireLocalization.Resolve(source, localizedAuthoredText, languageCode);
+        }
     }
 
     /// <summary>Where to go next: a node in this dialog, or a node in another dialog.</summary>

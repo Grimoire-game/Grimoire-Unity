@@ -18,6 +18,8 @@ namespace Grimoire.PluginV2.Editor
             // Lets links resolve the shared editor language on their own, so
             // previews survive domain reloads and newly added links pick it up.
             GrimoireTextLink.EditorLanguageResolver = () => GrimoireSettings.Locale;
+            GrimoireSettings.LocaleChanged -= GrimoireLocalization.NotifyLanguageChanged;
+            GrimoireSettings.LocaleChanged += GrimoireLocalization.NotifyLanguageChanged;
         }
 
         public static event Action Changed;
@@ -60,6 +62,7 @@ namespace Grimoire.PluginV2.Editor
             link.CharacterLimit = resource.character_limit ?? 0;
 
             var next = new List<GrimoireLinkedTranslation>();
+            var downloadedLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (resource.translations != null)
             {
                 foreach (var row in resource.translations)
@@ -69,6 +72,7 @@ namespace Grimoire.PluginV2.Editor
                         continue;
                     }
 
+                    downloadedLanguages.Add(row.language_code);
                     previousByLang.TryGetValue(row.language_code, out var prior);
                     var baseline = row.translated_text ?? "";
                     next.Add(new GrimoireLinkedTranslation
@@ -79,6 +83,17 @@ namespace Grimoire.PluginV2.Editor
                             ? prior.LocalText
                             : baseline,
                     });
+                }
+            }
+
+            // A locally edited row must not disappear merely because the server
+            // omitted or deleted that locale in this response.
+            foreach (var previous in previousByLang.Values)
+            {
+                if (previous != null && previous.IsDeviated &&
+                    !downloadedLanguages.Contains(previous.LanguageCode))
+                {
+                    next.Add(previous);
                 }
             }
 

@@ -205,7 +205,9 @@ namespace Grimoire.PluginV2.Internal
         }
 
         /// <summary>A cached field as text for the player to read: reference names, or values joined with ", ".</summary>
-        public static string ToDisplayText(GrimoireCachedField field)
+        public static string ToDisplayText(
+            GrimoireCachedField field,
+            string languageCode = null)
         {
             if (field == null)
             {
@@ -218,8 +220,9 @@ namespace Grimoire.PluginV2.Internal
                 foreach (var id in field.ReferencedIds())
                 {
                     var stub = field.References.Find(r => r != null && r.Id == id);
-                    elementNames.Add(GrimoireVariables.TryGetElement(id, out var element) ? element.Name
-                        : stub != null ? stub.DisplayName : id);
+                    elementNames.Add(GrimoireVariables.TryGetElement(id, out var element)
+                        ? element.GetDisplayName(languageCode)
+                        : stub != null ? stub.GetDisplayName(languageCode) : id);
                 }
 
                 return string.Join(", ", elementNames);
@@ -232,19 +235,20 @@ namespace Grimoire.PluginV2.Internal
                 {
                     if (stub != null)
                     {
-                        names.Add(stub.DisplayName);
+                        names.Add(stub.GetDisplayName(languageCode));
                     }
                 }
 
                 return string.Join(", ", names);
             }
 
-            if (field.Multiple && field.Values.Count > 1)
+            var displayValues = field.GetDisplayValues(languageCode);
+            if (field.Multiple && displayValues.Count > 1)
             {
-                return string.Join(", ", field.Values);
+                return string.Join(", ", displayValues);
             }
 
-            return field.Value ?? "";
+            return field.GetDisplayValue(languageCode);
         }
 
         /// <summary>"character 'Hendrik' (characters/hendrik), field 'has beard'" for messages.</summary>

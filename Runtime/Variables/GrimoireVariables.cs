@@ -82,8 +82,8 @@ namespace Grimoire.PluginV2
         /// <summary>The element's name, e.g. "Angry". Returns <paramref name="elementId"/> when it is unknown.</summary>
         public static string ElementName(string elementId)
         {
-            return TryGetElement(elementId, out var element) && !string.IsNullOrEmpty(element.Name)
-                ? element.Name
+            return TryGetElement(elementId, out var element) && !string.IsNullOrEmpty(element.DisplayName)
+                ? element.DisplayName
                 : elementId ?? "";
         }
 

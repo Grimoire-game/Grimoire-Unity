@@ -56,7 +56,11 @@ namespace Grimoire.PluginV2
         /// this so previews follow the scene language chosen in Grimoire
         /// Connect, including after a domain reload.
         /// </summary>
-        public static Func<string> EditorLanguageResolver;
+        public static Func<string> EditorLanguageResolver
+        {
+            get => GrimoireLocalization.EditorLanguageResolver;
+            set => GrimoireLocalization.EditorLanguageResolver = value;
+        }
 #endif
 
         /// <summary>The Grimoire string code (abbrev or UUID) for this link.</summary>
@@ -183,7 +187,9 @@ namespace Grimoire.PluginV2
                     if (row != null &&
                         string.Equals(row.LanguageCode, locale, StringComparison.OrdinalIgnoreCase))
                     {
-                        return row.LocalText ?? "";
+                        return !string.IsNullOrEmpty(row.LocalText)
+                            ? row.LocalText
+                            : _sourceText ?? "";
                     }
                 }
             }
@@ -287,31 +293,29 @@ namespace Grimoire.PluginV2
                 return _previewLanguage.Trim();
             }
 
-#if UNITY_EDITOR
-            var editorLanguage = EditorLanguageResolver?.Invoke();
-            return string.IsNullOrWhiteSpace(editorLanguage) ? "" : editorLanguage.Trim();
-#else
-            var tkType = GrimoireReflect.FindType("TranslationKey");
-            if (tkType != null)
-            {
-                var prop = tkType.GetProperty("CurrentLanguage",
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                var value = prop?.GetValue(null) as string;
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    return value.Trim();
-                }
-            }
-
-            return "";
-#endif
+            return GrimoireLocalization.ActiveLanguage;
         }
 
         public void NotifyTextChanged() => TextChanged?.Invoke(this);
 
         private void OnEnable()
         {
+            GrimoireLocalization.LanguageChanged -= OnLanguageChanged;
+            GrimoireLocalization.LanguageChanged += OnLanguageChanged;
             if (_applyToTarget)
+            {
+                ApplyResolvedText();
+            }
+        }
+
+        private void OnDisable()
+        {
+            GrimoireLocalization.LanguageChanged -= OnLanguageChanged;
+        }
+
+        private void OnLanguageChanged()
+        {
+            if (isActiveAndEnabled)
             {
                 ApplyResolvedText();
             }

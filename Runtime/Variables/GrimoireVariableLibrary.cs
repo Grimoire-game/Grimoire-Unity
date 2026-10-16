@@ -16,6 +16,8 @@ namespace Grimoire.PluginV2
         [SerializeField] private string _description = "";
         [SerializeField] private GrimoireDialogValue _value = new GrimoireDialogValue();
         [SerializeField] private string _stringId = "";
+        [SerializeField] private List<GrimoireLocalizedText> _localizedNames =
+            new List<GrimoireLocalizedText>();
         [SerializeField] private bool _hasRange;
         [SerializeField] private double _rangeMin;
         [SerializeField] private double _rangeMax;
@@ -28,13 +30,15 @@ namespace Grimoire.PluginV2
 
         internal GrimoireVariableElement(
             string id, string name, string description, object value, string stringId,
-            double? rangeMin = null, double? rangeMax = null)
+            double? rangeMin = null, double? rangeMax = null,
+            List<GrimoireLocalizedText> localizedNames = null)
         {
             _id = id ?? "";
             _name = name ?? "";
             _description = description ?? "";
             _value = GrimoireDialogValue.From(value);
             _stringId = stringId ?? "";
+            _localizedNames = localizedNames ?? new List<GrimoireLocalizedText>();
             _hasRange = rangeMin.HasValue && rangeMax.HasValue;
             _rangeMin = rangeMin ?? 0;
             _rangeMax = rangeMax ?? 0;
@@ -42,10 +46,17 @@ namespace Grimoire.PluginV2
 
         public string Id => _id;
         public string Name => _name;
+        public string DisplayName => GetDisplayName();
         public string Description => _description;
 
         /// <summary>Grimoire string id of the name, when the variable is translated.</summary>
         public string StringId => _stringId;
+
+        public IReadOnlyList<GrimoireLocalizedText> LocalizedNames =>
+            _localizedNames ?? (_localizedNames = new List<GrimoireLocalizedText>());
+
+        public string GetDisplayName(string languageCode = null) =>
+            GrimoireLocalization.Resolve(_name, _localizedNames, languageCode);
 
         /// <summary>
         /// The value authored in Grimoire: a number for number / percentage variables,
@@ -70,7 +81,7 @@ namespace Grimoire.PluginV2
 
         public override string ToString()
         {
-            return _variable != null ? $"{_variable.Name}: {_name}" : _name;
+            return _variable != null ? $"{_variable.Name}: {DisplayName}" : DisplayName;
         }
     }
 

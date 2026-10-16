@@ -218,7 +218,7 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.BeginHorizontal();
             GUILayout.Space(8);
             EditorGUILayout.LabelField(
-                new GUIContent(element.Name, string.IsNullOrEmpty(element.Description) ? element.Id : element.Description),
+                new GUIContent(element.DisplayName, string.IsNullOrEmpty(element.Description) ? element.Id : element.Description),
                 GUILayout.Width(160));
             EditorGUILayout.LabelField(ValuePreview(element), GrimoireEditorStyles.MiniSecondaryStyle);
 

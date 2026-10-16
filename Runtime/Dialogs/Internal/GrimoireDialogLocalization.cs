@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 
 namespace Grimoire.PluginV2.Internal
 {
@@ -13,23 +12,7 @@ namespace Grimoire.PluginV2.Internal
     {
         public static string ResolveLanguage(string languageOverride)
         {
-            if (!string.IsNullOrWhiteSpace(languageOverride))
-            {
-                return languageOverride.Trim();
-            }
-
-#if UNITY_EDITOR
-            if (GrimoireTextLink.EditorLanguageResolver != null)
-            {
-                var editorLanguage = GrimoireTextLink.EditorLanguageResolver.Invoke();
-                return string.IsNullOrWhiteSpace(editorLanguage) ? "" : editorLanguage.Trim();
-            }
-#endif
-
-            var translationKey = GrimoireReflect.FindType("TranslationKey");
-            var property = translationKey?.GetProperty("CurrentLanguage", BindingFlags.Public | BindingFlags.Static);
-            var exported = property?.GetValue(null) as string;
-            return string.IsNullOrWhiteSpace(exported) ? "" : exported.Trim();
+            return GrimoireLocalization.ResolveLanguage(languageOverride);
         }
 
         /// <summary>Translated text, falling back to the source text when missing.</summary>

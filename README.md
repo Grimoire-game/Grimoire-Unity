@@ -63,6 +63,7 @@ link.TryGetNumber("health", out var hp);
 var levels = link.GetReferences("levels");
 var level = await link.GetReferencedObjectAsync("levels", 0);
 level.TryGetString("title", out var title);
+level.TryGetDisplayString("title", out var localizedTitle); // active language
 ```
 
 Linking also upserts this scene instance into the object's `game_engine_data`
@@ -98,6 +99,14 @@ push transform changes after moving objects. The Sync tab lists the selected
 object separately from other pending linked objects and can sync or reset one
 or all.
 
+Use **Sync Everything** at the top of that tab to pull all content used by the
+Unity project in one pass. It downloads the game's language and string catalogs
+once, then updates the variable library, imported dialogs, scene/prefab text
+links, object links, and cached nested objects. Every configured language is
+stored in Unity for offline builds. Unrelated remote objects and dialogs are not
+created as assets. Local text and editable-field deviations are preserved, and
+the final summary lists anything skipped or failed.
+
 **Reset to Grimoire** (on the Object → Game Engine Data tab and the Sync tab)
 restores the Unity transform from the values currently saved in Grimoire.
 
@@ -124,7 +133,8 @@ no translation. Picking one:
 - stores it as the shared editor language for this Unity project,
 - clears any per-object **Preview language** so nothing keeps its own locale,
 - refreshes the copy shown on every Unity UI Text / TextMesh Pro target,
-- and loads translatable object fields in that language.
+- and resolves translated object fields and variable element names from the
+  copies retained by the last import or **Sync Everything** operation.
 
 Links without copy for the chosen language preview as `not translated`, so gaps
 are visible while authoring; players still fall back to the source text.
@@ -173,9 +183,11 @@ online. Dialogs that this one jumps to are imported with it. When a dialog
 changes in Grimoire, click **Update**; **Select asset** shows it in the Project
 window.
 
-The language follows the Connect scene language in the editor and the export's
-`TranslationKey.CurrentLanguage` in builds. Set **Language** on the player to
-force one. Lines without a translation fall back to the source text.
+The language follows the Connect scene language in the editor and the language
+selected by `GrimoireBootstrap` in builds. Set **Language** on the player to
+force one. Lines without a translation fall back to the source text. Calling
+`GrimoireBootstrap.ChangeLanguage` reapplies text links and republishes the
+current dialog line immediately.
 
 **Driving a dialog from code**
 

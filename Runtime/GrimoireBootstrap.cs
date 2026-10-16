@@ -248,6 +248,7 @@ namespace Grimoire.PluginV2
             }
 
             _activeLanguage = languageCode;
+            GrimoireLocalization.SetRuntimeLanguage(languageCode);
             Debug.Log($"[GrimoireBootstrap] Language → '{languageCode}'.");
         }
 

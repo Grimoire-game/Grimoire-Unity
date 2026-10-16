@@ -57,7 +57,13 @@ namespace Grimoire.PluginV2.Editor
         /// Returns the asset for <paramref name="dialogId"/>.
         /// </summary>
         public static async Task<ApiResult<GrimoireDialogAsset>> ImportAsync(
-            string gameId, string dialogId, Action<string> progress = null)
+            string gameId,
+            string dialogId,
+            Action<string> progress = null,
+            GrimoireTranslationCatalog catalog = null,
+            bool syncVariables = true,
+            bool saveAssets = true,
+            IDictionary<string, DialogResource> resourceCache = null)
         {
             if (string.IsNullOrEmpty(gameId) || string.IsNullOrEmpty(dialogId))
             {
@@ -82,7 +88,19 @@ namespace Grimoire.PluginV2.Editor
                 var id = queue.Dequeue();
                 progress?.Invoke(fetched.Count == 0 ? "Downloading dialog..." : $"Downloading linked dialog {fetched.Count}...");
 
-                var result = await GrimoireApiClient.GetDialogAsync(gameId, id);
+                ApiResult<DialogResource> result;
+                if (resourceCache != null && resourceCache.TryGetValue(id, out var cached))
+                {
+                    result = ApiResult<DialogResource>.Ok(cached);
+                }
+                else
+                {
+                    result = await GrimoireApiClient.GetDialogAsync(gameId, id);
+                    if (result.Success && result.Data != null && resourceCache != null)
+                    {
+                        resourceCache[id] = result.Data;
+                    }
+                }
                 if (!result.Success)
                 {
                     if (id == dialogId)
@@ -92,6 +110,8 @@ namespace Grimoire.PluginV2.Editor
                     }
 
                     Debug.LogWarning($"[Grimoire Dialog] Could not download linked dialog '{id}': {result.Error}");
+                    LastImportNotes.Add(
+                        $"Linked dialog '{id}' was not updated ({result.Error}).");
                     continue;
                 }
 
@@ -113,14 +133,31 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            progress?.Invoke("Downloading translations...");
-            var strings = await LoadStringsAsync(gameId);
-
-            var variables = await GrimoireVariableSync.SyncAsync(gameId, progress);
-            if (!variables.Success)
+            if (catalog == null)
             {
-                LastImportNotes.Add(
-                    $"Variables were not synced ({variables.Error}). Type values such as moods show as ids until they are.");
+                var catalogResult = await GrimoireTranslationCatalog.LoadAsync(gameId, progress);
+                if (catalogResult.Success)
+                {
+                    catalog = catalogResult.Data;
+                }
+                else
+                {
+                    LastImportNotes.Add(
+                        $"Translations could not be downloaded; source text was kept ({catalogResult.Error}).");
+                }
+            }
+
+            var strings = ToStringMap(catalog);
+
+            if (syncVariables)
+            {
+                var variables = await GrimoireVariableSync.SyncAsync(
+                    gameId, progress, catalog, saveAssets);
+                if (!variables.Success)
+                {
+                    LastImportNotes.Add(
+                        $"Variables were not synced ({variables.Error}). Type values such as moods show as ids until they are.");
+                }
             }
 
             if (fetched.Values.Any(d => d.data?.speakerMode == "object"))
@@ -135,7 +172,11 @@ namespace Grimoire.PluginV2.Editor
                 builtNodes[pair.Key] = BuildNodes(nodesById[pair.Key], pair.Value.data?.speakerMode, gameId, strings);
             }
 
-            await ResolveObjectFieldsAsync(gameId, builtNodes.Values.SelectMany(n => n), progress);
+            await ResolveObjectFieldsAsync(
+                gameId,
+                builtNodes.Values.SelectMany(n => n),
+                progress,
+                catalog);
 
             progress?.Invoke("Writing assets...");
             EnsureFolder();
@@ -183,7 +224,10 @@ namespace Grimoire.PluginV2.Editor
                 EditorUtility.SetDirty(pair.Value);
             }
 
-            AssetDatabase.SaveAssets();
+            if (saveAssets)
+            {
+                AssetDatabase.SaveAssets();
+            }
 
             var root = assets[dialogId];
             Imported?.Invoke(root);
@@ -704,7 +748,10 @@ namespace Grimoire.PluginV2.Editor
         /// ObjectRuntime is keyed by object code id and field name. Bake both in.
         /// </summary>
         private static async Task ResolveObjectFieldsAsync(
-            string gameId, IEnumerable<GrimoireDialogNode> nodes, Action<string> progress)
+            string gameId,
+            IEnumerable<GrimoireDialogNode> nodes,
+            Action<string> progress,
+            GrimoireTranslationCatalog catalog)
         {
             var nodeList = nodes.ToList();
             var refs = nodeList.SelectMany(AllRefs)
@@ -719,21 +766,23 @@ namespace Grimoire.PluginV2.Editor
             progress?.Invoke("Resolving object fields...");
             await GrimoireObjectKeyResolver.EnsureLibraryCachedAsync(gameId);
 
-            var views = new Dictionary<string, ObjectViewDocument>(StringComparer.Ordinal);
+            var views = new Dictionary<string, GrimoireLocalizedObjectLoader.LoadedObject>(StringComparer.Ordinal);
             var withoutKey = new HashSet<string>(StringComparer.Ordinal);
             foreach (var reference in refs)
             {
-                if (!views.TryGetValue(reference.objectId, out var view))
+                if (!views.TryGetValue(reference.objectId, out var loaded))
                 {
-                    var result = await GrimoireApiClient.GetObjectViewAsync(gameId, reference.objectId);
-                    view = result.Success ? result.Data : null;
-                    views[reference.objectId] = view;
+                    var result = await GrimoireLocalizedObjectLoader.LoadAsync(
+                        gameId, reference.objectId, catalog, progress);
+                    loaded = result.Success ? result.Data : null;
+                    views[reference.objectId] = loaded;
                     if (!result.Success)
                     {
                         Debug.LogWarning($"[Grimoire Dialog] Could not load object '{reference.label}' ({reference.objectId}): {result.Error}");
                     }
                 }
 
+                var view = loaded?.Source;
                 GrimoireObjectKeyResolver.TryGetSummary(gameId, reference.objectId, null, out var summary);
                 reference.objectKey = FirstNonEmpty(summary?.code_id, view?.@object?.code_id) ?? "";
                 reference.objectName = FirstNonEmpty(summary?.name, view?.@object?.name, LabelObjectPart(reference.label)) ?? "";
@@ -752,6 +801,27 @@ namespace Grimoire.PluginV2.Editor
                     reference.authoredValue = GrimoireDialogValue.From(authored);
                 }
 
+                if (textRefs.Contains(reference) && loaded?.Snapshot != null &&
+                    loaded.Snapshot.TryGetField(reference.fieldId, out var cached))
+                {
+                    reference.localizedAuthoredText.Clear();
+                    foreach (var language in catalog?.Languages ?? Array.Empty<string>())
+                    {
+                        if (string.IsNullOrEmpty(language) ||
+                            string.Equals(language, catalog.SourceLanguage, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        var localizedText = LocalizedDisplayText(cached, language);
+                        if (!string.IsNullOrEmpty(localizedText))
+                        {
+                            reference.localizedAuthoredText.Add(
+                                new GrimoireLocalizedText(language, localizedText));
+                        }
+                    }
+                }
+
                 if (string.IsNullOrEmpty(reference.objectKey) && withoutKey.Add(reference.objectId))
                 {
                     var shown = string.IsNullOrEmpty(reference.objectName) ? reference.objectId : reference.objectName;
@@ -760,6 +830,42 @@ namespace Grimoire.PluginV2.Editor
                         "give the object a Code ID in Grimoire so the link stays stable.");
                 }
             }
+        }
+
+        private static string LocalizedDisplayText(
+            GrimoireCachedField field,
+            string languageCode)
+        {
+            if (field == null)
+            {
+                return "";
+            }
+
+            if (field.IsVariableField)
+            {
+                var names = new List<string>();
+                foreach (var id in field.ReferencedIds())
+                {
+                    names.Add(GrimoireVariables.TryGetElement(id, out var element)
+                        ? element.GetDisplayName(languageCode)
+                        : id);
+                }
+
+                return string.Join(", ", names);
+            }
+
+            if (field.IsReference)
+            {
+                return string.Join(
+                    ", ",
+                    field.References.Where(r => r != null)
+                        .Select(r => r.GetDisplayName(languageCode)));
+            }
+
+            var values = field.GetDisplayValues(languageCode);
+            return field.Multiple && values.Count > 1
+                ? string.Join(", ", values)
+                : field.GetDisplayValue(languageCode);
         }
 
         // Dialog editor labels look like "Hendrik: has beard".
@@ -902,17 +1008,16 @@ namespace Grimoire.PluginV2.Editor
         // Strings and speakers
         // -----------------------------------------------------------------
 
-        private static async Task<Dictionary<string, StringResource>> LoadStringsAsync(string gameId)
+        private static Dictionary<string, StringResource> ToStringMap(
+            GrimoireTranslationCatalog catalog)
         {
             var map = new Dictionary<string, StringResource>(StringComparer.Ordinal);
-            var result = await GrimoireApiClient.ListStringsAsync(gameId, includeTranslations: true);
-            if (!result.Success)
+            if (catalog == null)
             {
-                Debug.LogWarning($"[Grimoire Dialog] Translations could not be downloaded, so only the source text is imported: {result.Error}");
                 return map;
             }
 
-            foreach (var str in result.Data)
+            foreach (var str in catalog.Strings)
             {
                 if (str != null && !string.IsNullOrEmpty(str.id))
                 {

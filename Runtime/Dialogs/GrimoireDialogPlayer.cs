@@ -108,10 +108,13 @@ namespace Grimoire.PluginV2
         private void OnEnable()
         {
             Main = this;
+            GrimoireLocalization.LanguageChanged -= Refresh;
+            GrimoireLocalization.LanguageChanged += Refresh;
         }
 
         private void OnDisable()
         {
+            GrimoireLocalization.LanguageChanged -= Refresh;
             if (Main == this)
             {
                 Main = null;
@@ -313,7 +316,11 @@ namespace Grimoire.PluginV2
                 var option = options[i];
                 choices.Add(new DialogChoice(
                     i,
-                    _runner.ResolveText(current, node, GrimoireDialogLocalization.Text(option.text, option.translations, activeLanguage)),
+                    _runner.ResolveText(
+                        current,
+                        node,
+                        GrimoireDialogLocalization.Text(option.text, option.translations, activeLanguage),
+                        activeLanguage),
                     option.id,
                     option.stringId));
             }
@@ -323,14 +330,33 @@ namespace Grimoire.PluginV2
             return new DialogLine(
                 current,
                 node.identifier,
-                isContext ? "" : node.speakerName,
+                isContext ? "" : ResolveSpeakerName(node, activeLanguage),
                 isContext ? "" : node.speakerId,
-                _runner.ResolveText(current, node, GrimoireDialogLocalization.Text(node.text, node.translations, activeLanguage)),
+                _runner.ResolveText(
+                    current,
+                    node,
+                    GrimoireDialogLocalization.Text(node.text, node.translations, activeLanguage),
+                    activeLanguage),
                 isContext ? "" : GrimoireDialogLocalization.Voice(node.voiceUrl, node.translations, activeLanguage),
                 choices,
                 isLast,
                 node,
                 activeLanguage);
+        }
+
+        private static string ResolveSpeakerName(
+            GrimoireDialogNode node,
+            string languageCode)
+        {
+            if (node == null || string.IsNullOrEmpty(node.speakerId))
+            {
+                return node?.speakerName ?? "";
+            }
+
+            return GrimoireDialogObjectResolver.TryFindLink(
+                    node.speakerId, node.speakerId, out _, out var snapshot)
+                ? snapshot.GetDisplayName(languageCode)
+                : node.speakerName ?? "";
         }
 
     }
