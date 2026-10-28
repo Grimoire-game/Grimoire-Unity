@@ -79,6 +79,7 @@ namespace Grimoire.PluginV2.Editor
         private Action<string> _onVariablePicked;
         private int _refreshGeneration;
         private int _detailGeneration;
+        private bool _active;
         private bool _suppressSelection;
         private Action _closePicker;
 
@@ -131,6 +132,7 @@ namespace Grimoire.PluginV2.Editor
 
         internal void Activate()
         {
+            _active = true;
             GrimoireSettings.Changed += OnWorkspaceChanged;
             GrimoireSettings.LocaleChanged += OnLocaleChanged;
             GrimoireAuthSession.Changed += OnWorkspaceChanged;
@@ -144,6 +146,7 @@ namespace Grimoire.PluginV2.Editor
 
         internal void Deactivate()
         {
+            _active = false;
             _refreshGeneration++;
             _detailGeneration++;
             GrimoireSettings.Changed -= OnWorkspaceChanged;
@@ -419,7 +422,7 @@ namespace Grimoire.PluginV2.Editor
         }
 
         private bool IsCurrent(int generation, string gameId) =>
-            this != null && generation == _refreshGeneration &&
+            _active && generation == _refreshGeneration &&
             string.Equals(gameId, GrimoireSettings.GameId, StringComparison.Ordinal);
 
         private async Task LoadObjects(int generation, string gameId)
@@ -1198,7 +1201,7 @@ namespace Grimoire.PluginV2.Editor
         }
 
         private bool IsCurrentDetail(int generation, string gameId) =>
-            this != null && generation == _detailGeneration &&
+            _active && generation == _detailGeneration &&
             string.Equals(gameId, GrimoireSettings.GameId, StringComparison.Ordinal);
 
         private void Pick(Item item)
@@ -1222,7 +1225,7 @@ namespace Grimoire.PluginV2.Editor
             try
             {
                 var result = await GrimoireDialogImporter.ImportAsync(gameId, item.Dialog.id);
-                if (this == null || gameId != GrimoireSettings.GameId) return;
+                if (!_active || gameId != GrimoireSettings.GameId) return;
                 _message = result.Success ? "Imported " + item.Name + " into the project." :
                     DescribeError("Dialog import", result.Error, result.HttpStatus);
                 ReadLocalAssets();
@@ -1230,11 +1233,11 @@ namespace Grimoire.PluginV2.Editor
             }
             catch (Exception ex)
             {
-                if (this != null) _message = "Dialog import: " + ex.Message;
+                if (_active) _message = "Dialog import: " + ex.Message;
             }
             finally
             {
-                if (this != null)
+                if (_active)
                 {
                     _busy = false;
                     RenderItems();
@@ -1252,7 +1255,7 @@ namespace Grimoire.PluginV2.Editor
             try
             {
                 var result = await GrimoireVariableSync.SyncAsync(gameId);
-                if (this == null || gameId != GrimoireSettings.GameId) return;
+                if (!_active || gameId != GrimoireSettings.GameId) return;
                 _message = result.Success ? "Variables synced into the project." :
                     DescribeError("Variable sync", result.Error, result.HttpStatus);
                 ReadLocalAssets();
@@ -1260,11 +1263,11 @@ namespace Grimoire.PluginV2.Editor
             }
             catch (Exception ex)
             {
-                if (this != null) _message = "Variable sync: " + ex.Message;
+                if (_active) _message = "Variable sync: " + ex.Message;
             }
             finally
             {
-                if (this != null)
+                if (_active)
                 {
                     _busy = false;
                     RenderItems();
