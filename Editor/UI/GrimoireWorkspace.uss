@@ -1,0 +1,70 @@
+.grimoire-workspace {
+    flex-grow: 1;
+    min-width: 0;
+    min-height: 0;
+    background-color: #27282e;
+    color: #e7e7ed;
+}
+.grimoire-workspace.light { background-color: #f0f0f2; color: #24252b; }
+.grimoire-workspace .setup-root, .grimoire-workspace .workspace-root { flex-grow: 1; min-height: 0; }
+.grimoire-workspace .workspace-root { flex-direction: column; }
+.grimoire-workspace .workspace-header {
+    height: 44px;
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+    padding-left: 14px;
+    padding-right: 10px;
+    background-color: #303138;
+    border-bottom-width: 1px;
+    border-bottom-color: #45464e;
+}
+.grimoire-workspace.light .workspace-header { background-color: #e7e7ea; border-bottom-color: #d0d0d5; }
+.grimoire-workspace .workspace-brand { width: 112px; color: #bea9f7; -unity-font-style: bold; font-size: 11px; }
+.grimoire-workspace.light .workspace-brand { color: #6848b2; }
+.grimoire-workspace .workspace-breadcrumb { flex-grow: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; -unity-font-style: bold; }
+.grimoire-workspace .workspace-status { color: #73d9a2; font-size: 11px; margin-left: 12px; margin-right: 12px; }
+.grimoire-workspace .header-action { margin-left: 4px; }
+.grimoire-workspace .workspace-body { flex-grow: 1; flex-direction: row; min-height: 0; }
+.grimoire-workspace .workspace-sidebar {
+    width: 158px;
+    flex-shrink: 0;
+    padding-top: 10px;
+    padding-bottom: 9px;
+    background-color: #212228;
+    border-right-width: 1px;
+    border-right-color: #41424a;
+}
+.grimoire-workspace.light .workspace-sidebar { background-color: #e9e9ec; border-right-color: #d0d0d5; }
+.grimoire-workspace .workspace-sidebar #browse-caption,
+.grimoire-workspace .workspace-sidebar #workflow-caption { color: #888a98; font-size: 10px; -unity-font-style: bold; margin-left: 13px; margin-top: 11px; margin-bottom: 5px; }
+.grimoire-workspace.light .workspace-sidebar #browse-caption,
+.grimoire-workspace.light .workspace-sidebar #workflow-caption { color: #777982; }
+.grimoire-workspace .workspace-nav {
+    height: 32px;
+    flex-shrink: 0;
+    margin-left: 5px;
+    margin-right: 5px;
+    margin-bottom: 2px;
+    padding-left: 10px;
+    -unity-text-align: middle-left;
+    background-color: transparent;
+    border-top-width: 0;
+    border-right-width: 0;
+    border-bottom-width: 0;
+    border-left-width: 2px;
+    border-left-color: transparent;
+    color: #d0d0da;
+}
+.grimoire-workspace.light .workspace-nav { color: #34343b; }
+.grimoire-workspace .workspace-nav:hover { background-color: #32333d; }
+.grimoire-workspace.light .workspace-nav:hover { background-color: #dad6e5; }
+.grimoire-workspace .workspace-nav.selected { background-color: #403653; border-left-color: #aa8bfa; color: #ffffff; -unity-font-style: bold; }
+.grimoire-workspace.light .workspace-nav.selected { background-color: #ded2f5; border-left-color: #704fc4; color: #3b2867; }
+.grimoire-workspace .workspace-content { flex-grow: 1; min-width: 0; min-height: 0; }
+.grimoire-workspace .library-host, .grimoire-workspace .legacy-host { flex-grow: 1; min-width: 0; min-height: 0; }
+.grimoire-workspace .legacy-host { padding-top: 10px; padding-right: 6px; overflow: hidden; }
+.grimoire-workspace.compact .workspace-sidebar { width: 110px; }
+.grimoire-workspace.compact .workspace-brand { width: 66px; font-size: 9px; }
+.grimoire-workspace.compact .workspace-status { display: none; }
+.grimoire-workspace.compact .workspace-nav { padding-left: 6px; font-size: 11px; }

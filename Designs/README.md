@@ -4,7 +4,7 @@
 
 The focused [Content Library concept](./ContentLibraryConcept.html) puts objects, dialogs, and variables in one folder-based browser with immediate value previews and context-aware picking. See its [design notes](./ContentLibraryConcept.md). The wider workspace concept below remains useful for tasks, sync review, versions, and runtime tools.
 
-These are design proposals for the existing Unity 2021.3 editor plugin. No plugin behavior or Unity source was changed. Open [GrimoireEditorConcept.html](./GrimoireEditorConcept.html) in a browser to review the clickable mockups. The content is illustrative, not live project data. Static previews: [Scene browser](./SceneBrowserConcept.png), [Review changes](./ReviewChangesConcept.png), and [Narrow Object view](./NarrowObjectConcept.png).
+These concepts guided the current single-window Grimoire workspace. Open [GrimoireEditorConcept.html](./GrimoireEditorConcept.html) in a browser to review the clickable mockups. The mockup content is illustrative, not live project data. Static previews: [Scene browser](./SceneBrowserConcept.png), [Review changes](./ReviewChangesConcept.png), and [Narrow Object view](./NarrowObjectConcept.png).
 
 ## Direction
 
