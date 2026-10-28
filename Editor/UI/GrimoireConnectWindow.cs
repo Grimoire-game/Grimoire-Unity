@@ -316,7 +316,7 @@ namespace Grimoire.PluginV2.Editor
 
             _libraryHost.style.display = _showLibrary && !_settingsOpen ? DisplayStyle.Flex : DisplayStyle.None;
             _legacyHost.style.display = _showLibrary && !_settingsOpen ? DisplayStyle.None : DisplayStyle.Flex;
-            _libraryNav.EnableInClassList("selected", _showLibrary && !_settingsOpen);
+            _libraryNav.EnableInClassList("selected", (_showLibrary || _selectedTab == TabVariables) && !_settingsOpen);
             _settingsNav.EnableInClassList("selected", _settingsOpen);
             foreach (var pair in _tabNav)
                 pair.Value.EnableInClassList("selected", !_showLibrary && !_settingsOpen && _selectedTab == pair.Key);
@@ -710,6 +710,12 @@ namespace Grimoire.PluginV2.Editor
                     DrawDialogsTab();
                     break;
                 case TabVariables:
+                    if (GUILayout.Button("← Back to Content Library", GUILayout.Width(185f)))
+                    {
+                        OpenLibrary();
+                        break;
+                    }
+                    EditorGUILayout.Space(6);
                     _variablesPanel?.Draw();
                     break;
             }
