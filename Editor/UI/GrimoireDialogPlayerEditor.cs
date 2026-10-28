@@ -56,9 +56,9 @@ namespace Grimoire.PluginV2.Editor
                 "GrimoireDialogPlayer.Main.StartDialog(dialogAsset);",
                 EditorStyles.textField,
                 GUILayout.Height(EditorGUIUtility.singleLineHeight));
-            if (GUILayout.Button("Import dialogs (Dialogs tab)"))
+            if (GUILayout.Button("Browse dialogs in Content Library"))
             {
-                GrimoireConnectWindow.OpenDialogs();
+                GrimoireContentLibraryWindow.Open();
             }
 
             EditorGUILayout.EndVertical();
@@ -80,6 +80,14 @@ namespace Grimoire.PluginV2.Editor
 
                 EditorGUILayout.BeginHorizontal();
                 _testDialog = (GrimoireDialogAsset)EditorGUILayout.ObjectField(_testDialog, typeof(GrimoireDialogAsset), false);
+                if (GUILayout.Button("Pick", GUILayout.Width(48)))
+                {
+                    GrimoireContentLibraryWindow.OpenDialogPicker(asset =>
+                    {
+                        _testDialog = asset;
+                        Repaint();
+                    });
+                }
                 using (new EditorGUI.DisabledScope(_testDialog == null))
                 {
                     if (GUILayout.Button("Start", GUILayout.Width(60)))

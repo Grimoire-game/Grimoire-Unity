@@ -96,6 +96,11 @@ namespace Grimoire.PluginV2.Editor
                 GrimoireEditorStyles.TitleStyle);
             GUILayout.FlexibleSpace();
 
+            if (GUILayout.Button("Browse library", GUILayout.Width(105)))
+            {
+                GrimoireContentLibraryWindow.Open();
+            }
+
             using (new EditorGUI.DisabledScope(_syncing))
             {
                 var content = new GUIContent(_syncing ? "Syncing..." : "Sync variables",

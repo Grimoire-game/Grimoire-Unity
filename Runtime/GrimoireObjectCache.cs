@@ -75,7 +75,9 @@ namespace Grimoire.PluginV2
                 return;
             }
 
-            Register(link.Snapshot);
+            // This cache is the connected/API snapshot index. Version reads go
+            // directly through their Object Link so the two sources cannot mix.
+            Register(link.ApiSnapshot);
             var nested = link.NestedSnapshots;
             if (nested == null)
             {

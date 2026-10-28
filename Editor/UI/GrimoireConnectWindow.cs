@@ -811,6 +811,11 @@ namespace Grimoire.PluginV2.Editor
 
             GUILayout.FlexibleSpace();
 
+            if (GrimoireEditorStyles.ToolbarButton("Library"))
+            {
+                GrimoireContentLibraryWindow.Open();
+            }
+
             if (GrimoireSettings.IsConfigured)
             {
                 using (new EditorGUI.DisabledScope(_loading))
@@ -850,6 +855,17 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.LabelField("Settings", GrimoireEditorStyles.TitleStyle);
             EditorGUILayout.Space(4);
+
+            EditorGUI.BeginChangeCheck();
+            var objectSource = (GrimoireObjectDataSource)EditorGUILayout.EnumPopup(
+                new GUIContent("Object data source", "Default source for Grimoire Object Links in editor and builds."),
+                GrimoireObjectSources.ProjectDefault);
+            if (EditorGUI.EndChangeCheck())
+                GrimoireObjectSourceSettingsStore.SetDefault(objectSource);
+            EditorGUILayout.LabelField(
+                "Connected Snapshot reads synced API values; Version Database reads the imported Database.Library and ObjectRuntime.",
+                EditorStyles.wordWrappedMiniLabel);
+            EditorGUILayout.Space(6);
 
             EditorGUI.BeginChangeCheck();
             EditorGUILayout.LabelField("API base URL", GrimoireEditorStyles.FieldLabelStyle);

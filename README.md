@@ -44,6 +44,57 @@ files that could be committed.
 
 ## Usage
 
+### Content Library
+
+Open **Window > Grimoire > Content Library** or click **Library** in Grimoire
+Connect. This dockable window shows the selected game's objects, dialogs and
+variables together. Choose a folder, search by name or key, then select an item
+to inspect its fields, dialog nodes or variable elements. Click **Copy** beside
+any value, or copy an item's key or ID from its details.
+
+The library loads each resource in pages and also shows imported dialog assets
+and synced variables in the project. You can import or update a dialog, or sync
+variables, directly from its details. The Grimoire Object Link inspector uses
+the same browser as its object picker; the Dialog Player inspector can pick an
+imported dialog from it.
+
+### Choosing where Object Links read values
+
+In **Grimoire Connect > Settings**, choose the project's **Object data source**:
+
+- **Connected Snapshot** uses values synced from the API onto each Object Link.
+  Player builds read that saved snapshot; they do not need a live API session.
+- **Version Database** uses the imported version's `Database.Library` and live
+  `ObjectRuntime` values. Import a Runtime Content Database version first.
+
+The choice is saved in `Assets/Resources/GrimoireObjectSourceSettings.asset`, so
+it also applies in builds. Each Object Link can inherit the project choice or
+override it in its **Object values** section. When a version's Library key differs
+from the API object's `code_id`, use **Pick** beside **Version key** to select the
+matching entry. A missing version or key shows a warning and returns no value;
+it does not silently read the other source.
+Matching API and version field names are recognized automatically. If an export
+renamed a field, add a **Field alias** on the Object Link to map the name used by
+game code to the version field name.
+
+Game scripts keep calling the same `GrimoireObjectLink` methods in either mode:
+
+```csharp
+link.TryGetNumber("health", out var health);
+link.TryGetBool("hasBeard", out var hasBeard);
+var friends = link.GetReferences("friends");
+link.SetFieldValue("health", 30);
+link.TriggerFunction("OnOpen");
+```
+
+Local editable values that differ from their Grimoire baseline override the
+selected source. In Version Database mode, `SetFieldValue` also writes to
+`ObjectRuntime` when it is available. `TriggerFunction` calls the imported
+`LogicRuntime` in Version Database mode and fires
+`GrimoireObjectLink.FunctionTriggered` in either mode. In Connected Snapshot
+mode, subscribe to that event to implement function behavior; the API snapshot
+does not contain an executable logic runtime.
+
 ### Linking a GameObject
 
 Add the `Grimoire > Grimoire Object Link` component to a GameObject and click

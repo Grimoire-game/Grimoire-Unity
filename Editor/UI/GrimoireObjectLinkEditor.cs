@@ -57,6 +57,7 @@ namespace Grimoire.PluginV2.Editor
                     link.ObjectKey);
             }
 
+            DrawDataSourceSection(link);
             DrawSyncSection(link);
             DrawRuntimeChangesSection(link);
             DrawEditableFieldsSection(link);
@@ -70,6 +71,60 @@ namespace Grimoire.PluginV2.Editor
             {
                 EditorGUILayout.HelpBox(_validationMessage, _validationType);
             }
+        }
+
+        private void DrawDataSourceSection(GrimoireObjectLink link)
+        {
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField("Object values", EditorStyles.boldLabel);
+            EditorGUI.BeginChangeCheck();
+            var source = (GrimoireObjectLinkSource)EditorGUILayout.EnumPopup(
+                new GUIContent("Source", "Use the project default or override this link."), link.DataSource);
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(link, "Change Grimoire object source");
+                link.DataSource = source;
+                EditorUtility.SetDirty(link);
+            }
+            EditorGUILayout.LabelField("Active: " + link.ActiveSource, EditorStyles.miniLabel);
+            if (link.ActiveSource != GrimoireObjectDataSource.VersionDatabase) return;
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUI.BeginChangeCheck();
+            var versionKey = EditorGUILayout.TextField(
+                new GUIContent("Version key", "Database.Library key. Empty tries to match the connected object key."),
+                link.VersionKey);
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(link, "Choose Grimoire version object");
+                link.VersionKey = versionKey;
+                EditorUtility.SetDirty(link);
+            }
+            if (GUILayout.Button("Pick", GUILayout.Width(44)))
+            {
+                GrimoireVersionKeyPickerWindow.Open(link.VersionKey, picked =>
+                {
+                    if (link == null) return;
+                    Undo.RecordObject(link, "Choose Grimoire version object");
+                    link.VersionKey = picked;
+                    EditorUtility.SetDirty(link);
+                });
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if (GrimoireObjectLink.AvailableVersionKeys.Count == 0)
+                EditorGUILayout.HelpBox("No Database.Library found. Import a Runtime Content Database version first.", MessageType.Warning);
+            else if (!link.TryGetResolvedVersionKey(out var resolved))
+                EditorGUILayout.HelpBox("No matching version object. Pick its Database.Library key.", MessageType.Warning);
+            else
+                EditorGUILayout.LabelField("Resolved key: " + resolved, EditorStyles.miniLabel);
+
+            serializedObject.Update();
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("_versionFieldAliases"),
+                new GUIContent("Field aliases", "Map game code or API field names to renamed version fields."),
+                true);
+            serializedObject.ApplyModifiedProperties();
         }
 
         private void DrawSyncSection(GrimoireObjectLink link)
@@ -166,7 +221,7 @@ namespace Grimoire.PluginV2.Editor
                     }
                     else
                     {
-                        GrimoireObjectPickerWindow.Open(summary =>
+                        GrimoireContentLibraryWindow.OpenObjectPicker(summary =>
                         {
                             var previous = GrimoireGameEngineSync.CaptureIdentity(link);
 
