@@ -5,8 +5,8 @@ workflow for offline logic, translations, variables, and objects.
 
 - Link any GameObject to a Grimoire object through its key (`code_id`) with the
   `GrimoireObjectLink` component.
-- Open **Grimoire Connect** to sign in, pick your company and game, then browse
-  tasks, inspect linked objects, or sync engine transforms.
+- Open **Grimoire** to sign in, pick your company and game, then browse content,
+  tasks, linked objects, or sync engine transforms.
 - Add a Grimoire dialog to the scene from the **Dialogs** tab with one click,
   and play it with `GrimoireDialogPlayer`.
 - Optionally download a Unity export ZIP into `Assets/Grimoire/` and use
@@ -34,7 +34,7 @@ Add the package to your project via the Package Manager:
 
 ## Setup
 
-1. Open `Window > Grimoire > Grimoire Connect`.
+1. Open `Window > Grimoire`.
 2. **Sign in** with your Grimoire account (2FA is supported).
 3. **Choose your company and game** from the dropdowns.
 
@@ -46,8 +46,8 @@ files that could be committed.
 
 ### Content Library
 
-Open **Window > Grimoire > Content Library** or click **Library** in Grimoire
-Connect. This dockable window shows the selected game's objects, dialogs and
+Open `Window > Grimoire` and choose **Content Library** in the sidebar. This view
+shows the selected game's objects, dialogs and
 variables together. Choose a folder, search by name or key, then select an item
 to inspect its fields, dialog nodes or variable elements. Click **Copy** beside
 any value, or copy an item's key or ID from its details.
@@ -60,7 +60,7 @@ imported dialog from it.
 
 ### Choosing where Object Links read values
 
-In **Grimoire Connect > Settings**, choose the project's **Object data source**:
+In **Grimoire > Settings**, choose the project's **Object data source**:
 
 - **Connected Snapshot** uses values synced from the API onto each Object Link.
   Player builds read that saved snapshot; they do not need a live API session.
@@ -124,7 +124,7 @@ the GameObject, or clicking **Unlink** removes that entry again.
 ### Creating an object
 
 **Create in Grimoire...** on a Grimoire Object Link, **Create object** on the
-Scene tab, or `Window > Grimoire > Create Object` creates a library object with
+Scene view creates a library object with
 `POST /api/v1/objects`.
 
 Creation saves a **draft** in the selected game as soon as you confirm. You
@@ -145,8 +145,8 @@ On the component, choose which fields to sync (defaults on):
 - **Scale** → `scale`
 - **Id / Name** → `engine_instance_id` (Unity `GlobalObjectId` + GameObject name)
 
-Use **Sync now** on the component, or the **Sync** tab in Grimoire Connect, to
-push transform changes after moving objects. The Sync tab lists the selected
+Use **Sync now** on the component, or **Review** in Grimoire, to
+push transform changes after moving objects. Review lists the selected
 object separately from other pending linked objects and can sync or reset one
 or all.
 
@@ -205,7 +205,7 @@ With Grimoire Connect open, select a linked GameObject in the Hierarchy. The
   aligned
 - **Game Engine Data** — linked scene instance transforms
 
-Use **Change workspace** in the toolbar to switch company or game for this Unity
+Use **Change workspace** in Settings to switch company or game for this Unity
 project.
 
 ### Dialogs tab
@@ -215,7 +215,7 @@ download, or parser yourself.
 
 **Dialogs in 3 steps**
 
-1. Open `Window > Grimoire > Dialogs` (or the **Dialogs** tab in Grimoire Connect)
+1. Open `Window > Grimoire`, choose **Dialogs** in the sidebar,
    and click **Add Dialog to scene** at the top. Do this once per scene.
 2. Click **Import** on each dialog you need.
 3. Play one from code by passing the asset to the player:
@@ -399,8 +399,8 @@ and shows the current node, Next / answer buttons, and the live variable values.
 
 ### Variables tab
 
-Open the **Variables** tab in Grimoire Connect (or `Window > Grimoire > Variables`)
-to sync and browse the game's variables, such as Mood with Neutral, Happy and
+Choose **Content Library > Variables** in Grimoire to browse the game's
+variables, such as Mood with Neutral, Happy and
 Angry. **Sync variables** saves them to
 `Assets/GrimoireVariables/Resources/GrimoireVariables.asset`; builds read that
 asset, so no sign-in is needed. The first visit syncs automatically.
@@ -413,7 +413,7 @@ element id stored in object fields and dialog setters).
 
 ### Export tab (optional)
 
-Use the **Versions** tab in Grimoire Connect (or `Window > Grimoire > Export Importer`)
+Use **Versions** in the Grimoire sidebar
 to list Unity export versions for the selected game, download a ZIP, and extract
 it to `Assets/Grimoire/`. Then use the **Runtime** tab (next to Versions) to finish
 setup and inspect live values.
@@ -427,8 +427,8 @@ export is optional for this list). After importing a Unity export from **Version
 2. Paste a playthrough session ID if you want events streamed to the platform.
 3. Press **Play** — live variables, objects, dialogs, and logic appear in the same tab.
 
-`Window > Grimoire > Runtime Inspector` opens Connect on this tab.
-`Window > Grimoire > Database Browser` explores the imported C# data.
+Choose **Runtime** in the sidebar to inspect live values. **Browse imported database**
+in Versions explores the imported C# data.
 
 Projects that only use Connect can ignore Versions and Runtime entirely—no export
 folder or Bootstrap component is required.

@@ -9,6 +9,7 @@
 .grimoire-library.light { background-color: #f0f0f2; color: #24252b; }
 .grimoire-library .topbar, .grimoire-library .titlebar, .grimoire-library .searchbar, .grimoire-library .pickerbar, .grimoire-library .actions, .grimoire-library .value-row, .grimoire-library .result-row, .grimoire-library .folder-row { flex-direction: row; align-items: center; }
 .grimoire-library .topbar { min-height: 42px; padding-left: 14px; padding-right: 10px; background-color: #303138; border-bottom-width: 1px; border-bottom-color: #45464e; }
+.grimoire-library.embedded .topbar { display: none; }
 .grimoire-library.light .topbar { background-color: #e7e7ea; border-bottom-color: #d0d0d5; }
 .grimoire-library .breadcrumb { flex-grow: 1; -unity-font-style: bold; white-space: nowrap; }
 .grimoire-library .topbar .unity-button { margin-left: 6px; }

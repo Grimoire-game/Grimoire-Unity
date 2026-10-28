@@ -1,12 +1,12 @@
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Grimoire Connect: sign in, pick company and game, then browse tasks,
-    /// scene links, inspect objects, sync game engine data, download exports,
-    /// inspect live runtime values, add dialogs to the scene, or sync and browse variables.
+    /// One dockable Grimoire workspace for content and editor workflows.
     /// </summary>
     public class GrimoireConnectWindow : EditorWindow
     {
@@ -23,6 +23,7 @@ namespace Grimoire.PluginV2.Editor
         private const int ObjectTabEditable = 1;
         private const int ObjectTabTasks = 2;
         private const int ObjectTabVariables = 3;
+        private const string WorkspaceStylePath = "Packages/com.grimoire.plugin/Editor/UI/GrimoireWorkspace.uss";
 
         private static readonly string[] ObjectTabLabels = { "Info", "Editable", "Tasks", "Variables" };
 
@@ -38,6 +39,19 @@ namespace Grimoire.PluginV2.Editor
         private Vector2 _variablesScroll;
         private int _selectedTab;
         private int _selectedObjectTab;
+        [SerializeField] private bool _showLibrary = true;
+        private string _pendingDialogId;
+
+        private VisualElement _workspaceRoot;
+        private VisualElement _setupRoot;
+        private VisualElement _libraryHost;
+        private VisualElement _legacyHost;
+        private GrimoireContentLibraryView _libraryView;
+        private Label _workspaceBreadcrumb;
+        private Label _connectionStatus;
+        private Button _libraryNav;
+        private Button _settingsNav;
+        private readonly Dictionary<int, Button> _tabNav = new Dictionary<int, Button>();
 
         private int _loadGeneration;
 
@@ -51,21 +65,29 @@ namespace Grimoire.PluginV2.Editor
         private GrimoireDialogsPanel _dialogsPanel;
         private GrimoireVariablesPanel _variablesPanel;
 
-        [MenuItem("Window/Grimoire/Grimoire Connect")]
+        [MenuItem("Window/Grimoire")]
         public static void Open()
         {
-            var window = GetWindow<GrimoireConnectWindow>("Grimoire Connect");
-            window.minSize = new Vector2(560, 520);
+            var window = GetWindow<GrimoireConnectWindow>("Grimoire");
+            window.minSize = new Vector2(360, 420);
             window.Show();
         }
 
-        [MenuItem("Window/Grimoire/Export Importer")]
+        public static void OpenLibrary(string dialogId = null)
+        {
+            Open();
+            var window = GetWindow<GrimoireConnectWindow>();
+            window._showLibrary = true;
+            window._settingsOpen = false;
+            window._pendingDialogId = dialogId;
+            window.UpdateWorkspaceUi();
+        }
+
         public static void OpenExportImporter()
         {
             Open();
             var window = GetWindow<GrimoireConnectWindow>();
-            window._selectedTab = TabExport;
-            window._exportPanel?.Activate();
+            window.SelectTab(TabExport);
             window.Repaint();
         }
 
@@ -74,13 +96,11 @@ namespace Grimoire.PluginV2.Editor
         {
             Open();
             var window = GetWindow<GrimoireConnectWindow>();
-            window._selectedTab = TabRuntime;
-            window._runtimePanel?.Activate();
+            window.SelectTab(TabRuntime);
             window.Repaint();
         }
 
         /// <summary>Open Connect focused on the Dialogs tab.</summary>
-        [MenuItem("Window/Grimoire/Dialogs")]
         public static void OpenDialogs()
         {
             Open();
@@ -90,7 +110,6 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>Open Connect focused on the Variables tab.</summary>
-        [MenuItem("Window/Grimoire/Variables")]
         public static void OpenVariables()
         {
             Open();
@@ -103,7 +122,7 @@ namespace Grimoire.PluginV2.Editor
         {
             Open();
             var window = GetWindow<GrimoireConnectWindow>();
-            window._selectedTab = TabObject;
+            window.SelectTab(TabObject);
             window.LoadLink(link);
         }
 
@@ -185,8 +204,139 @@ namespace Grimoire.PluginV2.Editor
             EditorApplication.delayCall += Repaint;
         }
 
+        public void CreateGUI()
+        {
+            var root = rootVisualElement;
+            root.Clear();
+            root.AddToClassList("grimoire-workspace");
+            root.EnableInClassList("light", !EditorGUIUtility.isProSkin);
+            var sheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(WorkspaceStylePath);
+            if (sheet == null)
+            {
+                var guids = AssetDatabase.FindAssets("GrimoireWorkspace t:StyleSheet");
+                if (guids.Length > 0)
+                    sheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(AssetDatabase.GUIDToAssetPath(guids[0]));
+            }
+            if (sheet != null) root.styleSheets.Add(sheet);
+
+            _setupRoot = new IMGUIContainer(() =>
+            {
+                if (_setupQueue != null && _setupQueue.NeedsSetup)
+                    _setupQueue.Draw(new Rect(0f, 0f, position.width, position.height));
+            });
+            _setupRoot.AddToClassList("setup-root");
+            root.Add(_setupRoot);
+
+            _workspaceRoot = new VisualElement();
+            _workspaceRoot.AddToClassList("workspace-root");
+            var header = new VisualElement();
+            header.AddToClassList("workspace-header");
+            var brand = new Label("GRIMOIRE");
+            brand.AddToClassList("workspace-brand");
+            header.Add(brand);
+            _workspaceBreadcrumb = new Label();
+            _workspaceBreadcrumb.AddToClassList("workspace-breadcrumb");
+            header.Add(_workspaceBreadcrumb);
+            _connectionStatus = new Label();
+            _connectionStatus.AddToClassList("workspace-status");
+            header.Add(_connectionStatus);
+            var refresh = new Button(RefreshAll) { text = "Refresh" };
+            refresh.AddToClassList("header-action");
+            header.Add(refresh);
+            _workspaceRoot.Add(header);
+
+            var body = new VisualElement();
+            body.AddToClassList("workspace-body");
+            var sidebar = new VisualElement();
+            sidebar.AddToClassList("workspace-sidebar");
+            sidebar.Add(new Label("BROWSE") { name = "browse-caption" });
+            _libraryNav = AddNav(sidebar, "Content Library", () => OpenLibrary());
+            _tabNav.Clear();
+            _tabNav[TabScene] = AddNav(sidebar, "Scene", () => SelectTab(TabScene));
+            _tabNav[TabObject] = AddNav(sidebar, "Object", () => SelectTab(TabObject));
+            _tabNav[TabSync] = AddNav(sidebar, "Review", () => SelectTab(TabSync));
+            sidebar.Add(new Label("WORKFLOWS") { name = "workflow-caption" });
+            _tabNav[TabDialogs] = AddNav(sidebar, "Dialogs", () => SelectTab(TabDialogs));
+            _tabNav[TabTasks] = AddNav(sidebar, "Tasks", () => SelectTab(TabTasks));
+            _tabNav[TabExport] = AddNav(sidebar, "Versions", () => SelectTab(TabExport));
+            _tabNav[TabRuntime] = AddNav(sidebar, "Runtime", () => SelectTab(TabRuntime));
+            var spacer = new VisualElement();
+            spacer.style.flexGrow = 1f;
+            sidebar.Add(spacer);
+            _settingsNav = AddNav(sidebar, "Settings", OpenSettings);
+            body.Add(sidebar);
+
+            var content = new VisualElement();
+            content.AddToClassList("workspace-content");
+            _libraryHost = new VisualElement();
+            _libraryHost.AddToClassList("library-host");
+            content.Add(_libraryHost);
+            _legacyHost = new IMGUIContainer(DrawWorkspaceBody);
+            _legacyHost.AddToClassList("legacy-host");
+            content.Add(_legacyHost);
+            body.Add(content);
+            _workspaceRoot.Add(body);
+            root.Add(_workspaceRoot);
+
+            _libraryView?.Deactivate();
+            _libraryView = new GrimoireContentLibraryView();
+            _libraryView.Activate();
+            _libraryView.Build(_libraryHost, true);
+            _workspaceRoot.RegisterCallback<GeometryChangedEvent>(evt =>
+            {
+                var compact = evt.newRect.width < 660f;
+                _workspaceRoot.EnableInClassList("compact", compact);
+                _libraryNav.text = compact ? "Content" : "Content Library";
+            });
+            UpdateWorkspaceUi();
+        }
+
+        private static Button AddNav(VisualElement sidebar, string label, System.Action action)
+        {
+            var button = new Button(action) { text = label };
+            button.AddToClassList("workspace-nav");
+            sidebar.Add(button);
+            return button;
+        }
+
+        private void OpenSettings()
+        {
+            _showLibrary = false;
+            _settingsOpen = true;
+            UpdateWorkspaceUi();
+        }
+
+        private void UpdateWorkspaceUi()
+        {
+            if (_workspaceRoot == null || _setupRoot == null) return;
+            var setup = _setupQueue != null && _setupQueue.NeedsSetup;
+            _setupRoot.style.display = setup ? DisplayStyle.Flex : DisplayStyle.None;
+            _workspaceRoot.style.display = setup ? DisplayStyle.None : DisplayStyle.Flex;
+            if (setup) return;
+
+            _libraryHost.style.display = _showLibrary && !_settingsOpen ? DisplayStyle.Flex : DisplayStyle.None;
+            _legacyHost.style.display = _showLibrary && !_settingsOpen ? DisplayStyle.None : DisplayStyle.Flex;
+            _libraryNav.EnableInClassList("selected", _showLibrary && !_settingsOpen);
+            _settingsNav.EnableInClassList("selected", _settingsOpen);
+            foreach (var pair in _tabNav)
+                pair.Value.EnableInClassList("selected", !_showLibrary && !_settingsOpen && _selectedTab == pair.Key);
+            var pending = GrimoireSyncPanel.TotalPendingCount();
+            _tabNav[TabSync].text = pending > 0 ? $"Review ({pending})" : "Review";
+            _workspaceBreadcrumb.text = GrimoireSettings.IsConfigured
+                ? $"{GrimoireSettings.CompanyName}  /  {GrimoireSettings.GameName}"
+                : "Choose a workspace";
+            _connectionStatus.text = GrimoireAuthSession.IsSignedIn ? "● Connected" : "● Offline";
+            if (!string.IsNullOrEmpty(_pendingDialogId) && _libraryView != null)
+            {
+                _libraryView.SelectDialog(_pendingDialogId);
+                _pendingDialogId = null;
+            }
+        }
+
         private void OnDisable()
         {
+            _libraryView?.Deactivate();
+            _libraryView = null;
             Selection.selectionChanged -= OnSelectionChanged;
             GrimoireAuthSession.Changed -= OnAuthChanged;
             GrimoireSettings.Changed -= OnSettingsChanged;
@@ -204,9 +354,7 @@ namespace Grimoire.PluginV2.Editor
 
         private void OnOpenVersionsRequested()
         {
-            _selectedTab = TabExport;
-            _runtimePanel?.Deactivate();
-            _exportPanel?.Activate();
+            SelectTab(TabExport);
             Repaint();
         }
 
@@ -222,7 +370,7 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            _selectedTab = TabObject;
+            SelectTab(TabObject);
             LoadLink(link);
         }
 
@@ -250,6 +398,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             GrimoireEditableFieldsRenderer.Bind(_link, _document);
+            UpdateWorkspaceUi();
             Repaint();
         }
 
@@ -268,6 +417,7 @@ namespace Grimoire.PluginV2.Editor
                 _document = null;
             }
 
+            UpdateWorkspaceUi();
             Repaint();
         }
 
@@ -290,6 +440,7 @@ namespace Grimoire.PluginV2.Editor
                 _dialogsPanel?.Activate();
             }
 
+            UpdateWorkspaceUi();
             Repaint();
         }
 
@@ -313,6 +464,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             ReloadCurrent();
+            UpdateWorkspaceUi();
         }
 
         private void OnSelectionChanged()
@@ -369,6 +521,7 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>Re-fetch everything from the server: tasks, the current object, and exports.</summary>
         private void RefreshAll()
         {
+            _libraryView?.Refresh();
             _objectTasksPanel.ResetStatusFetchState();
             _userTasksPanel.Refresh();
             _exportPanel.Refresh();
@@ -382,6 +535,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             RefreshObject();
+            UpdateWorkspaceUi();
             Repaint();
         }
 
@@ -523,22 +677,13 @@ namespace Grimoire.PluginV2.Editor
             EditorUtility.SetDirty(link);
         }
 
-        private void OnGUI()
+        private void DrawWorkspaceBody()
         {
-            if (_setupQueue.NeedsSetup)
-            {
-                _setupQueue.Draw(new Rect(0f, 0f, position.width, position.height));
-                return;
-            }
-
-            DrawToolbar();
-
             if (_settingsOpen)
             {
                 DrawSettings();
+                return;
             }
-
-            DrawTabBar();
 
             GrimoireEditorStyles.BeginContentArea();
             switch (_selectedTab)
@@ -572,21 +717,10 @@ namespace Grimoire.PluginV2.Editor
             GrimoireEditorStyles.EndContentArea();
         }
 
-        private void DrawTabBar()
-        {
-            var dirty = GrimoireSyncPanel.TotalPendingCount();
-            var syncLabel = dirty > 0 ? $"Sync ({dirty})" : "Sync";
-            var labels = new[] { "Tasks", "Scene", "Object", syncLabel, "Versions", "Runtime", "Dialogs", "Variables" };
-
-            var picked = GrimoireEditorStyles.DrawTabBar(_selectedTab, labels);
-            if (picked != _selectedTab)
-            {
-                SelectTab(picked);
-            }
-        }
-
         private void SelectTab(int tab)
         {
+            _showLibrary = false;
+            _settingsOpen = false;
             if (_selectedTab == TabSync)
             {
                 _syncPanel?.Deactivate();
@@ -637,6 +771,8 @@ namespace Grimoire.PluginV2.Editor
             {
                 _variablesPanel?.Activate();
             }
+
+            UpdateWorkspaceUi();
         }
 
         private void DrawTasksTab()
@@ -656,6 +792,9 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawExportTab()
         {
+            if (GUILayout.Button("Browse imported database", GUILayout.Width(190f)))
+                GrimoireDatabaseBrowser.ShowWindow();
+            EditorGUILayout.Space(4);
             _exportPanel?.Draw();
         }
 
@@ -782,73 +921,6 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.EndScrollView();
         }
 
-        private void DrawToolbar()
-        {
-            GrimoireEditorStyles.BeginToolbar();
-
-            if (GrimoireSettings.IsConfigured)
-            {
-                var companyLabel = string.IsNullOrEmpty(GrimoireSettings.CompanyName)
-                    ? "Company"
-                    : GrimoireSettings.CompanyName;
-                var gameLabel = string.IsNullOrEmpty(GrimoireSettings.GameName)
-                    ? "Game"
-                    : GrimoireSettings.GameName;
-
-                string objectTitle = null;
-                if (_selectedTab == TabObject)
-                {
-                    objectTitle = _document?.@object?.name
-                                  ?? (_link != null && _link.HasKey ? _link.ObjectKey : "No object");
-                }
-
-                GrimoireEditorStyles.DrawToolbarBreadcrumb(companyLabel, gameLabel, objectTitle);
-            }
-            else
-            {
-                GUILayout.Label("Grimoire Connect", GrimoireEditorStyles.TitleStyle);
-            }
-
-            GUILayout.FlexibleSpace();
-
-            if (GrimoireEditorStyles.ToolbarButton("Library"))
-            {
-                GrimoireContentLibraryWindow.Open();
-            }
-
-            if (GrimoireSettings.IsConfigured)
-            {
-                using (new EditorGUI.DisabledScope(_loading))
-                {
-                    if (GrimoireEditorStyles.ToolbarButton("Refresh"))
-                    {
-                        RefreshAll();
-                    }
-                }
-
-                if (GrimoireAuthSession.IsSignedIn)
-                {
-                    GUILayout.Label(GrimoireAuthSession.UserName, GrimoireEditorStyles.MiniSecondaryStyle);
-                    if (GrimoireEditorStyles.ToolbarButton("Change workspace"))
-                    {
-                        _setupQueue.BeginWorkspaceSelection();
-                    }
-
-                    if (GrimoireEditorStyles.ToolbarButton("Sign out"))
-                    {
-                        GrimoireAuthSession.SignOut();
-                    }
-                }
-            }
-
-            if (GrimoireEditorStyles.ToolbarButton("Settings", _settingsOpen))
-            {
-                _settingsOpen = !_settingsOpen;
-            }
-
-            GrimoireEditorStyles.EndToolbar();
-        }
-
         private void DrawSettings()
         {
             GrimoireEditorStyles.EnsureStyles();
@@ -901,6 +973,19 @@ namespace Grimoire.PluginV2.Editor
             {
                 EditorGUILayout.LabelField("Game", GrimoireSettings.GameName, GrimoireEditorStyles.MiniSecondaryStyle);
                 EditorGUILayout.LabelField("Game ID", GrimoireSettings.GameId, GrimoireEditorStyles.MiniSecondaryStyle);
+            }
+
+            EditorGUILayout.Space(8);
+            if (GrimoireAuthSession.IsSignedIn)
+            {
+                EditorGUILayout.LabelField("Signed in as " + GrimoireAuthSession.UserName, EditorStyles.miniLabel);
+                if (GUILayout.Button("Change workspace"))
+                {
+                    _setupQueue.BeginWorkspaceSelection();
+                    UpdateWorkspaceUi();
+                }
+                if (GUILayout.Button("Sign out"))
+                    GrimoireAuthSession.SignOut();
             }
 
             EditorGUILayout.EndVertical();

@@ -52,7 +52,6 @@ namespace Grimoire.PluginV2.Editor
         private List<DialogGroup> _dialogGroups = new List<DialogGroup>();
         private List<DialogMetaRow> _dialogMeta = new List<DialogMetaRow>();
 
-        [MenuItem("Window/Grimoire/Database Browser")]
         public static void ShowWindow()
         {
             var w = GetWindow<GrimoireDatabaseBrowser>("Grimoire Database");

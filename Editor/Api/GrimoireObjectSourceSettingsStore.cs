@@ -32,7 +32,6 @@ namespace Grimoire.PluginV2.Editor
             GrimoireObjectSources.Settings = settings;
         }
 
-        [MenuItem("Window/Grimoire/Object Source Settings")]
         private static void SelectAsset()
         {
             var asset = GetOrCreate();

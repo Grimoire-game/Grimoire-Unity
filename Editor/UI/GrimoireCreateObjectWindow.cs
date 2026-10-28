@@ -43,7 +43,6 @@ namespace Grimoire.PluginV2.Editor
         private string _info;
         private Vector2 _scroll;
 
-        [MenuItem("Window/Grimoire/Create Object")]
         public static void OpenFromMenu()
         {
             Open(null);
