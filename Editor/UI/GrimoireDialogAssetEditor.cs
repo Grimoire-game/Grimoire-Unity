@@ -65,7 +65,7 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Update from Grimoire", GUILayout.Width(150)))
             {
-                GrimoireConnectWindow.OpenDialogs();
+                GrimoireContentLibraryWindow.OpenDialog(dialog.DialogId);
             }
 
             EditorGUILayout.LabelField("Play it with GrimoireDialogPlayer.Main.StartDialog(asset).", GrimoireEditorStyles.MiniSecondaryStyle);

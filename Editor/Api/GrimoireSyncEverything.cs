@@ -230,7 +230,7 @@ namespace Grimoire.PluginV2.Editor
                 }
 
                 summary.Objects++;
-                foreach (var reference in link.Snapshot.CollectObjectReferences())
+                foreach (var reference in link.ApiSnapshot.CollectObjectReferences())
                 {
                     var nestedId = reference.Id;
                     if (string.IsNullOrEmpty(nestedId) && reference.HasKey)
@@ -252,7 +252,7 @@ namespace Grimoire.PluginV2.Editor
                     if (string.IsNullOrEmpty(nestedId) ||
                         string.Equals(
                             nestedId,
-                            link.Snapshot.ObjectId,
+                            link.ApiSnapshot.ObjectId,
                             StringComparison.OrdinalIgnoreCase))
                     {
                         continue;

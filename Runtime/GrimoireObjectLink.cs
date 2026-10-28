@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -9,10 +10,11 @@ namespace Grimoire.PluginV2
     /// Links a GameObject to a Grimoire object through its key (<c>code_id</c>,
     /// e.g. <c>characters/aragorn</c>).
     ///
-    /// Serialized link plus a query API for snapshotted fields. Networking lives
-    /// in the editor assembly; an optional <see cref="IGrimoireObjectLoader"/> is
-    /// registered there for lazy nested fetches while signed in. Player builds
-    /// read the snapshot cached on this component.
+    /// One query API for either the connected snapshot or an imported version.
+    /// Networking lives in the editor assembly; an optional
+    /// <see cref="IGrimoireObjectLoader"/> is registered there for lazy connected
+    /// reference fetches. Player builds read the saved snapshot or the version
+    /// database selected for this link.
     /// </summary>
     [AddComponentMenu("Grimoire/Grimoire Object Link")]
     [DisallowMultipleComponent]
@@ -25,6 +27,16 @@ namespace Grimoire.PluginV2
         [SerializeField]
         [HideInInspector]
         private string _cachedObjectId = "";
+
+        [SerializeField]
+        private GrimoireObjectLinkSource _dataSource = GrimoireObjectLinkSource.ProjectDefault;
+
+        [SerializeField]
+        [Tooltip("Key in the imported Database.Library. Leave empty to match the Grimoire object key when possible.")]
+        private string _versionKey = "";
+
+        [SerializeField]
+        private List<GrimoireVersionFieldAlias> _versionFieldAliases = new List<GrimoireVersionFieldAlias>();
 
         [SerializeField]
         [Tooltip("Include this object's world position in game_engine_data.location.")]
@@ -57,6 +69,9 @@ namespace Grimoire.PluginV2
         [NonSerialized]
         private List<GrimoireRuntimeFieldChange> _runtimeChanges;
 
+        [NonSerialized]
+        private Dictionary<string, string> _versionOverrides;
+
         /// <summary>
         /// Fired in the editor when this component is destroyed so the editor
         /// assembly can remove the matching <c>game_engine_data</c> entry.
@@ -68,6 +83,12 @@ namespace Grimoire.PluginV2
         /// setter or <see cref="SetFieldValue(string, string, string)"/>).
         /// </summary>
         public static event Action<GrimoireObjectLink, GrimoireRuntimeFieldChange> RuntimeFieldChanged;
+
+        /// <summary>
+        /// Fired by <see cref="TriggerFunction"/> for either source. A game can
+        /// handle functions here when no generated LogicRuntime is imported.
+        /// </summary>
+        public static event Action<GrimoireObjectLink, string> FunctionTriggered;
 
         /// <summary>
         /// Fired when a nested snapshot is persisted in Edit Mode so the editor
@@ -91,6 +112,7 @@ namespace Grimoire.PluginV2
                 // The cached UUID belongs to the previous key; a stale id would
                 // silently show the wrong object in the widget.
                 _cachedObjectId = "";
+                _versionKey = "";
                 ClearSnapshot();
             }
         }
@@ -108,6 +130,34 @@ namespace Grimoire.PluginV2
         }
 
         public bool HasKey => !string.IsNullOrWhiteSpace(_objectKey);
+
+        public GrimoireObjectLinkSource DataSource
+        {
+            get => _dataSource;
+            set => _dataSource = value;
+        }
+
+        public GrimoireObjectDataSource ActiveSource => _dataSource == GrimoireObjectLinkSource.ProjectDefault
+            ? GrimoireObjectSources.ProjectDefault
+            : _dataSource == GrimoireObjectLinkSource.VersionDatabase
+                ? GrimoireObjectDataSource.VersionDatabase
+                : GrimoireObjectDataSource.ConnectedSnapshot;
+
+        public string VersionKey
+        {
+            get => _versionKey;
+            set => _versionKey = value?.Trim() ?? "";
+        }
+
+        /// <summary>Manual field-name mappings when an export renames a field.</summary>
+        public List<GrimoireVersionFieldAlias> VersionFieldAliases =>
+            _versionFieldAliases ?? (_versionFieldAliases = new List<GrimoireVersionFieldAlias>());
+
+        /// <summary>Keys available in the imported version for inspector pickers.</summary>
+        public static IReadOnlyList<string> AvailableVersionKeys => GrimoireVersionObjectAdapter.Keys;
+
+        public bool TryGetResolvedVersionKey(out string key) =>
+            GrimoireVersionObjectAdapter.TryResolveKey(_versionKey, _objectKey, _snapshot?.Name, out key);
 
         public bool SyncPosition
         {
@@ -186,12 +236,69 @@ namespace Grimoire.PluginV2
         }
 
         /// <summary>
-        /// Last API snapshot of this object (all fields + reference stubs).
-        /// Nested objects live in <see cref="NestedSnapshots"/> after a lazy load.
+        /// Active object values from the chosen source. Connected values come
+        /// from the saved API snapshot; version values come from Database.Library
+        /// and ObjectRuntime. Nested connected objects live in
+        /// <see cref="NestedSnapshots"/> after a lazy load.
         /// </summary>
-        public GrimoireObjectSnapshot Snapshot => _snapshot;
+        public GrimoireObjectSnapshot Snapshot
+        {
+            get
+            {
+                if (ActiveSource == GrimoireObjectDataSource.ConnectedSnapshot) return _snapshot;
+                if (!TryGetResolvedVersionKey(out var key) ||
+                    !GrimoireVersionObjectAdapter.TryBuildSnapshot(key, _snapshot?.Name, out var snapshot))
+                    return null;
+                ApplyVersionAliases(snapshot);
+                OverlayVersionLocalValues(snapshot);
+                return snapshot;
+            }
+        }
 
-        public bool HasSnapshot => _snapshot != null && !_snapshot.IsEmpty;
+        private void ApplyVersionAliases(GrimoireObjectSnapshot version)
+        {
+            foreach (var field in version.Fields)
+            {
+                if (field == null) continue;
+                if (_snapshot?.Fields != null)
+                {
+                    foreach (var apiField in _snapshot.Fields)
+                    {
+                        if (apiField == null ||
+                            (!SameFieldName(field.Label, apiField.Label) &&
+                             !SameFieldName(field.FieldId, apiField.Label) &&
+                             !SameFieldName(field.FieldId, apiField.FieldId))) continue;
+                        if (!string.IsNullOrEmpty(apiField.FieldId)) field.Aliases.Add(apiField.FieldId);
+                        if (!string.IsNullOrEmpty(apiField.Label)) field.Aliases.Add(apiField.Label);
+                    }
+                }
+                foreach (var alias in VersionFieldAliases)
+                {
+                    if (alias != null && SameFieldName(alias.VersionField, field.FieldId) &&
+                        !string.IsNullOrWhiteSpace(alias.ApiField))
+                    {
+                        field.Aliases.Add(alias.ApiField.Trim());
+                        if (_snapshot != null && _snapshot.TryGetField(alias.ApiField.Trim(), out var apiField))
+                        {
+                            if (!string.IsNullOrEmpty(apiField.FieldId)) field.Aliases.Add(apiField.FieldId);
+                            if (!string.IsNullOrEmpty(apiField.Label)) field.Aliases.Add(apiField.Label);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>The serialized API copy, even while the version is selected.</summary>
+        public GrimoireObjectSnapshot ApiSnapshot => _snapshot;
+
+        public bool HasSnapshot
+        {
+            get
+            {
+                var snapshot = Snapshot;
+                return snapshot != null && !snapshot.IsEmpty;
+            }
+        }
 
         /// <summary>Nested objects fetched on demand and persisted in Edit Mode.</summary>
         public IReadOnlyList<GrimoireObjectSnapshot> NestedSnapshots => _nestedSnapshots;
@@ -221,6 +328,7 @@ namespace Grimoire.PluginV2
         {
             _snapshot = new GrimoireObjectSnapshot();
             _nestedSnapshots?.Clear();
+            _versionOverrides?.Clear();
         }
 
         /// <summary>
@@ -340,6 +448,40 @@ namespace Grimoire.PluginV2
             _runtimeChanges?.Clear();
         }
 
+        private void OverlayVersionLocalValues(GrimoireObjectSnapshot snapshot)
+        {
+            if (_linkedFields != null)
+            {
+                foreach (var linked in _linkedFields)
+                {
+                    if (linked == null || !linked.IsDeviated) continue;
+                    var field = MatchVersionField(snapshot, linked);
+                    if (field != null) snapshot.SetFieldValue(field.FieldId, linked.LocalValue);
+                }
+            }
+            if (_versionOverrides != null)
+            {
+                foreach (var pair in _versionOverrides)
+                    snapshot.SetFieldValue(pair.Key, pair.Value);
+            }
+        }
+
+        private static GrimoireCachedField MatchVersionField(
+            GrimoireObjectSnapshot snapshot, GrimoireLinkedField linked)
+        {
+            if (snapshot.TryGetField(linked.FieldId, out var direct)) return direct;
+            var matches = snapshot.Fields.Where(field => field != null &&
+                (SameFieldName(field.Label, linked.Label) || SameFieldName(field.FieldId, linked.Label)))
+                .Take(2).ToArray();
+            return matches.Length == 1 ? matches[0] : null;
+        }
+
+        private static bool SameFieldName(string first, string second) =>
+            !string.IsNullOrWhiteSpace(first) && !string.IsNullOrWhiteSpace(second) &&
+            string.Equals(new string(first.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray()),
+                new string(second.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray()),
+                StringComparison.Ordinal);
+
         /// <summary>
         /// Set a field on this object while playing, e.g. <c>SetFieldValue("has beard", "true", "Barber script")</c>.
         /// Updates the editable field (when the field is one) and the snapshot, and
@@ -348,17 +490,32 @@ namespace Grimoire.PluginV2
         /// </summary>
         public bool SetFieldValue(string fieldName, string value, string source = null)
         {
-            if (_snapshot == null || !_snapshot.TryGetField(fieldName, out var field))
+            var snapshot = Snapshot;
+            if (snapshot == null || !snapshot.TryGetField(fieldName, out var field))
             {
                 return false;
             }
 
             value = value ?? "";
             var previous = field.Value ?? "";
-            if (TryGetLinkedField(field.FieldId, out var linked))
+            GrimoireLinkedField linked = null;
+            if (TryGetLinkedField(field.FieldId, out linked) ||
+                ActiveSource == GrimoireObjectDataSource.VersionDatabase &&
+                (linked = _linkedFields?.FirstOrDefault(candidate => candidate != null &&
+                    SameFieldName(candidate.Label, field.Label))) != null)
             {
                 previous = linked.LocalValue ?? "";
                 linked.LocalValue = value;
+            }
+
+            if (ActiveSource == GrimoireObjectDataSource.VersionDatabase)
+            {
+                var wrote = TryGetResolvedVersionKey(out var versionKey) &&
+                    GrimoireVersionObjectAdapter.TryWrite(versionKey, field, value);
+                if (wrote) _versionOverrides?.Remove(field.FieldId);
+                else
+                    (_versionOverrides ?? (_versionOverrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)))
+                        [field.FieldId] = value;
             }
 
             if (field.Multiple)
@@ -389,10 +546,33 @@ namespace Grimoire.PluginV2
         public bool SetFieldValue(string fieldName, double value, string source = null) =>
             SetFieldValue(fieldName, value.ToString(System.Globalization.CultureInfo.InvariantCulture), source);
 
+        /// <summary>
+        /// Fire a named object function through the selected source. Imported
+        /// versions use LogicRuntime. The event also fires in either mode, so
+        /// custom gameplay handlers can use the same call without an export.
+        /// Returns false when no function runtime or handler is available.
+        /// </summary>
+        public bool TriggerFunction(string functionName)
+        {
+            if (string.IsNullOrWhiteSpace(functionName)) return false;
+            var handled = false;
+            if (ActiveSource == GrimoireObjectDataSource.VersionDatabase &&
+                TryGetResolvedVersionKey(out var key))
+                handled = GrimoireVersionObjectAdapter.TryTriggerFunction(key, functionName);
+            var handler = FunctionTriggered;
+            if (handler != null)
+            {
+                handler(this, functionName);
+                handled = true;
+            }
+            return handled;
+        }
+
         public bool TryGetString(string fieldName, out string value)
         {
             value = "";
-            return _snapshot != null && _snapshot.TryGetString(fieldName, out value);
+            var snapshot = Snapshot;
+            return snapshot != null && snapshot.TryGetString(fieldName, out value);
         }
 
         /// <summary>
@@ -405,26 +585,42 @@ namespace Grimoire.PluginV2
             string languageCode = null)
         {
             value = "";
-            return _snapshot != null &&
-                   _snapshot.TryGetDisplayString(fieldName, out value, languageCode);
+            var snapshot = Snapshot;
+            if (snapshot == null || !snapshot.TryGetField(fieldName, out var field)) return false;
+            if (ActiveSource == GrimoireObjectDataSource.VersionDatabase &&
+                !HasVersionLocalOverride(snapshot, field) &&
+                !string.IsNullOrEmpty(languageCode) && TryGetResolvedVersionKey(out var key) &&
+                GrimoireVersionObjectAdapter.TryGetLocalizedText(key, field.FieldId, languageCode, out value))
+                return true;
+            return snapshot.TryGetDisplayString(fieldName, out value, languageCode);
+        }
+
+        private bool HasVersionLocalOverride(GrimoireObjectSnapshot snapshot, GrimoireCachedField field)
+        {
+            if (_versionOverrides != null && _versionOverrides.ContainsKey(field.FieldId)) return true;
+            return _linkedFields != null && _linkedFields.Any(linked => linked != null &&
+                linked.IsDeviated && MatchVersionField(snapshot, linked) == field);
         }
 
         public bool TryGetNumber(string fieldName, out double value)
         {
             value = 0;
-            return _snapshot != null && _snapshot.TryGetNumber(fieldName, out value);
+            var snapshot = Snapshot;
+            return snapshot != null && snapshot.TryGetNumber(fieldName, out value);
         }
 
         public bool TryGetBool(string fieldName, out bool value)
         {
             value = false;
-            return _snapshot != null && _snapshot.TryGetBool(fieldName, out value);
+            var snapshot = Snapshot;
+            return snapshot != null && snapshot.TryGetBool(fieldName, out value);
         }
 
         public bool TryGetVector(string fieldName, out Vector3 value)
         {
             value = Vector3.zero;
-            return _snapshot != null && _snapshot.TryGetVector(fieldName, out value);
+            var snapshot = Snapshot;
+            return snapshot != null && snapshot.TryGetVector(fieldName, out value);
         }
 
         /// <summary>
@@ -434,24 +630,27 @@ namespace Grimoire.PluginV2
         public bool TryGetVariableElement(string fieldName, out GrimoireVariableElement element)
         {
             element = null;
-            return _snapshot != null && _snapshot.TryGetVariableElement(fieldName, out element);
+            var snapshot = Snapshot;
+            return snapshot != null && snapshot.TryGetVariableElement(fieldName, out element);
         }
 
         /// <summary>Every variable element a <c>types</c> or <c>typesList</c> field holds.</summary>
         public IReadOnlyList<GrimoireVariableElement> GetVariableElements(string fieldName)
         {
-            return _snapshot != null ? _snapshot.GetVariableElements(fieldName) : Array.Empty<GrimoireVariableElement>();
+            var snapshot = Snapshot;
+            return snapshot != null ? snapshot.GetVariableElements(fieldName) : Array.Empty<GrimoireVariableElement>();
         }
 
         /// <summary>Reference stubs for a field such as <c>levels</c>. Never hits the network.</summary>
         public IReadOnlyList<GrimoireObjectRef> GetReferences(string fieldName)
         {
-            if (_snapshot == null)
+            var snapshot = Snapshot;
+            if (snapshot == null)
             {
                 return Array.Empty<GrimoireObjectRef>();
             }
 
-            return _snapshot.GetReferences(fieldName);
+            return snapshot.GetReferences(fieldName);
         }
 
         /// <summary>Cache-only lookup of a nested object. Never hits the network.</summary>
@@ -469,6 +668,13 @@ namespace Grimoire.PluginV2
 
         public bool TryResolve(GrimoireObjectRef stub, out GrimoireObjectSnapshot snapshot)
         {
+            if (ActiveSource == GrimoireObjectDataSource.VersionDatabase)
+            {
+                snapshot = null;
+                return stub != null &&
+                    GrimoireVersionObjectAdapter.TryResolveKey(null, stub.CodeId, stub.Name, out var key) &&
+                    GrimoireVersionObjectAdapter.TryBuildSnapshot(key, stub.Name, out snapshot);
+            }
             if (GrimoireObjectCache.TryGet(stub, out snapshot))
             {
                 return true;
@@ -496,6 +702,11 @@ namespace Grimoire.PluginV2
 
         public async Task<GrimoireObjectSnapshot> GetReferencedObjectAsync(GrimoireObjectRef stub)
         {
+            if (ActiveSource == GrimoireObjectDataSource.VersionDatabase)
+            {
+                TryResolve(stub, out var versionSnapshot);
+                return versionSnapshot;
+            }
             if (TryResolve(stub, out var cached))
             {
                 if (!Application.isPlaying)
@@ -560,14 +771,15 @@ namespace Grimoire.PluginV2
         {
             var list = new List<GrimoireObjectRef>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (_snapshot?.Fields == null)
+            var snapshot = Snapshot;
+            if (snapshot?.Fields == null)
             {
                 return list;
             }
 
-            for (var f = 0; f < _snapshot.Fields.Count; f++)
+            for (var f = 0; f < snapshot.Fields.Count; f++)
             {
-                var field = _snapshot.Fields[f];
+                var field = snapshot.Fields[f];
                 if (field?.References == null)
                 {
                     continue;
@@ -626,6 +838,16 @@ namespace Grimoire.PluginV2
             EditorDestroyed?.Invoke(this);
         }
 #endif
+    }
+
+    [Serializable]
+    public sealed class GrimoireVersionFieldAlias
+    {
+        [Tooltip("Field name or ID used by game code or the connected snapshot.")]
+        public string ApiField;
+
+        [Tooltip("Matching field name in the imported version.")]
+        public string VersionField;
     }
 
     /// <summary>One field value change made on an Object Link while playing.</summary>

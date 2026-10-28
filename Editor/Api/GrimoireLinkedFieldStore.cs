@@ -157,7 +157,7 @@ namespace Grimoire.PluginV2.Editor
 
             Undo.RecordObject(link, "Edit Grimoire linked field");
             field.LocalValue = next;
-            link.Snapshot?.SetFieldValue(field.FieldId, next);
+            link.ApiSnapshot?.SetFieldValue(field.FieldId, next);
             EditorUtility.SetDirty(link);
             NotifyChanged();
             return true;

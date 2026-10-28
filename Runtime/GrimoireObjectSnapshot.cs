@@ -169,6 +169,9 @@ namespace Grimoire.PluginV2
         private List<GrimoireObjectRef> _references = new List<GrimoireObjectRef>();
 
         [SerializeField]
+        private List<string> _aliases = new List<string>();
+
+        [SerializeField]
         private List<GrimoireLocalizedValues> _localizedValues = new List<GrimoireLocalizedValues>();
 
         public string FieldId
@@ -231,6 +234,9 @@ namespace Grimoire.PluginV2
             get => _references ?? (_references = new List<GrimoireObjectRef>());
             set => _references = value ?? new List<GrimoireObjectRef>();
         }
+
+        /// <summary>Additional lookup names for source-neutral field access.</summary>
+        public List<string> Aliases => _aliases ?? (_aliases = new List<string>());
 
         public List<GrimoireLocalizedValues> LocalizedValues =>
             _localizedValues ?? (_localizedValues = new List<GrimoireLocalizedValues>());
@@ -454,7 +460,8 @@ namespace Grimoire.PluginV2
 
             return string.Equals(_fieldId, query, StringComparison.OrdinalIgnoreCase)
                    || string.Equals(_label, query, StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(_fieldType, query, StringComparison.OrdinalIgnoreCase);
+                   || string.Equals(_fieldType, query, StringComparison.OrdinalIgnoreCase)
+                   || Aliases.Exists(alias => string.Equals(alias, query, StringComparison.OrdinalIgnoreCase));
         }
     }
 
