@@ -34,6 +34,9 @@ namespace Grimoire.PluginV2.Editor
         private string _usersFetchedForGameId;
         private int _fetchGeneration;
         private Vector2 _scroll;
+        private Vector2 _detailsScroll;
+        private string _search = "";
+        private string _selectedTaskId;
 
         public event Action RepaintNeeded;
 
@@ -91,7 +94,7 @@ namespace Grimoire.PluginV2.Editor
             EditorApplication.delayCall += DeferredActivate;
         }
 
-        public void Draw()
+        public void Draw(float width, float height)
         {
             if (!GrimoireSettings.IsConfigured)
             {
@@ -99,7 +102,8 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            DrawFilterBar();
+            GrimoireWorkflowGUI.Header("Tasks", "Find assigned work, inspect its linked content, and update its status.");
+            DrawWorkspaceFilters();
 
             if (_usersLoading || _loading)
             {
@@ -117,15 +121,130 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            _scroll = EditorGUILayout.BeginScrollView(_scroll);
-            var visibleTasks = GetVisibleTasks();
-            _tasksPanel.Draw(
-                GrimoireSettings.GameId,
-                visibleTasks,
-                showHeader: true,
-                sectionId: "user-tasks",
-                emptyMessage: "No open tasks match the current filter.");
+            var tasks = GetVisibleTasks();
+            var paneHeight = Mathf.Max(220f, height - 190f);
+            var narrow = GrimoireWorkflowGUI.IsNarrow(width);
+            if (!narrow) EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.BeginVertical(narrow ? GUILayout.ExpandWidth(true) : GUILayout.Width(Mathf.Max(230f, width * 0.57f)));
+            _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.Height(narrow ? 215f : paneHeight));
+            GrimoireWorkflowGUI.Section($"Open tasks · {tasks.Count(MatchesSearch)}");
+            if (!tasks.Any(task => task.id == _selectedTaskId && MatchesSearch(task)))
+                _selectedTaskId = tasks.FirstOrDefault(MatchesSearch)?.id;
+            foreach (var task in tasks)
+            {
+                if (!MatchesSearch(task)) continue;
+                var assignee = AssigneeName(task);
+                if (GrimoireWorkflowGUI.Row(
+                        string.IsNullOrEmpty(task.Body) ? "(untitled task)" : task.Body,
+                        (task.entity_type ?? "Content") + " · " + (task.entity_id ?? "No link"),
+                        assignee,
+                        StatusLabel(task.status),
+                        task.id == _selectedTaskId))
+                    _selectedTaskId = task.id;
+            }
+            if (!tasks.Any(MatchesSearch)) GrimoireEditorStyles.DrawInfoBox("No open tasks match these filters.");
             EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
+            _detailsScroll = EditorGUILayout.BeginScrollView(_detailsScroll, GUILayout.Height(narrow ? Mathf.Max(220f, paneHeight - 215f) : paneHeight));
+            DrawWorkspaceDetail(tasks);
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+            if (!narrow) EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawWorkspaceFilters()
+        {
+            BuildStatusFilterOptions();
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Search", GUILayout.Width(44f));
+            _search = EditorGUILayout.TextField(_search ?? "", GUILayout.MinWidth(90f));
+            using (new EditorGUI.DisabledScope(_usersLoading || _assigneeLabels.Length == 0))
+            {
+                var next = EditorGUILayout.Popup(_assigneeFilterIndex, _assigneeLabels, GUILayout.Width(130f));
+                if (next != _assigneeFilterIndex)
+                {
+                    _assigneeFilterIndex = next;
+                    RequestTasksRefresh();
+                }
+            }
+            if (_statusFilterLabels.Length > 0)
+                _statusFilterIndex = EditorGUILayout.Popup(_statusFilterIndex, _statusFilterLabels, GUILayout.Width(125f));
+            if (GUILayout.Button("Refresh", GUILayout.Width(65f))) Refresh();
+            EditorGUILayout.EndHorizontal();
+            GUILayout.Space(5f);
+        }
+
+        private bool MatchesSearch(GrimoireTask task)
+        {
+            if (string.IsNullOrWhiteSpace(_search)) return true;
+            var query = _search.Trim();
+            return (task.Body ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   (task.entity_id ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   (task.entity_type ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private string AssigneeName(GrimoireTask task)
+        {
+            if (task.assignees == null || task.assignees.Length == 0) return "Unassigned";
+            if (task.assignees.Length > 1) return $"{task.assignees.Length} assignees";
+            var id = task.assignees[0];
+            if (id == GrimoireAuthSession.UserId) return "You";
+            return _users.FirstOrDefault(user => user.id == id)?.DisplayName ?? "Assigned";
+        }
+
+        private static string StatusLabel(string key)
+        {
+            var statuses = GrimoireTasksPanel.GetCachedStatuses(GrimoireSettings.GameId);
+            return statuses?.FirstOrDefault(status => status.key == key)?.label ?? key ?? "Open";
+        }
+
+        private void DrawWorkspaceDetail(GrimoireTask[] tasks)
+        {
+            var visible = Array.FindAll(tasks, MatchesSearch);
+            var task = Array.Find(visible, item => item.id == _selectedTaskId) ??
+                       (visible.Length > 0 ? visible[0] : null);
+            if (task == null)
+            {
+                GrimoireWorkflowGUI.DetailHeading("Task details", "Select a task", null);
+                return;
+            }
+            GrimoireWorkflowGUI.DetailHeading("Task details", task.Body, task.entity_id);
+            GrimoireWorkflowGUI.DetailLine("Status", StatusLabel(task.status));
+            GrimoireWorkflowGUI.DetailLine("Assignee", AssigneeName(task));
+            GrimoireWorkflowGUI.DetailLine("Linked type", task.entity_type);
+            if (!string.IsNullOrEmpty(task.due_by))
+                GrimoireWorkflowGUI.DetailLine("Due", GrimoireExportImporterService.FormatDate(task.due_by));
+            GrimoireWorkflowGUI.Section("Update status");
+            _tasksPanel.DrawActions(GrimoireSettings.GameId, task);
+            GUILayout.Space(8f);
+            if (!string.IsNullOrEmpty(task.entity_id) && GUILayout.Button("Open linked content"))
+                OpenLinkedContent(task);
+            if (task.reply_count > 0)
+                GrimoireWorkflowGUI.Note($"{task.reply_count} replies on this task.");
+        }
+
+        private static void OpenLinkedContent(GrimoireTask task)
+        {
+            var id = task.entity_id;
+            if (string.IsNullOrEmpty(id)) return;
+            foreach (var link in UnityEngine.Object.FindObjectsOfType<GrimoireObjectLink>(true))
+            {
+                if (link.CachedObjectId != id && link.ObjectKey != id) continue;
+                Selection.activeGameObject = link.gameObject;
+                EditorGUIUtility.PingObject(link.gameObject);
+                GrimoireConnectWindow.ShowAndLoad(link);
+                return;
+            }
+            foreach (var link in UnityEngine.Object.FindObjectsOfType<GrimoireTextLink>(true))
+            {
+                if (link.CachedStringId != id && link.TextCode != id) continue;
+                Selection.activeGameObject = link.gameObject;
+                EditorGUIUtility.PingObject(link.gameObject);
+                return;
+            }
+            GrimoireConnectWindow.OpenLibrary(task.entity_type != null &&
+                task.entity_type.IndexOf("dialog", StringComparison.OrdinalIgnoreCase) >= 0 ? id : null);
         }
 
         private GrimoireTask[] GetVisibleTasks()

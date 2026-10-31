@@ -55,6 +55,8 @@
 .grimoire-library .result-status { color: #aaacb7; font-size: 10px; }
 .grimoire-library.light .result-status { color: #70727b; }
 .grimoire-library .details-pane { width: 350px; flex-shrink: 0; min-width: 0; background-color: #303138; }
+.grimoire-library.medium .folder-pane { width: 150px; }
+.grimoire-library.medium .details-pane { width: 270px; }
 .grimoire-library.light .details-pane { background-color: #f8f8fa; }
 .grimoire-library .detail-scroll { flex-grow: 1; }
 .grimoire-library .detail-content { padding: 13px; }

@@ -149,9 +149,10 @@ namespace Grimoire.PluginV2.Editor
             _exportPanel = new GrimoireExportPanel();
             _exportPanel.RepaintNeeded += ScheduleRepaint;
 
-            _runtimePanel = new GrimoireRuntimePanel();
+            _runtimePanel = GrimoireRuntimePanel.Shared;
             _runtimePanel.RepaintNeeded += ScheduleRepaint;
             _runtimePanel.OpenVersionsRequested += OnOpenVersionsRequested;
+            _runtimePanel.Activate();
 
             _dialogsPanel = new GrimoireDialogsPanel();
             _dialogsPanel.RepaintNeeded += ScheduleRepaint;
@@ -348,7 +349,11 @@ namespace Grimoire.PluginV2.Editor
             GrimoireEditableFieldsRenderer.Changed -= OnGameEngineDirtyChanged;
             _scenePanel?.Deactivate();
             _syncPanel?.Deactivate();
-            _runtimePanel?.Deactivate();
+            if (_runtimePanel != null)
+            {
+                _runtimePanel.RepaintNeeded -= ScheduleRepaint;
+                _runtimePanel.OpenVersionsRequested -= OnOpenVersionsRequested;
+            }
             _dialogsPanel?.Deactivate();
         }
 
@@ -735,10 +740,6 @@ namespace Grimoire.PluginV2.Editor
             {
                 _scenePanel?.Deactivate();
             }
-            else if (_selectedTab == TabRuntime)
-            {
-                _runtimePanel?.Deactivate();
-            }
             else if (_selectedTab == TabDialogs)
             {
                 _dialogsPanel?.Deactivate();
@@ -783,7 +784,7 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawTasksTab()
         {
-            _userTasksPanel.Draw();
+            _userTasksPanel.Draw(WorkflowWidth, WorkflowHeight);
         }
 
         private void DrawSceneTab()
@@ -798,21 +799,21 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawExportTab()
         {
-            if (GUILayout.Button("Browse imported database", GUILayout.Width(190f)))
-                GrimoireDatabaseBrowser.ShowWindow();
-            EditorGUILayout.Space(4);
-            _exportPanel?.Draw();
+            _exportPanel?.Draw(WorkflowWidth, WorkflowHeight);
         }
 
         private void DrawRuntimeTab()
         {
-            _runtimePanel?.Draw();
+            _runtimePanel?.Draw(WorkflowWidth, WorkflowHeight);
         }
 
         private void DrawDialogsTab()
         {
-            _dialogsPanel?.Draw();
+            _dialogsPanel?.Draw(WorkflowWidth, WorkflowHeight);
         }
+
+        private float WorkflowWidth => Mathf.Max(250f, position.width - (position.width < 660f ? 110f : 158f) - 28f);
+        private float WorkflowHeight => Mathf.Max(300f, position.height - 64f);
 
         private void DrawObjectTab()
         {

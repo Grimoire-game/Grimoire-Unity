@@ -249,7 +249,7 @@ namespace Grimoire.PluginV2.Editor
             if (!GrimoireSettings.IsConfigured)
             {
                 return ApiResult<StringResource>.Fail(
-                    "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).",
+                    "Sign in and choose a workspace first (Window > Grimoire).",
                     "not_configured");
             }
 

@@ -73,7 +73,7 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>
         /// Shared language for translatable fields and text-link previews;
         /// empty shows source text. Set it for every loaded scene at once from
-        /// the Scene tab in Grimoire Connect.
+        /// the Scene tab in Grimoire.
         /// </summary>
         public static string Locale
         {

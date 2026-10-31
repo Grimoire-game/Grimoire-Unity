@@ -54,6 +54,25 @@ namespace Grimoire.PluginV2.Editor
         public string name;
     }
 
+    /// <summary>Folder tree stored on a game, shared by library, dialogs and variables.</summary>
+    public class GameFolderNode
+    {
+        public string id;
+        public string name;
+        public GameFolderNode[] subfolder;
+    }
+
+    public class GameFolderSection
+    {
+        public string type;
+        public GameFolderNode[] folders;
+    }
+
+    public class GameFolderDetails
+    {
+        public GameFolderSection[] folders;
+    }
+
     public class ObjectSummary
     {
         public string id;

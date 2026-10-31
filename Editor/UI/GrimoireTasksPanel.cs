@@ -91,6 +91,16 @@ namespace Grimoire.PluginV2.Editor
             EnsureStatusesScheduled(gameId);
         }
 
+        /// <summary>Status controls for a selected task in the workspace detail pane.</summary>
+        public void DrawActions(string gameId, GrimoireTask task)
+        {
+            if (task == null || !task.is_task) return;
+            EnsureStatusesScheduled(gameId);
+            DrawTaskActions(gameId, task);
+            if (!string.IsNullOrEmpty(_error))
+                GrimoireEditorStyles.DrawErrorBox(_error);
+        }
+
         public void Draw(
             string gameId,
             GrimoireTask[] tasks,

@@ -7,7 +7,7 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Onboarding for Grimoire Connect: sign in, then pick company and game on
+    /// Onboarding for Grimoire: sign in, then pick company and game on
     /// the same styled card as login.
     /// </summary>
     public class GrimoireSetupPanel
