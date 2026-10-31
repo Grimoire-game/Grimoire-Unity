@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grimoire workspace — Scene, Object, Review concepts</title>
+  <link rel="stylesheet" href="GrimoireWorkspaceConcept.css">
+</head>
+<body>
+  <div class="preview"><div><strong>Grimoire workspace</strong> <small>Scene, Object, Review · illustrative Unity Editor concept</small></div><div class="preview-controls"><button data-view="scene" class="active">Scene</button><button data-view="object">Object</button><button data-view="review">Review</button><button data-width="wide" class="active">Wide</button><button data-width="narrow">Narrow</button></div></div>
+  <div class="frame" id="frame">
+    <div class="unitybar"><b>◩ Unity</b><span>Sample Scene — Grimoire Demo</span><span>▶ ▌▌ ▷</span></div>
+    <div class="unitytabs"><span>Scene</span><span>Game</span><span>Inspector</span><span class="active">Grimoire</span></div>
+    <div class="workspace">
+      <aside class="rail">
+        <div class="brand"><span class="logo">✦</span>Grimoire</div>
+        <div class="rail-label">BROWSE</div>
+        <button class="nav" data-view="library"><span class="ico">◈</span>Content Library</button>
+        <button class="nav active" data-view="scene"><span class="ico">▦</span>Scene</button>
+        <button class="nav" data-view="object"><span class="ico">◇</span>Object</button>
+        <button class="nav" data-view="review"><span class="ico">⇄</span>Review <span class="badge">3</span></button>
+        <div class="rail-label">WORKFLOWS</div>
+        <button class="nav" data-action="Dialogs"><span class="ico">▤</span>Dialogs</button>
+        <button class="nav" data-action="Tasks"><span class="ico">☑</span>Tasks</button>
+        <button class="nav" data-action="Versions"><span class="ico">▥</span>Versions</button>
+        <button class="nav" data-action="Runtime"><span class="ico">▷</span>Runtime</button>
+        <div class="rail-spacer"></div>
+        <div class="rail-foot">LocaNest / Demo Game<br>Connected</div>
+        <button class="nav" data-action="Settings"><span class="ico">⚙</span>Settings</button>
+      </aside>
+      <main class="main">
+        <div class="context"><div class="crumb"><b>LocaNest</b><em>›</em>Demo Game<em>›</em><span id="crumb">Sample Scene</span></div><div class="right"><span class="connected">Connected</span><button class="btn" data-action="Refresh">↻ Refresh</button></div></div>
+        <section class="view active" id="scene-view">
+          <div class="intro"><div class="intro-line"><div><h1>Scene</h1><div class="sub">Sample Scene · 4 linked items</div></div><button class="btn primary" data-action="Create object">Create object</button></div><div class="tools"><input class="search" id="scene-search" placeholder="Search linked scene content" aria-label="Search linked scene content"><select class="select" aria-label="Scene language"><option>English · source</option><option>French</option></select><select class="select" id="scene-filter" aria-label="Filter scene items"><option>All links</option><option>Objects</option><option>Text links</option><option>Changed</option></select></div><div class="scope"><strong>4 linked items</strong> &nbsp; 2 objects · 2 text links &nbsp; | &nbsp; Selection stays linked to Unity Hierarchy</div></div>
+          <div class="split"><div class="listpane"><div class="panehead"><span>SCENE LINKS</span><span id="scene-count">4 ITEMS</span></div><button class="listrow active scene-item" data-kind="object" data-search="merchant npc merchant_npc changed" data-scene="merchant"><span><span class="name">Merchant NPC <span class="tag">object</span></span><span class="meta">merchant_npc · Grimoire Object Link</span></span><span class="side">NPC<small>2 pending changes</small></span></button><button class="listrow scene-item" data-kind="object" data-search="quest board quest_board" data-scene="board"><span><span class="name">Quest Board <span class="tag">object</span></span><span class="meta">quest_board · Grimoire Object Link</span></span><span class="side">Quest prop<small>Linked</small></span></button><button class="listrow scene-item" data-kind="text" data-search="welcome text welcome_text changed" data-scene="welcome"><span><span class="name">Welcome Text <span class="tag text">text</span></span><span class="meta">welcome_text · Grimoire Text Link</span></span><span class="side">UI Text<small>Missing French</small></span></button><button class="listrow scene-item" data-kind="text" data-search="shop sign shop_sign" data-scene="sign"><span><span class="name">Shop Sign <span class="tag text">text</span></span><span class="meta">shop_sign · Grimoire Text Link</span></span><span class="side">World Text<small>Linked</small></span></button></div>
+            <aside class="detailpane"><div class="detailhead"><div class="eyebrow">SELECTED SCENE LINK</div><h2 id="scene-detail-name">Merchant NPC</h2><div class="key" id="scene-detail-key">merchant_npc · selected in Unity Hierarchy</div></div><div class="detailbody"><div class="actionrow"><button class="btn primary" id="open-object">Open object</button><button class="btn" data-action="Ping in Hierarchy">Ping in Hierarchy</button></div><div class="pair"><span>Kind</span><b id="scene-detail-kind">Grimoire Object Link</b></div><div class="pair"><span>Value source</span><b id="scene-detail-source">Connected Snapshot</b></div><div class="pair"><span>Status</span><b id="scene-detail-status">2 changes pending</b></div><div class="sectiontitle">QUICK VALUES</div><div id="scene-values"><div class="value-row"><span>Display name<small>Text</small></span><b>Mara the Merchant</b></div><div class="value-row"><span>Health<small>Number</small></span><b>80</b></div><div class="value-row"><span>Location<small>Text</small></span><b>Town gate</b></div></div></div></aside></div>
+        </section>
+        <section class="view" id="object-view">
+          <div class="intro"><div class="intro-line"><div><h1>Merchant NPC</h1><div class="sub">Selected in Unity Hierarchy · Grimoire key <strong>merchant_npc</strong></div></div><button class="btn primary" data-view="review">Review 2 changes</button></div><div class="sourcebar"><strong>Object values</strong><select class="select" id="object-source" aria-label="Object value source"><option>Inherit project default · Connected Snapshot</option><option>Connected Snapshot</option><option>Version Database</option></select><span class="hint">Game code reads this link through the selected source.</span></div></div>
+          <div class="split"><div class="listpane"><div class="bar"><span>OBJECT VALUES</span><span>READ ONLY</span></div><div class="field-group">Identity</div><div class="data-row active"><span><strong>Display name</strong><small>Text · title</small></span><span class="data-value">Mara the Merchant</span><button class="copy" aria-label="Copy display name" data-action="Copy value">⧉</button></div><div class="data-row"><span><strong>Health</strong><small>Number · health</small></span><span class="data-value">80</span><button class="copy" aria-label="Copy health" data-action="Copy value">⧉</button></div><div class="data-row"><span><strong>Friendly</strong><small>Boolean · friendly</small></span><span class="data-value">true</span><button class="copy" aria-label="Copy friendly" data-action="Copy value">⧉</button></div><div class="field-group">Game engine data · editable in Unity</div><div class="data-row"><span><strong>Position <span class="tag warn">changed</span></strong><small>Transform · position</small></span><span class="data-value">(12.4, 0, -3.2)</span><button class="copy" aria-label="Copy position" data-action="Copy value">⧉</button></div><div class="data-row"><span><strong>Rotation</strong><small>Transform · rotation</small></span><span class="data-value">(0, 90, 0)</span><button class="copy" aria-label="Copy rotation" data-action="Copy value">⧉</button></div><div class="data-row"><span><strong>Scale</strong><small>Transform · scale</small></span><span class="data-value">(1, 1, 1)</span><button class="copy" aria-label="Copy scale" data-action="Copy value">⧉</button></div><div class="field-group">Local field overrides</div><div class="data-row"><span><strong>Greeting <span class="tag warn">changed</span></strong><small>Text · greeting</small></span><span class="data-value">Welcome back, traveler</span><button class="copy" aria-label="Copy greeting" data-action="Copy value">⧉</button></div></div>
+            <aside class="detailpane"><div class="detailhead"><div class="eyebrow">LINK DETAILS</div><h2>Merchant NPC</h2><div class="key">Unity GameObject ↔ Grimoire object</div></div><div class="detailbody"><div class="pair"><span>Object key</span><b>merchant_npc</b></div><div class="pair"><span>Reading from</span><b id="source-label">Connected Snapshot</b></div><div class="pair"><span>Version key</span><b id="version-key">—</b></div><div class="sectiontitle">SELECTED VALUE</div><div class="value-row"><span>Display name<small>title · Text</small></span><b>Mara the Merchant</b></div><div class="actionrow"><button class="btn" data-action="Copy key">Copy key</button><button class="btn" data-action="Open Object Link in Inspector">Open in Inspector</button></div><div class="note">Source values are read only here. Changes made on this link are shown separately and can be reviewed before they are queued.</div><div class="sectiontitle">RELATED WORK</div><div class="pair"><span>Pending changes</span><b>2</b></div><div class="pair"><span>Assigned tasks</span><b>1 open</b></div></div></aside></div>
+        </section>
+        <section class="view" id="review-view">
+          <div class="intro"><div class="intro-line"><div><h1>Review</h1><div class="sub">Compare Unity edits with stored Grimoire values before queuing them.</div></div><button class="btn primary" id="queue-button" data-action="Queue selected for review">Queue 2 for review</button></div><div class="note warn">Queuing creates a review commit in Grimoire. It does not publish these changes.</div><div class="scope"><strong>3 pending changes</strong> across 2 linked items &nbsp; | &nbsp; Select only the changes you want to queue</div></div>
+          <div class="split"><div class="listpane"><div class="panehead"><span>PENDING CHANGES</span><span id="selected-count">2 SELECTED</span></div><div class="field-group">Merchant NPC · merchant_npc</div><label class="review-row active"><input type="checkbox" class="review-check" checked><span><span class="name">Position <span class="tag warn">transform</span></span><span class="meta">Merchant NPC · Sample Scene</span><span class="diff"><span class="old"><small>Grimoire</small>(11.0, 0, -3.2)</span><span class="arrow">→</span><span class="new"><small>Unity</small>(12.4, 0, -3.2)</span></span></span></label><label class="review-row active"><input type="checkbox" class="review-check" checked><span><span class="name">Greeting <span class="tag warn">text</span></span><span class="meta">Merchant NPC · local field override</span><span class="diff"><span class="old"><small>Grimoire</small>Welcome, traveler</span><span class="arrow">→</span><span class="new"><small>Unity</small>Welcome back, traveler</span></span></span></label><div class="field-group">Welcome Text · welcome_text</div><label class="review-row"><input type="checkbox" class="review-check"><span><span class="name">French translation <span class="tag text">localization</span></span><span class="meta">Welcome Text · Sample Scene</span><span class="diff"><span class="old"><small>Grimoire</small>Bienvenue</span><span class="arrow">→</span><span class="new"><small>Unity</small>Bienvenue à la ville</span></span></span></label></div>
+            <aside class="detailpane"><div class="detailhead"><div class="eyebrow">REVIEW SUMMARY</div><h2 id="review-summary">2 changes selected</h2><div class="key">Changes will be queued for Demo Game</div></div><div class="detailbody"><label for="review-description">Description <span class="sub">(optional)</span></label><textarea class="field" id="review-description" rows="3" placeholder="What changed?"></textarea><div class="sectiontitle">DESTINATION</div><div class="pair"><span>Workspace</span><b>LocaNest / Demo Game</b></div><div class="pair"><span>Next step</span><b>Review commit in Grimoire</b></div><div class="note">After queuing, open the review commit in Grimoire to approve or publish it.</div><div class="actionrow"><button class="btn" data-action="Reset selected changes">Reset selected changes…</button></div></div></aside></div>
+        </section>
+      </main>
+    </div>
+    <div class="foot">Grimoire · Demo Game &nbsp; | &nbsp; Concept preview · illustrative content</div>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+  <script>
+    const views = ["scene","object","review"];
+    const sceneItems = {
+      merchant:{name:"Merchant NPC",key:"merchant_npc · selected in Unity Hierarchy",kind:"Grimoire Object Link",source:"Connected Snapshot",status:"2 changes pending",values:[["Display name","Mara the Merchant"],["Health","80"],["Location","Town gate"]]},
+      board:{name:"Quest Board",key:"quest_board · selected in Unity Hierarchy",kind:"Grimoire Object Link",source:"Version Database",status:"Linked",values:[["Title","Available quests"],["Quest count","3"]]},
+      welcome:{name:"Welcome Text",key:"welcome_text · selected in Unity Hierarchy",kind:"Grimoire Text Link",source:"Grimoire strings",status:"Missing French",values:[["English","Welcome to town"],["French","Missing"]]},
+      sign:{name:"Shop Sign",key:"shop_sign · selected in Unity Hierarchy",kind:"Grimoire Text Link",source:"Grimoire strings",status:"Linked",values:[["English","Mara's Goods"]]}
+    };
+    function showView(view){
+      if(!views.includes(view)) return;
+      document.querySelectorAll(".view").forEach(el=>el.classList.toggle("active",el.id===view+"-view"));
+      document.querySelectorAll(".nav[data-view]").forEach(el=>el.classList.toggle("active",el.dataset.view===view));
+      document.querySelectorAll(".preview [data-view]").forEach(el=>el.classList.toggle("active",el.dataset.view===view));
+      document.getElementById("crumb").textContent=view==="scene"?"Sample Scene":view==="object"?"Merchant NPC":"Review";
+    }
+    function updateReview(){
+      const checks=[...document.querySelectorAll(".review-check")],n=checks.filter(x=>x.checked).length;
+      checks.forEach(x=>x.closest(".review-row").classList.toggle("active",x.checked));
+      document.getElementById("selected-count").textContent=n+" SELECTED";
+      document.getElementById("review-summary").textContent=n+" change"+(n===1?"":"s")+" selected";
+      const button=document.getElementById("queue-button");button.textContent="Queue "+n+" for review";button.disabled=n===0;
+    }
+    document.addEventListener("click",event=>{
+      const width=event.target.closest("[data-width]");
+      if(width){document.getElementById("frame").classList.toggle("narrow",width.dataset.width==="narrow");document.querySelectorAll("[data-width]").forEach(x=>x.classList.toggle("active",x===width));return}
+      const view=event.target.closest("[data-view]");
+      if(view){if(view.dataset.view==="library")location.href="ContentLibraryConcept.html";else showView(view.dataset.view);return}
+      const row=event.target.closest("[data-scene]");
+      if(row){document.querySelectorAll("[data-scene]").forEach(x=>x.classList.toggle("active",x===row));const item=sceneItems[row.dataset.scene];document.getElementById("scene-detail-name").textContent=item.name;document.getElementById("scene-detail-key").textContent=item.key;document.getElementById("scene-detail-kind").textContent=item.kind;document.getElementById("scene-detail-source").textContent=item.source;document.getElementById("scene-detail-status").textContent=item.status;document.getElementById("scene-values").innerHTML=item.values.map(pair=>'<div class="value-row"><span>'+pair[0]+'</span><b>'+pair[1]+'</b></div>').join("");return}
+      if(event.target.id==="open-object"){showView("object");return}
+      const action=event.target.closest("[data-action]");
+      if(action){const toast=document.getElementById("toast");toast.textContent=action.dataset.action+" · concept preview";toast.classList.add("show");setTimeout(()=>toast.classList.remove("show"),2500)}
+    });
+    document.querySelectorAll(".review-check").forEach(x=>x.addEventListener("change",updateReview));
+    document.getElementById("object-source").addEventListener("change",event=>{const version=event.target.value==="Version Database";document.getElementById("source-label").textContent=version?"Version Database":"Connected Snapshot";document.getElementById("version-key").textContent=version?"Database.Library.Characters.MerchantNPC":"—"});
+    function filterScene(){const query=document.getElementById("scene-search").value.trim().toLowerCase(),filter=document.getElementById("scene-filter").value;let count=0;document.querySelectorAll(".scene-item").forEach(row=>{const matchText=!query||row.dataset.search.includes(query),matchKind=filter==="All links"||filter==="Objects"&&row.dataset.kind==="object"||filter==="Text links"&&row.dataset.kind==="text"||filter==="Changed"&&row.dataset.search.includes("changed");row.hidden=!(matchText&&matchKind);if(!row.hidden)count++});document.getElementById("scene-count").textContent=count+" ITEMS"}
+    document.getElementById("scene-search").addEventListener("input",filterScene);document.getElementById("scene-filter").addEventListener("change",filterScene);
+    const params=new URLSearchParams(location.search),requested=params.get("view");if(views.includes(requested))showView(requested);
+    if(params.get("dock")==="narrow"){document.getElementById("frame").classList.add("narrow");document.querySelectorAll("[data-width]").forEach(x=>x.classList.toggle("active",x.dataset.width==="narrow"))}
+  </script>
+</body>
+</html>

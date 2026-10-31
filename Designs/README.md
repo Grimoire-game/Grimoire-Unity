@@ -4,6 +4,10 @@
 
 The focused [Content Library concept](./ContentLibraryConcept.html) puts objects, dialogs, and variables in one folder-based browser with immediate value previews and context-aware picking. See its [design notes](./ContentLibraryConcept.md). The wider workspace concept below remains useful for tasks, sync review, versions, and runtime tools.
 
+The revised [Scene, Object, and Review concepts](./WorkspaceViewsConcept.html) show those workflows in the same dockable shell and visual style as Content Library. See the [design notes](./WorkspaceViewsConcept.md) or static previews: [Scene](./SceneWorkspaceConcept.png), [Object](./ObjectWorkspaceConcept.png), [Review](./ReviewWorkspaceConcept.png), and [narrow Object](./ObjectWorkspaceNarrowConcept.png).
+
+The [Dialogs, Tasks, Versions, and Runtime concepts](./WorkflowViewsConcept.html) extend that shell. The [runtime design notes](./WorkflowViewsConcept.md) define a Play Mode change feed and live linked-value inventory across every observable Grimoire link. Static previews: [Dialogs](./DialogsWorkspaceConcept.png), [Tasks](./TasksWorkspaceConcept.png), [Versions](./VersionsWorkspaceConcept.png), [Runtime changes](./RuntimeWorkspaceConcept.png), [Runtime linked now](./RuntimeLinkedNowConcept.png), and [narrow Runtime](./RuntimeWorkspaceNarrowConcept.png).
+
 These concepts guided the current single-window Grimoire workspace. Open [GrimoireEditorConcept.html](./GrimoireEditorConcept.html) in a browser to review the clickable mockups. The mockup content is illustrative, not live project data. Static previews: [Scene browser](./SceneBrowserConcept.png), [Review changes](./ReviewChangesConcept.png), and [Narrow Object view](./NarrowObjectConcept.png).
 
 ## Direction

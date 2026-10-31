@@ -90,7 +90,7 @@ namespace Grimoire.PluginV2.Editor
             if (!GrimoireSettings.IsConfigured || string.IsNullOrEmpty(_gameId))
             {
                 EditorGUILayout.HelpBox(
-                    "Sign in and choose a company and game in Grimoire Connect, then open this window again.",
+                    "Sign in and choose a company and game in Grimoire, then open this window again.",
                     MessageType.Warning);
                 EditorGUILayout.EndScrollView();
                 return;

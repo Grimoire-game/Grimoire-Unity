@@ -274,7 +274,7 @@ namespace Grimoire.PluginV2.Editor
         {
             if (!GrimoireSettings.IsConfigured)
             {
-                _validationMessage = "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).";
+                _validationMessage = "Sign in and choose a workspace first (Window > Grimoire).";
                 _validationType = MessageType.Warning;
                 return;
             }
@@ -453,7 +453,7 @@ namespace Grimoire.PluginV2.Editor
         {
             if (!GrimoireSettings.IsConfigured)
             {
-                _error = "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).";
+                _error = "Sign in and choose a workspace first (Window > Grimoire).";
                 Repaint();
                 return;
             }

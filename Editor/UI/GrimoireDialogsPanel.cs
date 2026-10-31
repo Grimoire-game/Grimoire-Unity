@@ -16,6 +16,10 @@ namespace Grimoire.PluginV2.Editor
         private const string SearchControlName = "GrimoireDialogSearch";
 
         private Vector2 _scroll;
+        private Vector2 _detailsScroll;
+        private string _selectedDialogId;
+        private int _stateFilter;
+        private static readonly string[] StateFilters = { "All dialogs", "Imported", "Update available", "Not imported" };
         private DialogSummary[] _dialogs;
         private Dictionary<string, GrimoireDialogAsset> _imported = new Dictionary<string, GrimoireDialogAsset>();
         private bool _loading;
@@ -71,13 +75,15 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>Forget the list, e.g. after switching games.</summary>
         public void Reset()
         {
+            _loadGeneration++;
+            _loading = false;
             _dialogs = null;
             _offset = 0;
             _error = null;
             _status = null;
         }
 
-        public void Draw()
+        public void Draw(float width, float height)
         {
             if (!GrimoireSettings.IsConfigured)
             {
@@ -85,15 +91,9 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            GrimoireEditorStyles.DrawInfoBox(
-                "1. Add the dialog player to your scene once.\n" +
-                "2. Import the dialogs you need. They are saved to " + GrimoireDialogImporter.AssetsFolder +
-                " and play in builds without signing in.\n" +
-                "3. Play one from code: GrimoireDialogPlayer.Main.StartDialog(dialogAsset).");
-
+            GrimoireWorkflowGUI.Header("Dialogs", "Find a dialog, check its scene player and import state, then inspect or update the asset.");
             DrawSceneSetup();
-            DrawToolbar();
-            DrawSearch();
+            DrawWorkspaceFilters();
 
             if (!string.IsNullOrEmpty(_error))
             {
@@ -108,33 +108,128 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUILayout.LabelField(_status, GrimoireEditorStyles.MiniSecondaryStyle);
             }
 
-            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+            var paneHeight = Mathf.Max(220f, height - 234f);
+            var narrow = GrimoireWorkflowGUI.IsNarrow(width);
+            if (!narrow) EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.BeginVertical(narrow ? GUILayout.ExpandWidth(true) : GUILayout.Width(Mathf.Max(230f, width * 0.57f)));
+            _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.Height(narrow ? 215f : paneHeight));
+            DrawWorkspaceList();
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
+            _detailsScroll = EditorGUILayout.BeginScrollView(_detailsScroll, GUILayout.Height(narrow ? Mathf.Max(220f, paneHeight - 215f) : paneHeight));
+            DrawWorkspaceDetail();
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+            if (!narrow) EditorGUILayout.EndHorizontal();
+        }
 
+        private void DrawWorkspaceFilters()
+        {
+            var submit = Event.current.type == EventType.KeyDown &&
+                         (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter) &&
+                         GUI.GetNameOfFocusedControl() == SearchControlName;
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Search", GUILayout.Width(44f));
+            GUI.SetNextControlName(SearchControlName);
+            _search = EditorGUILayout.TextField(_search ?? "", GUILayout.MinWidth(90f));
+            using (new EditorGUI.DisabledScope(_loading))
+            {
+                if (GUILayout.Button("Search", GUILayout.Width(62f)) || submit) ApplySearch(_search);
+            }
+            _stateFilter = EditorGUILayout.Popup(_stateFilter, StateFilters, GUILayout.Width(125f));
+            if (GUILayout.Button("Refresh", GUILayout.Width(65f))) Refresh();
+            EditorGUILayout.EndHorizontal();
+            GUILayout.Space(5f);
+        }
+
+        private void DrawWorkspaceList()
+        {
+            GrimoireWorkflowGUI.Section("Dialogs" + (_dialogs == null ? "" : $" · {_dialogs.Length}"));
             if (_loading && _dialogs == null)
-            {
-                EditorGUILayout.LabelField("Loading dialogs...", GrimoireEditorStyles.MiniSecondaryStyle);
-            }
+                EditorGUILayout.LabelField("Loading dialogs…", GrimoireEditorStyles.MiniSecondaryStyle);
             else if (_dialogs == null || _dialogs.Length == 0)
-            {
-                if (!_loading)
-                {
-                    GrimoireEditorStyles.DrawInfoBox(string.IsNullOrEmpty(_appliedSearch)
-                        ? "This game has no dialogs yet. Create one in the Grimoire dialog editor."
-                        : $"No dialogs match '{_appliedSearch}'.");
-                }
-            }
+                GrimoireEditorStyles.DrawInfoBox("No dialogs found. Try another search or refresh.");
             else
             {
+                if (Array.Find(_dialogs, d => d.id == _selectedDialogId &&
+                    (_stateFilter == 0 || DialogState(d, ImportedAsset(d)) == StateFilters[_stateFilter])) == null)
+                    _selectedDialogId = Array.Find(_dialogs, d => _stateFilter == 0 ||
+                        DialogState(d, ImportedAsset(d)) == StateFilters[_stateFilter])?.id;
+                var shown = 0;
                 foreach (var dialog in _dialogs)
                 {
-                    DrawDialogCard(dialog);
-                    EditorGUILayout.Space(4);
+                    _imported.TryGetValue(dialog.id ?? "", out var asset);
+                    var state = DialogState(dialog, asset);
+                    if (_stateFilter > 0 && state != StateFilters[_stateFilter]) continue;
+                    shown++;
+                    if (GrimoireWorkflowGUI.Row(
+                            string.IsNullOrEmpty(dialog.name) ? "(unnamed dialog)" : dialog.name,
+                            (string.IsNullOrEmpty(dialog.folder) ? "Unfiled" : dialog.folder) + " · " + (dialog.dialog_key ?? ""),
+                            asset == null ? "Not imported" : $"{asset.Nodes.Count} nodes",
+                            state,
+                            dialog.id == _selectedDialogId))
+                        _selectedDialogId = dialog.id;
                 }
-
+                if (shown == 0) GrimoireEditorStyles.DrawInfoBox("No dialogs match this import filter.");
                 DrawPaging();
             }
+        }
 
-            EditorGUILayout.EndScrollView();
+        private void DrawWorkspaceDetail()
+        {
+            var visible = _dialogs == null ? Array.Empty<DialogSummary>() : Array.FindAll(_dialogs, d =>
+            {
+                _imported.TryGetValue(d.id ?? "", out var imported);
+                return _stateFilter == 0 || DialogState(d, imported) == StateFilters[_stateFilter];
+            });
+            var dialog = Array.Find(visible, d => d.id == _selectedDialogId) ??
+                         (visible.Length > 0 ? visible[0] : null);
+            if (dialog == null)
+            {
+                GrimoireWorkflowGUI.DetailHeading("Dialog details", "Select a dialog", null);
+                return;
+            }
+            _imported.TryGetValue(dialog.id ?? "", out var asset);
+            GrimoireWorkflowGUI.DetailHeading("Dialog details", dialog.name, dialog.dialog_key);
+            using (new EditorGUI.DisabledScope(!string.IsNullOrEmpty(_busyDialogId)))
+            {
+                if (GUILayout.Button(asset == null ? "Import dialog" : "Update dialog asset", GrimoireEditorStyles.PrimaryButtonStyle, GUILayout.Height(28f)))
+                    ImportAsync(dialog);
+            }
+            if (asset != null && GUILayout.Button("Select imported asset"))
+            {
+                Selection.activeObject = asset;
+                EditorGUIUtility.PingObject(asset);
+            }
+            GrimoireWorkflowGUI.DetailLine("Folder", string.IsNullOrEmpty(dialog.folder) ? "Unfiled" : dialog.folder);
+            GrimoireWorkflowGUI.DetailLine("Import", DialogState(dialog, asset));
+            GrimoireWorkflowGUI.DetailLine("Status", dialog.status);
+            GrimoireWorkflowGUI.DetailLine("Updated", GrimoireExportImporterService.FormatDate(dialog.updated_at));
+            if (asset != null)
+            {
+                GrimoireWorkflowGUI.Section("Imported structure");
+                GrimoireWorkflowGUI.DetailLine("Nodes", asset.Nodes.Count.ToString());
+                GrimoireWorkflowGUI.DetailLine("Variables", asset.Variables.Count.ToString());
+                GrimoireWorkflowGUI.DetailLine("Starting node", asset.StartingNode);
+                var first = asset.FindNode(asset.StartingNode);
+                if (first != null && !string.IsNullOrEmpty(first.text))
+                    GrimoireWorkflowGUI.Note(first.text);
+            }
+            else GrimoireWorkflowGUI.Note("Import this dialog to inspect its nodes and variables in Unity.");
+        }
+
+        private static string DialogState(DialogSummary dialog, GrimoireDialogAsset asset)
+        {
+            if (asset == null) return "Not imported";
+            return string.Equals(asset.UpdatedAt, dialog.updated_at ?? "", StringComparison.Ordinal)
+                ? "Imported" : "Update available";
+        }
+
+        private GrimoireDialogAsset ImportedAsset(DialogSummary dialog)
+        {
+            _imported.TryGetValue(dialog.id ?? "", out var asset);
+            return asset;
         }
 
         private void DrawSceneSetup()
@@ -373,13 +468,14 @@ namespace Grimoire.PluginV2.Editor
         private async void RefreshAsync()
         {
             var generation = ++_loadGeneration;
+            var gameId = GrimoireSettings.GameId;
             _loading = true;
             _error = null;
             _status = "Loading dialogs...";
             RequestRepaint();
 
             var hasSession = await GrimoireAuthSession.EnsureFreshTokenAsync();
-            if (generation != _loadGeneration)
+            if (generation != _loadGeneration || gameId != GrimoireSettings.GameId)
             {
                 return;
             }
@@ -393,8 +489,8 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            var result = await GrimoireApiClient.ListDialogsAsync(GrimoireSettings.GameId, _appliedSearch, PageSize, _offset);
-            if (generation != _loadGeneration)
+            var result = await GrimoireApiClient.ListDialogsAsync(gameId, _appliedSearch, PageSize, _offset);
+            if (generation != _loadGeneration || gameId != GrimoireSettings.GameId)
             {
                 return;
             }

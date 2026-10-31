@@ -49,6 +49,8 @@ namespace Grimoire.PluginV2.Editor
         private readonly List<Item> _items = new List<Item>();
         private readonly List<Item> _visible = new List<Item>();
         private readonly List<string> _folders = new List<string>();
+        private readonly Dictionary<string, string> _folderPaths =
+            new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly Dictionary<string, ObjectViewDocument> _objectDetails =
             new Dictionary<string, ObjectViewDocument>(StringComparer.Ordinal);
         private readonly Dictionary<string, DialogResource> _dialogDetails =
@@ -61,11 +63,13 @@ namespace Grimoire.PluginV2.Editor
         private bool _objectsLoading;
         private bool _dialogsLoading;
         private bool _variablesLoading;
+        private bool _foldersLoading;
         private bool _detailLoading;
         private bool _busy;
         private string _objectError;
         private string _dialogError;
         private string _variableError;
+        private string _folderError;
         private string _detailError;
         private string _detailFailedId;
         private string _message;
@@ -213,7 +217,11 @@ namespace Grimoire.PluginV2.Editor
 
             BuildChrome();
             _root.RegisterCallback<GeometryChangedEvent>(evt =>
-                _root.EnableInClassList("compact", evt.newRect.width < 720f));
+            {
+                var width = evt.newRect.width;
+                _root.EnableInClassList("compact", width < (embedded ? 650f : 720f));
+                _root.EnableInClassList("medium", embedded && width >= 650f && width < 920f);
+            });
             RefreshAll();
         }
 
@@ -354,24 +362,27 @@ namespace Grimoire.PluginV2.Editor
             _objects.Clear();
             _dialogs.Clear();
             _variables.Clear();
+            _folderPaths.Clear();
             _objectDetails.Clear();
             _dialogDetails.Clear();
             _remoteVariablesLoaded = false;
             _objectError = null;
             _dialogError = null;
             _variableError = null;
+            _folderError = null;
             _detailError = null;
             _detailFailedId = null;
             _message = null;
             _objectsLoading = false;
             _dialogsLoading = false;
             _variablesLoading = false;
+            _foldersLoading = false;
             ReadLocalAssets();
             BuildItems();
 
             if (!GrimoireSettings.IsConfigured)
             {
-                _message = "Sign in and choose a game in Grimoire Connect to load objects, dialogs and variables.";
+                _message = "Sign in and choose a game in Grimoire to load objects, dialogs and variables.";
                 RenderItems();
                 return;
             }
@@ -379,6 +390,7 @@ namespace Grimoire.PluginV2.Editor
             _objectsLoading = true;
             _dialogsLoading = true;
             _variablesLoading = true;
+            _foldersLoading = true;
             RenderItems();
             BeginRemoteLoad(generation, GrimoireSettings.GameId);
         }
@@ -393,8 +405,8 @@ namespace Grimoire.PluginV2.Editor
                 {
                     if (IsCurrent(generation, gameId))
                     {
-                        _objectsLoading = _dialogsLoading = _variablesLoading = false;
-                        _message = "Your Grimoire session has expired. Sign in again from Grimoire Connect.";
+                        _objectsLoading = _dialogsLoading = _variablesLoading = _foldersLoading = false;
+                        _message = "Your Grimoire session has expired. Sign in again from Grimoire.";
                         RenderItems();
                     }
                     return;
@@ -406,6 +418,7 @@ namespace Grimoire.PluginV2.Editor
                 }
 
                 await Task.WhenAll(
+                    LoadFolderNames(generation, gameId),
                     LoadObjects(generation, gameId),
                     LoadDialogs(generation, gameId),
                     LoadVariables(generation, gameId));
@@ -414,7 +427,7 @@ namespace Grimoire.PluginV2.Editor
             {
                 if (IsCurrent(generation, gameId))
                 {
-                    _objectsLoading = _dialogsLoading = _variablesLoading = false;
+                    _objectsLoading = _dialogsLoading = _variablesLoading = _foldersLoading = false;
                     _message = "Could not refresh the Content Library: " + ex.Message;
                     RenderItems();
                 }
@@ -424,6 +437,66 @@ namespace Grimoire.PluginV2.Editor
         private bool IsCurrent(int generation, string gameId) =>
             _active && generation == _refreshGeneration &&
             string.Equals(gameId, GrimoireSettings.GameId, StringComparison.Ordinal);
+
+        private async Task LoadFolderNames(int generation, string gameId)
+        {
+            try
+            {
+                var result = await GrimoireApiClient.GetGameFoldersAsync(gameId);
+                if (!IsCurrent(generation, gameId)) return;
+                if (result.Success)
+                {
+                    foreach (var pair in CreateFolderPathMap(result.Data))
+                        _folderPaths[pair.Key] = pair.Value;
+                }
+                else
+                {
+                    _folderError = "Folder names could not be loaded. Items with folder IDs are under Other folders.";
+                }
+                BuildItems();
+            }
+            catch (Exception)
+            {
+                if (IsCurrent(generation, gameId))
+                    _folderError = "Folder names could not be loaded. Items with folder IDs are under Other folders.";
+            }
+            finally
+            {
+                if (IsCurrent(generation, gameId))
+                {
+                    _foldersLoading = false;
+                    RenderItems();
+                }
+            }
+        }
+
+        internal static Dictionary<string, string> CreateFolderPathMap(GameFolderSection[] sections)
+        {
+            var paths = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var section in sections ?? Array.Empty<GameFolderSection>())
+            {
+                if (section == null) continue;
+                var root = section.type == "library" ? "Objects"
+                    : section.type == "dialogs" ? "Dialogs"
+                    : section.type == "variables" ? "Variables" : null;
+                if (root == null) continue;
+                AddFolderPaths(paths, root, "", section.folders);
+            }
+            return paths;
+        }
+
+        private static void AddFolderPaths(Dictionary<string, string> paths, string root,
+            string parentPath, GameFolderNode[] nodes)
+        {
+            foreach (var node in nodes ?? Array.Empty<GameFolderNode>())
+            {
+                if (node == null || string.IsNullOrWhiteSpace(node.id)) continue;
+                var name = string.IsNullOrWhiteSpace(node.name) ? "Unnamed folder" : node.name.Trim();
+                var path = string.IsNullOrEmpty(parentPath) ? name : parentPath + "/" + name;
+                paths[root + ":" + node.id] = path;
+                AddFolderPaths(paths, root, path, node.subfolder);
+            }
+        }
 
         private async Task LoadObjects(int generation, string gameId)
         {
@@ -562,7 +635,7 @@ namespace Grimoire.PluginV2.Editor
                     Id = "object:" + summary.id,
                     Name = Display(summary.name, summary.code_id, summary.id),
                     Key = Display(summary.code_id, summary.id),
-                    Folder = Folder("Objects", summary.folder),
+                    Folder = ResolveFolder("Objects", summary.folder),
                     Status = Display(summary.status, "Grimoire"),
                     Source = "Grimoire API",
                     Summary = Display(summary.template?.name, summary.type, "Object"),
@@ -581,7 +654,7 @@ namespace Grimoire.PluginV2.Editor
                     Id = "dialog:" + summary.id,
                     Name = Display(summary.name, summary.dialog_key, summary.id),
                     Key = Display(summary.dialog_key, summary.id),
-                    Folder = Folder("Dialogs", summary.folder),
+                    Folder = ResolveFolder("Dialogs", summary.folder),
                     Status = DialogStatus(summary, asset),
                     Source = asset != null ? "Grimoire + local asset" : "Grimoire API",
                     Summary = asset != null ? $"{asset.Nodes.Count} nodes" : "Dialog",
@@ -639,7 +712,7 @@ namespace Grimoire.PluginV2.Editor
                         Id = "variable:" + variable.id,
                         Name = Display(variable.name, variable.id),
                         Key = Display(variable.name, variable.id),
-                        Folder = Folder("Variables", !string.IsNullOrWhiteSpace(variable.folder)
+                        Folder = ResolveFolder("Variables", !string.IsNullOrWhiteSpace(variable.folder)
                             ? variable.folder : variable.group),
                         Status = Display(variable.status, "Grimoire"),
                         Source = "Grimoire API",
@@ -706,6 +779,18 @@ namespace Grimoire.PluginV2.Editor
             if (clean.Count == 0) clean.Add("Unfiled");
             return root + "/" + string.Join("/", clean);
         }
+
+        private string ResolveFolder(string root, string path)
+        {
+            if (IsOpaqueFolderId(path))
+                return _folderPaths.TryGetValue(root + ":" + path, out var namedPath)
+                    ? Folder(root, namedPath) : root + "/Other folders";
+            return Folder(root, path);
+        }
+
+        internal static bool IsOpaqueFolderId(string value) =>
+            !string.IsNullOrWhiteSpace(value) &&
+            (value.Length >= 8 && value.All(char.IsDigit) || Guid.TryParse(value, out _));
 
         private void BuildFolders()
         {
@@ -808,7 +893,7 @@ namespace Grimoire.PluginV2.Editor
             _resultsHeading.text = _folder + "  ·  " + _visible.Count;
             _footer.text = $"{_items.Count} items · {_objects.Count} objects · {_dialogs.Count} dialogs · " +
                 $"{(_remoteVariablesLoaded ? _variables.Count : _cachedVariables?.Variables.Count ?? 0)} game variables" +
-                (_objectsLoading || _dialogsLoading || _variablesLoading ? " · Loading…" : "");
+                (_objectsLoading || _dialogsLoading || _variablesLoading || _foldersLoading ? " · Loading…" : "");
             if (!IsPicker)
             {
                 foreach (var button in _filterButtons.Children().OfType<Button>())
@@ -819,7 +904,7 @@ namespace Grimoire.PluginV2.Editor
                         button.text == "Variables" && _typeFilter == Kind.Variable);
                 }
             }
-            var errors = new[] { _message, _objectError, _dialogError, _variableError }
+            var errors = new[] { _message, _objectError, _dialogError, _variableError, _folderError }
                 .Where(value => !string.IsNullOrEmpty(value)).ToArray();
             _notice.text = string.Join("\n", errors);
             _notice.style.display = errors.Length == 0 ? DisplayStyle.None : DisplayStyle.Flex;
@@ -946,6 +1031,11 @@ namespace Grimoire.PluginV2.Editor
             }
             _detailContent.Add(actions);
             ValueRow("Folder", item.Folder);
+            var folderId = item.Type == Kind.Object ? item.Object?.folder
+                : item.Type == Kind.Dialog ? item.Dialog?.folder
+                : item.Type == Kind.Variable ? item.Variable?.folder : null;
+            if (IsOpaqueFolderId(folderId) && item.Folder.EndsWith("/Other folders", StringComparison.Ordinal))
+                ValueRow("Folder ID", folderId);
             ValueRow("Source", item.Source);
             ValueRow("Status", item.Status);
 

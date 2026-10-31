@@ -49,6 +49,16 @@ namespace Grimoire.PluginV2.Editor
         // Endpoints
         // -----------------------------------------------------------------
 
+        /// <summary>GET /api/games — game folder names for resolving content folder IDs.</summary>
+        public static async Task<ApiResult<GameFolderSection[]>> GetGameFoldersAsync(string gameId)
+        {
+            var url = BuildUrl("/api/games", new Dictionary<string, string> { ["game_id"] = gameId });
+            var result = await SendAsync<SingleEnvelope<GameFolderDetails>>("GET", url, null, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<GameFolderSection[]>.Ok(result.Data.data?.folders ?? Array.Empty<GameFolderSection>())
+                : ApiResult<GameFolderSection[]>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
         /// <summary>GET /api/v1/objects — summaries for pickers and key resolution.</summary>
         public static async Task<ApiResult<ObjectSummary[]>> ListObjectsAsync(
             string gameId, string search = null, int limit = 50, int offset = 0)
@@ -158,7 +168,7 @@ namespace Grimoire.PluginV2.Editor
             if (!GrimoireObjectCreate.IsUuid(gameId))
             {
                 return ApiResult<CreatedObject>.Fail(
-                    "Choose a game in Grimoire Connect before creating an object.",
+                    "Choose a game in Grimoire before creating an object.",
                     "missing_parameter");
             }
 
@@ -798,7 +808,7 @@ namespace Grimoire.PluginV2.Editor
                     {
                         case "invalid_credentials":
                         case "missing_credentials":
-                            return $"{envelope.error} Sign in with your Grimoire account in Grimoire Connect.";
+                            return $"{envelope.error} Sign in from Window > Grimoire.";
                         case "insufficient_scope":
                             return $"{envelope.error} Your account may not have access to this action in Grimoire.";
                         case "rate_limited":
@@ -806,7 +816,7 @@ namespace Grimoire.PluginV2.Editor
                         case "jwt_not_accepted":
                         case "api_key_not_accepted":
                         case "user_session_required":
-                            return $"{envelope.error} Sign in with your Grimoire account in Grimoire Connect.";
+                            return $"{envelope.error} Sign in from Window > Grimoire.";
                         default:
                             return envelope.error;
                     }

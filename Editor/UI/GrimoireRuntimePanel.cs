@@ -12,7 +12,8 @@ namespace Grimoire.PluginV2.Editor
     /// Runtime tab: guided setup for Bootstrap / Session Tracker, then a live
     /// inspector for Grimoire engine values while the scene is playing.
     /// </summary>
-    public class GrimoireRuntimePanel
+    [InitializeOnLoad]
+    public partial class GrimoireRuntimePanel
     {
         private enum Tab { Objects, Variables, Dialogs, Logic, Scene }
 
@@ -72,9 +73,11 @@ namespace Grimoire.PluginV2.Editor
 
             _active = true;
             EditorApplication.playModeStateChanged += OnPlayModeChanged;
+            EditorApplication.update += PollLiveValues;
             SyncSessionDraftFromScene();
             if (EditorApplication.isPlaying)
             {
+                BindRuntimeEvents();
                 ScheduleSnapshot();
             }
 
@@ -91,7 +94,9 @@ namespace Grimoire.PluginV2.Editor
             _active = false;
             _snapshotPending = false;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+            EditorApplication.update -= PollLiveValues;
             EditorApplication.delayCall -= TakeSnapshotIfPlaying;
+            UnbindRuntimeEvents();
         }
 
         private void RequestRepaint() => RepaintNeeded?.Invoke();
@@ -101,6 +106,8 @@ namespace Grimoire.PluginV2.Editor
             if (state == PlayModeStateChange.EnteredPlayMode)
             {
                 ClearData();
+                ClearLiveState();
+                BindRuntimeEvents();
                 SyncSessionDraftFromScene();
                 ScheduleSnapshot();
             }
@@ -108,6 +115,8 @@ namespace Grimoire.PluginV2.Editor
             {
                 _snapshotPending = false;
                 ClearData();
+                ClearLiveState();
+                UnbindRuntimeEvents();
             }
 
             RequestRepaint();
@@ -128,8 +137,8 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>
-        /// Capture values once after Bootstrap has had a chance to initialize.
-        /// No continuous polling — Refresh is manual after that.
+        /// Capture the initial baseline after Bootstrap has had a chance to initialize.
+        /// Subsequent changes are observed by the live poll and runtime events.
         /// </summary>
         private void ScheduleSnapshot()
         {
@@ -163,13 +172,20 @@ namespace Grimoire.PluginV2.Editor
 
             _snapshotPending = false;
             RefreshData();
+            CaptureLiveSnapshot();
             RequestRepaint();
         }
 
         // ─────────────────────────────────────────────────── Draw ────────────
 
-        public void Draw()
+        public void Draw(float width, float height)
         {
+            if (EditorApplication.isPlaying)
+            {
+                DrawLiveOverview(width, height);
+                if (!_showAdvancedInspector) return;
+            }
+
             var ready = EvaluateSetup(out var hasExport, out var bootstrap, out var tracker);
             if (ready && !_wasSetupReady)
             {
@@ -179,17 +195,12 @@ namespace Grimoire.PluginV2.Editor
 
             _wasSetupReady = ready;
 
-            DrawSetupChecklist(ready, hasExport, bootstrap, tracker);
-
-            if (!ready)
-            {
-                return;
-            }
-
             if (!EditorApplication.isPlaying)
             {
+                GrimoireWorkflowGUI.Header("Runtime", "Inspect Grimoire-linked data and every observed change during Play Mode.");
+                DrawSetupChecklist(ready, hasExport, bootstrap, tracker);
                 GrimoireEditorStyles.DrawInfoBox(
-                    "Press Play to inspect live variables, objects, dialogs, and logic.");
+                    "Press Play to capture linked objects, variables, dialogs, text, logic calls, and scene changes.");
                 EditorGUILayout.Space(6);
                 if (GUILayout.Button("Enter Play Mode", GUILayout.Height(32)))
                 {
@@ -198,6 +209,8 @@ namespace Grimoire.PluginV2.Editor
 
                 return;
             }
+
+            DrawSetupChecklist(ready, hasExport, bootstrap, tracker);
 
             DrawInspectorHeader();
 
@@ -641,18 +654,19 @@ namespace Grimoire.PluginV2.Editor
             using (new EditorGUI.DisabledScope(_snapshotPending))
             {
                 if (GUILayout.Button(
-                        new GUIContent("Refresh", "Re-read current values from the running scene (manual)."),
+                        new GUIContent("Refresh", "Re-read current values from the running scene now."),
                         EditorStyles.miniButton,
                         GUILayout.Width(70)))
                 {
                     RefreshData();
+                    CaptureLiveSnapshot();
                     RequestRepaint();
                 }
             }
 
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.LabelField(
-                "Values are captured when Play starts. Press Refresh to update.",
+                "Values update during Play Mode. Refresh re-reads them immediately.",
                 GrimoireEditorStyles.MiniSecondaryStyle);
             GUILayout.Space(4);
         }
@@ -1207,15 +1221,15 @@ namespace Grimoire.PluginV2.Editor
 
             try
             {
-                var grimoireTypes = GetGrimoireTypes();
+                var grimoireTypes = _cachedGrimoireTypes ?? (_cachedGrimoireTypes = GetGrimoireTypes());
                 _grimoireTypesFound = grimoireTypes.Count > 0;
                 CacheObjectRuntimeMethods(grimoireTypes);
 
                 if (!_grimoireTypesFound)
                 {
-                    _status = "No Grimoire types found. Import a Grimoire export to Assets/Grimoire/ first.";
-                    _statusType = MessageType.Warning;
-                    return;
+                    // Connected Object Links and synced variables work without an export.
+                    _status = "No export found. Showing live scene links and synced variables.";
+                    _statusType = MessageType.Info;
                 }
 
                 ScanSceneComponents(grimoireTypes);

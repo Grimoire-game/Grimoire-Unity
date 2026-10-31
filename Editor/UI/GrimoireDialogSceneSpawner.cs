@@ -83,7 +83,7 @@ namespace Grimoire.PluginV2.Editor
 
             if (!GrimoireSettings.IsConfigured)
             {
-                status?.Invoke($"Added '{go.name}'. Sign in (Window > Grimoire > Grimoire Connect) and click Refresh on it to load its fields.");
+                status?.Invoke($"Added '{go.name}'. Sign in (Window > Grimoire) and click Refresh on it to load its fields.");
                 return link;
             }
 

@@ -100,7 +100,7 @@ namespace Grimoire.PluginV2.Editor
             if (!GrimoireSettings.IsConfigured)
             {
                 return ApiResult<ObjectViewDocument>.Fail(
-                    "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).",
+                    "Sign in and choose a workspace first (Window > Grimoire).",
                     "not_configured");
             }
 
@@ -325,7 +325,7 @@ namespace Grimoire.PluginV2.Editor
             if (!GrimoireSettings.IsConfigured)
             {
                 return ApiResult<EngineCommitQueuedData>.Fail(
-                    "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).",
+                    "Sign in and choose a workspace first (Window > Grimoire).",
                     "not_configured");
             }
 
@@ -382,7 +382,7 @@ namespace Grimoire.PluginV2.Editor
             if (!GrimoireSettings.IsConfigured)
             {
                 return ApiResult<GameEngineInstance[]>.Fail(
-                    "Sign in and choose a workspace first (Window > Grimoire > Grimoire Connect).",
+                    "Sign in and choose a workspace first (Window > Grimoire).",
                     "not_configured");
             }
 

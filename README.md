@@ -58,6 +58,10 @@ variables, directly from its details. The Grimoire Object Link inspector uses
 the same browser as its object picker; the Dialog Player inspector can pick an
 imported dialog from it.
 
+The browser resolves folder IDs against the selected game's folder tree so the
+sidebar shows folder names. If that metadata is unavailable, affected items
+appear under **Other folders** and the original ID remains visible in details.
+
 ### Choosing where Object Links read values
 
 In **Grimoire > Settings**, choose the project's **Object data source**:
@@ -166,6 +170,8 @@ restores the Unity transform from the values currently saved in Grimoire.
 The **Tasks** tab lists all workflow tasks for the selected game via
 `GET /api/v1/tasks`. Use the assignee filter to show all tasks, only tasks
 assigned to you, or tasks assigned to a specific team member.
+Search the task list and select a row to inspect its status, assignee, and linked
+content. The detail pane lets you update status or open a linked scene object.
 
 Each open task gets a **Complete** button (moves it to the game's done status)
 and a status dropdown for other workflow moves.
@@ -195,7 +201,7 @@ its Grimoire Text Link. The next scene-language switch clears it again.
 
 ### Object tab
 
-With Grimoire Connect open, select a linked GameObject in the Hierarchy. The
+With Grimoire open, select a linked GameObject in the Hierarchy. The
 **Object** tab fetches the object's view document and exposes three sub-tabs:
 
 - **Info** — object overview, informational fields
@@ -233,6 +239,9 @@ the speaker names. Builds read only this asset, so players never sign in or go
 online. Dialogs that this one jumps to are imported with it. When a dialog
 changes in Grimoire, click **Update**; **Select asset** shows it in the Project
 window.
+The Dialogs view now keeps the scene player, import filter, dialog list, and
+selected dialog details together. Imported dialogs show their node and variable
+counts and starting line.
 
 The language follows the Connect scene language in the editor and the language
 selected by `GrimoireBootstrap` in builds. Set **Language** on the player to
@@ -417,6 +426,8 @@ Use **Versions** in the Grimoire sidebar
 to list Unity export versions for the selected game, download a ZIP, and extract
 it to `Assets/Grimoire/`. Then use the **Runtime** tab (next to Versions) to finish
 setup and inspect live values.
+The Versions view shows the imported version (when it was imported through this
+window), searchable available versions, and details for the selected version.
 
 ### Runtime tab
 
@@ -429,6 +440,16 @@ export is optional for this list). After importing a Unity export from **Version
 
 Choose **Runtime** in the sidebar to inspect live values. **Browse imported database**
 in Versions explores the imported C# data.
+
+During Play Mode, **Changes** shows timestamped before and after values for each
+observed change. **Linked now** shows current values, including linked data that
+has not changed. The capture starts when Play Mode begins, even if the Grimoire
+window is closed. Object Link setters, synced variable setters, text updates,
+dialog lines, and function calls are captured through events; generated runtimes
+and scene state are compared every 0.75 seconds. Shorter changes between polls
+may not appear. Pause stops recording history while current values continue to
+update. History is kept in memory for the current Play Mode session, with a
+500-change limit. The previous advanced inspector remains available in Runtime.
 
 Projects that only use Connect can ignore Versions and Runtime entirely—no export
 folder or Bootstrap component is required.

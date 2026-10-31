@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -14,6 +15,9 @@ namespace Grimoire.PluginV2.Editor
         private const int VersionsPerPage = 5;
 
         private Vector2 _scroll;
+        private Vector2 _detailsScroll;
+        private string _search = "";
+        private string _selectedVersionId;
         private ExportVersion[] _versions;
         private bool _loading;
         private bool _downloading;
@@ -23,12 +27,14 @@ namespace Grimoire.PluginV2.Editor
         private string _error;
         private int _page;
         private int _loadGeneration;
+        private string _loadedGameId;
         private string _downloadingVersionId;
 
         public event Action RepaintNeeded;
 
         public void Activate()
         {
+            EnsureGame();
             if (GrimoireSettings.IsConfigured && _versions == null && !_loading)
             {
                 RefreshAsync();
@@ -38,14 +44,16 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>Re-fetch export versions from the server.</summary>
         public void Refresh()
         {
+            EnsureGame();
             if (GrimoireSettings.IsConfigured && !_loading && !_downloading)
             {
                 RefreshAsync();
             }
         }
 
-        public void Draw()
+        public void Draw(float width, float height)
         {
+            EnsureGame();
             if (!GrimoireSettings.IsConfigured)
             {
                 GrimoireEditorStyles.DrawInfoBox(
@@ -53,11 +61,26 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            GrimoireEditorStyles.DrawInfoBox(
-                "Import a Grimoire export to use logic, translations, and variables in Play Mode. " +
-                "Skip this if you only use Connect.");
-
-            DrawToolbar();
+            GrimoireWorkflowGUI.Header("Versions", "Choose the database version used by the Unity runtime.");
+            var importedId = GetImportedVersionId();
+            var imported = _versions?.FirstOrDefault(version => version.id == importedId);
+            var hasImport = Directory.Exists(GrimoireExportImporterService.ExtractPath);
+            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
+            EditorGUILayout.LabelField(hasImport
+                ? "Imported: " + (imported?.version_name ?? "Version unknown")
+                : "No version imported", EditorStyles.boldLabel);
+            if (GUILayout.Button("Browse database", GUILayout.Width(125f)))
+                GrimoireDatabaseBrowser.ShowWindow();
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Search", GUILayout.Width(44f));
+            _search = EditorGUILayout.TextField(_search ?? "", GUILayout.MinWidth(100f));
+            using (new EditorGUI.DisabledScope(_loading || _downloading))
+            {
+                if (GUILayout.Button("Refresh", GUILayout.Width(68f))) Refresh();
+            }
+            EditorGUILayout.EndHorizontal();
+            GUILayout.Space(5f);
 
             if (!string.IsNullOrEmpty(_error))
             {
@@ -78,27 +101,100 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUILayout.Space(4);
             }
 
-            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+            var paneHeight = Mathf.Max(220f, height - 230f);
+            var narrow = GrimoireWorkflowGUI.IsNarrow(width);
+            if (!narrow) EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.BeginVertical(narrow ? GUILayout.ExpandWidth(true) : GUILayout.Width(Mathf.Max(230f, width * 0.57f)));
+            _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.Height(narrow ? 215f : paneHeight));
+            DrawWorkspaceList(importedId);
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
+            _detailsScroll = EditorGUILayout.BeginScrollView(_detailsScroll, GUILayout.Height(narrow ? Mathf.Max(220f, paneHeight - 215f) : paneHeight));
+            DrawWorkspaceDetail(importedId);
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+            if (!narrow) EditorGUILayout.EndHorizontal();
+        }
 
+        private void DrawWorkspaceList(string importedId)
+        {
+            GrimoireWorkflowGUI.Section("Available versions" + (_versions == null ? "" :
+                $" · {_versions.Count(VersionMatchesSearch)}"));
             if (_loading && _versions == null)
             {
-                EditorGUILayout.LabelField("Loading export versions...", GrimoireEditorStyles.MiniSecondaryStyle);
+                EditorGUILayout.LabelField("Loading versions…", GrimoireEditorStyles.MiniSecondaryStyle);
+                return;
             }
-            else if (_versions == null || _versions.Length == 0)
+            if (_versions == null || _versions.Length == 0)
             {
-                if (!_loading)
-                {
-                    GrimoireEditorStyles.DrawInfoBox(
-                        "No export versions found for this game. Create a Unity export on the Grimoire platform first.");
-                }
+                GrimoireEditorStyles.DrawInfoBox("No Unity export versions found for this game.");
+                return;
             }
-            else
+            if (!_versions.Any(v => v.id == _selectedVersionId && VersionMatchesSearch(v)))
+                _selectedVersionId = _versions.OrderByDescending(v => v.id == importedId)
+                    .ThenByDescending(v => v.created_at).FirstOrDefault(VersionMatchesSearch)?.id;
+            var shown = 0;
+            foreach (var version in _versions.OrderByDescending(v => v.id == importedId).ThenByDescending(v => v.created_at))
             {
-                DrawVersionPage();
+                if (!VersionMatchesSearch(version)) continue;
+                shown++;
+                var status = version.id == importedId ? "Imported" : "Available to import";
+                if (GrimoireWorkflowGUI.Row(
+                        string.IsNullOrEmpty(version.version_name) ? "(unnamed version)" : version.version_name,
+                        (version.template_name ?? version.platform ?? "Unity") + " · " + GrimoireExportImporterService.FormatDate(version.created_at),
+                        GrimoireExportImporterService.FormatFileSize(version.file_size),
+                        status,
+                        version.id == _selectedVersionId))
+                    _selectedVersionId = version.id;
             }
-
-            EditorGUILayout.EndScrollView();
+            if (shown == 0) GrimoireEditorStyles.DrawInfoBox("No versions match this search.");
         }
+
+        private bool VersionMatchesSearch(ExportVersion version)
+        {
+            if (string.IsNullOrWhiteSpace(_search)) return true;
+            var query = _search.Trim();
+            return (version.version_name ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   (version.template_name ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   (version.platform ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void DrawWorkspaceDetail(string importedId)
+        {
+            var visible = _versions?.Where(VersionMatchesSearch).ToArray() ?? Array.Empty<ExportVersion>();
+            var version = visible.FirstOrDefault(v => v.id == _selectedVersionId) ?? visible.FirstOrDefault();
+            if (version == null)
+            {
+                GrimoireWorkflowGUI.DetailHeading("Version details", "Select a version", null);
+                return;
+            }
+            GrimoireWorkflowGUI.DetailHeading("Version details", version.version_name, version.template_name);
+            var isCurrent = version.id == importedId;
+            using (new EditorGUI.DisabledScope(_downloading || string.IsNullOrEmpty(version.download_url)))
+            {
+                if (GUILayout.Button(_downloading && _downloadingVersionId == version.id ? "Downloading…" :
+                        isCurrent ? "Reimport version" : "Download & Extract",
+                        GrimoireEditorStyles.PrimaryButtonStyle, GUILayout.Height(28f)))
+                    DownloadAndImportAsync(version);
+            }
+            GrimoireWorkflowGUI.DetailLine("Created", GrimoireExportImporterService.FormatDate(version.created_at));
+            GrimoireWorkflowGUI.DetailLine("Size", GrimoireExportImporterService.FormatFileSize(version.file_size));
+            GrimoireWorkflowGUI.DetailLine("Platform", version.platform);
+            GrimoireWorkflowGUI.DetailLine("Project status", isCurrent ? "Imported" : "Not imported");
+            GrimoireWorkflowGUI.Section("What it enables");
+            GrimoireWorkflowGUI.DetailLine("Objects & variables", "Included");
+            GrimoireWorkflowGUI.DetailLine("Dialogs & logic", "Included");
+            GrimoireWorkflowGUI.DetailLine("Localization", "Included");
+            GrimoireWorkflowGUI.Note("Object Links keep their selected data source. Importing a version does not switch them automatically.");
+        }
+
+        private static string ImportedVersionPrefKey =>
+            "Grimoire.ImportedVersion." + Application.dataPath + "." + GrimoireSettings.GameId;
+
+        private static string GetImportedVersionId() =>
+            Directory.Exists(GrimoireExportImporterService.ExtractPath)
+                ? EditorPrefs.GetString(ImportedVersionPrefKey, "") : "";
 
         private void DrawToolbar()
         {
@@ -209,13 +305,14 @@ namespace Grimoire.PluginV2.Editor
         private async void RefreshAsync()
         {
             var generation = ++_loadGeneration;
+            var gameId = GrimoireSettings.GameId;
             _loading = true;
             _error = null;
             _status = "Loading export versions...";
             RequestRepaint();
 
             var hasSession = await GrimoireAuthSession.EnsureFreshTokenAsync();
-            if (generation != _loadGeneration)
+            if (generation != _loadGeneration || gameId != GrimoireSettings.GameId)
             {
                 return;
             }
@@ -229,8 +326,8 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            var result = await GrimoireApiClient.ListExportVersionsAsync(GrimoireSettings.GameId);
-            if (generation != _loadGeneration)
+            var result = await GrimoireApiClient.ListExportVersionsAsync(gameId);
+            if (generation != _loadGeneration || gameId != GrimoireSettings.GameId)
             {
                 return;
             }
@@ -305,6 +402,7 @@ namespace Grimoire.PluginV2.Editor
 
             if (imported)
             {
+                EditorPrefs.SetString(ImportedVersionPrefKey, version.id ?? "");
                 _status = message;
                 EditorUtility.DisplayDialog("Import Complete", message, "OK");
             }
@@ -322,6 +420,20 @@ namespace Grimoire.PluginV2.Editor
             }
 
             RequestRepaint();
+        }
+
+        private void EnsureGame()
+        {
+            var gameId = GrimoireSettings.GameId;
+            if (_loadedGameId == gameId) return;
+            _loadedGameId = gameId;
+            _loadGeneration++;
+            _loading = false;
+            _versions = null;
+            _selectedVersionId = null;
+            _search = "";
+            _status = null;
+            _error = null;
         }
 
         private static bool IsMarkdownExport(ExportVersion version)
