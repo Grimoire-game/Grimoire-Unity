@@ -55,8 +55,11 @@ namespace Grimoire.PluginV2.Editor
             get => EditorPrefs.GetString(Key("GameId"), "");
             set
             {
-                EditorPrefs.SetString(Key("GameId"), value?.Trim() ?? "");
+                var next = value?.Trim() ?? "";
+                var switchedGame = next != GameId;
+                EditorPrefs.SetString(Key("GameId"), next);
                 Changed?.Invoke();
+                if (switchedGame) Locale = "";
             }
         }
 
@@ -71,9 +74,8 @@ namespace Grimoire.PluginV2.Editor
         }
 
         /// <summary>
-        /// Shared language for translatable fields and text-link previews;
-        /// empty shows source text. Set it for every loaded scene at once from
-        /// the Scene tab in Grimoire.
+        /// Game language for all translatable editor previews. Empty shows the
+        /// game's source text. The setting is chosen in Grimoire Connect Settings.
         /// </summary>
         public static string Locale
         {

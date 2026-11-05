@@ -306,19 +306,12 @@ namespace Grimoire.PluginV2.Editor
 
         public static string ResolvePreviewLanguage(GrimoireTextLink link)
         {
-            if (link != null && !string.IsNullOrWhiteSpace(link.PreviewLanguage))
-            {
-                return link.PreviewLanguage.Trim();
-            }
-
             return GrimoireSettings.Locale;
         }
 
         /// <summary>
-        /// Show <paramref name="languageCode"/> on every text link in the loaded
-        /// scenes: it becomes the shared editor language, per-object preview
-        /// overrides are dropped so nothing keeps its own locale, and the copy
-        /// on each GameObject is refreshed. Empty shows source text.
+        /// Apply the Settings game language to every text link in loaded scenes.
+        /// Old per-object preview overrides are cleared for consistency.
         /// </summary>
         /// <returns>How many per-object preview overrides were cleared.</returns>
         public static int ApplySceneLanguage(string languageCode)
@@ -328,7 +321,7 @@ namespace Grimoire.PluginV2.Editor
             CollectSceneLinks(links);
 
             Undo.IncrementCurrentGroup();
-            Undo.SetCurrentGroupName("Set Grimoire scene language");
+            Undo.SetCurrentGroupName("Set Grimoire game language");
 
             GrimoireSettings.Locale = code;
 
@@ -342,7 +335,7 @@ namespace Grimoire.PluginV2.Editor
 
                 if (!string.IsNullOrWhiteSpace(link.PreviewLanguage))
                 {
-                    Undo.RecordObject(link, "Set Grimoire scene language");
+                    Undo.RecordObject(link, "Set Grimoire game language");
                     link.PreviewLanguage = "";
                     EditorUtility.SetDirty(link);
                     cleared++;

@@ -15,12 +15,6 @@ namespace Grimoire.PluginV2.Editor
     {
         private const string AllTemplatesKey = "";
 
-        private const int KindAll = 0;
-        private const int KindObjects = 1;
-        private const int KindTexts = 2;
-
-        private static readonly string[] KindLabels = { "Everything", "Objects", "Texts" };
-
         private static readonly Color TextBadgeColor = new Color(0.20f, 0.55f, 0.95f);
 
         private static readonly List<GrimoireObjectLink> LinkBuffer = new List<GrimoireObjectLink>();
@@ -29,13 +23,11 @@ namespace Grimoire.PluginV2.Editor
         private Vector2 _scroll;
         private string _search = "";
         private bool _changedOnly;
-        private int _kindFilterIndex;
-        private int _templateFilterIndex;
+        private readonly HashSet<string> _selectedKinds = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _selectedTemplates = new HashSet<string>(StringComparer.Ordinal);
         private string[] _templateKeys = { AllTemplatesKey };
-        private string[] _templateLabels = { "All templates" };
         private bool _enriching;
         private int _enrichGeneration;
-        private int _clearedOverrides;
 
         public event Action RepaintNeeded;
         public event Action<GrimoireObjectLink> OpenObjectRequested;
@@ -52,6 +44,8 @@ namespace Grimoire.PluginV2.Editor
             GrimoireTextLinkStore.Changed += OnDirtyChanged;
             GrimoireGameLanguages.Changed -= OnDirtyChanged;
             GrimoireGameLanguages.Changed += OnDirtyChanged;
+            GrimoireGameLanguagePreview.Changed -= OnDirtyChanged;
+            GrimoireGameLanguagePreview.Changed += OnDirtyChanged;
             GrimoireSettings.LocaleChanged -= OnDirtyChanged;
             GrimoireSettings.LocaleChanged += OnDirtyChanged;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
@@ -60,7 +54,7 @@ namespace Grimoire.PluginV2.Editor
             Selection.selectionChanged += OnSelectionChanged;
 
             GrimoireGameLanguages.EnsureLoaded();
-            _clearedOverrides = 0;
+            GrimoireGameLanguagePreview.EnsureLoaded();
             RefreshTemplateOptions();
             EnsureSummariesLoaded();
             RequestRepaint();
@@ -73,6 +67,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireLinkedFieldStore.Changed -= OnDirtyChanged;
             GrimoireTextLinkStore.Changed -= OnDirtyChanged;
             GrimoireGameLanguages.Changed -= OnDirtyChanged;
+            GrimoireGameLanguagePreview.Changed -= OnDirtyChanged;
             GrimoireSettings.LocaleChanged -= OnDirtyChanged;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
             Selection.selectionChanged -= OnSelectionChanged;
@@ -89,7 +84,8 @@ namespace Grimoire.PluginV2.Editor
 
             CollectSceneLinks();
 
-            DrawLanguageBar();
+            GrimoireWorkflowGUI.Header("Scene", "Find Grimoire-linked objects and text in the loaded Unity scenes.");
+            DrawGameLanguageLabel();
             DrawFilterBar();
 
             RefreshTemplateOptions();
@@ -160,170 +156,61 @@ namespace Grimoire.PluginV2.Editor
             return string.Join("  ·  ", parts);
         }
 
-        /// <summary>
-        /// One dropdown that switches every text link in the loaded scenes to a
-        /// language the game actually supports.
-        /// </summary>
-        private void DrawLanguageBar()
-        {
-            if (!GrimoireEditorStyles.BeginCollapsibleSection("scene-language", "Scene language", defaultExpanded: true))
-            {
-                return;
-            }
-
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Language", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(64));
-
-            EditorGUI.BeginChangeCheck();
-            var picked = GrimoireLanguagePopup.Draw(
-                GrimoireSettings.Locale,
-                GrimoireGameLanguages.SourceLanguageLabel);
-            var changed = EditorGUI.EndChangeCheck();
-
-            using (new EditorGUI.DisabledScope(GrimoireGameLanguages.IsLoading))
-            {
-                if (GrimoireEditorStyles.ToolbarButton("Refresh", false, GUILayout.Width(64)))
-                {
-                    GrimoireGameLanguages.Refresh();
-                }
-            }
-
-            EditorGUILayout.EndHorizontal();
-
-            if (changed)
-            {
-                ApplySceneLanguage(picked);
-            }
-
-            var unavailable = GrimoireLanguagePopup.DescribeUnavailable();
-            if (unavailable != null)
-            {
-                EditorGUILayout.LabelField(unavailable, EditorStyles.wordWrappedMiniLabel);
-            }
-
-            EditorGUILayout.LabelField(DescribeSceneLanguage(), EditorStyles.wordWrappedMiniLabel);
-
-            if (_clearedOverrides > 0)
-            {
-                EditorGUILayout.LabelField(
-                    $"Cleared {_clearedOverrides} per-object preview " +
-                    $"{(_clearedOverrides == 1 ? "language" : "languages")} so every link follows the scene.",
-                    EditorStyles.wordWrappedMiniLabel);
-            }
-
-            GrimoireEditorStyles.EndCollapsibleSection();
-        }
-
-        private void ApplySceneLanguage(string languageCode)
-        {
-            _clearedOverrides = GrimoireTextLinkStore.ApplySceneLanguage(languageCode);
-            RequestRepaint();
-        }
-
-        private static string DescribeSceneLanguage()
+        private static void DrawGameLanguageLabel()
         {
             var locale = GrimoireSettings.Locale;
             var shown = string.IsNullOrEmpty(locale)
-                ? "source text"
+                ? GrimoireGameLanguages.SourceLanguageLabel
                 : GrimoireGameLanguages.DisplayName(locale);
-
-            var count = TextLinkBuffer.Count;
-            if (count == 0)
-            {
-                return $"No Grimoire Text Links in the loaded scenes yet. " +
-                       $"Translatable object fields load in {shown}.";
-            }
-
-            var scenes = CountScenes();
-            var where = $"{count} text {(count == 1 ? "link" : "links")}" +
-                        (scenes > 1 ? $" across {scenes} loaded scenes" : "");
-
-            return $"Showing {shown} on {where}, and on translatable object fields.";
-        }
-
-        private static int CountScenes()
-        {
-            var scenes = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var link in TextLinkBuffer)
-            {
-                if (link != null && link.gameObject != null)
-                {
-                    scenes.Add(link.gameObject.scene.path ?? "");
-                }
-            }
-
-            return scenes.Count;
+            EditorGUILayout.LabelField("Game language: " + shown + "  ·  Change in Settings",
+                GrimoireEditorStyles.MiniSecondaryStyle);
+            if (GrimoireGameLanguagePreview.IsLoading)
+                EditorGUILayout.LabelField("Refreshing translated scene content from Grimoire…",
+                    GrimoireEditorStyles.MiniSecondaryStyle);
+            else if (!string.IsNullOrEmpty(GrimoireGameLanguagePreview.Error))
+                GrimoireEditorStyles.DrawErrorBox(GrimoireGameLanguagePreview.Error);
+            EditorGUILayout.Space(4);
         }
 
         private void DrawFilterBar()
         {
-            if (!GrimoireEditorStyles.BeginCollapsibleSection("scene-filter", "Filter scene objects", defaultExpanded: true))
-            {
-                return;
-            }
-
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Search", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(56));
-            EditorGUI.BeginChangeCheck();
-            _search = EditorGUILayout.TextField(_search, EditorStyles.toolbarSearchField);
-            if (EditorGUI.EndChangeCheck())
-            {
-                RequestRepaint();
-            }
-
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Show", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(56));
-            EditorGUI.BeginChangeCheck();
-            _kindFilterIndex = EditorGUILayout.Popup(_kindFilterIndex, KindLabels);
-            if (EditorGUI.EndChangeCheck())
-            {
-                RequestRepaint();
-            }
-
-            EditorGUILayout.EndHorizontal();
-
-            using (new EditorGUI.DisabledScope(_kindFilterIndex == KindTexts))
-            {
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField("Template", GrimoireEditorStyles.FieldLabelStyle, GUILayout.Width(56));
-                EditorGUI.BeginChangeCheck();
-                _templateFilterIndex = EditorGUILayout.Popup(_templateFilterIndex, _templateLabels);
-                if (EditorGUI.EndChangeCheck())
-                {
-                    RequestRepaint();
-                }
-
-                EditorGUILayout.EndHorizontal();
-            }
-
-            EditorGUILayout.BeginHorizontal();
-            EditorGUI.BeginChangeCheck();
-            _changedOnly = EditorGUILayout.ToggleLeft(
-                new GUIContent(
-                    "Changed only",
-                    "Show only items with unsynced game-engine, editable field, or text deviations."),
-                _changedOnly);
-            if (EditorGUI.EndChangeCheck())
-            {
-                RequestRepaint();
-            }
-
-            GUILayout.FlexibleSpace();
-
-            using (new EditorGUI.DisabledScope(_enriching))
-            {
-                if (GrimoireEditorStyles.ToolbarButton("Refresh", false, GUILayout.Width(64)))
+            _search = GrimoireWorkflowGUI.SearchAndFilters(_search, ShowFilterMenu,
+                _selectedKinds.Count + _selectedTemplates.Count + (_changedOnly ? 1 : 0), () =>
                 {
                     GrimoireObjectKeyResolver.InvalidateCache(GrimoireSettings.GameId);
                     GrimoireStringKeyResolver.Invalidate(GrimoireSettings.GameId);
                     EnsureSummariesLoaded(force: true);
-                }
-            }
+                }, _enriching);
+        }
 
-            EditorGUILayout.EndHorizontal();
-            GrimoireEditorStyles.EndCollapsibleSection();
+        private void ShowFilterMenu()
+        {
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("All scene content"),
+                _selectedKinds.Count == 0 && _selectedTemplates.Count == 0 && !_changedOnly, () =>
+            {
+                _selectedKinds.Clear();
+                _selectedTemplates.Clear();
+                _changedOnly = false;
+                RequestRepaint();
+            });
+            menu.AddSeparator("");
+            GrimoireWorkflowGUI.AddMultiChoice(menu, "Type/Objects", _selectedKinds, "Objects", RequestRepaint);
+            GrimoireWorkflowGUI.AddMultiChoice(menu, "Type/Text links", _selectedKinds, "Texts", RequestRepaint);
+            if (_templateKeys.Length > 1)
+            {
+                menu.AddSeparator("");
+                foreach (var template in _templateKeys.Where(key => !string.IsNullOrEmpty(key)))
+                    GrimoireWorkflowGUI.AddMultiChoice(menu, "Template/" + template.Replace('/', '⁄'),
+                        _selectedTemplates, template, RequestRepaint);
+            }
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("Changed only"), _changedOnly, () =>
+            {
+                _changedOnly = !_changedOnly;
+                RequestRepaint();
+            });
+            menu.ShowAsContext();
         }
 
         private void DrawRow(SceneRow row)
@@ -444,14 +331,11 @@ namespace Grimoire.PluginV2.Editor
         private List<SceneRow> BuildVisibleRows()
         {
             var gameId = GrimoireSettings.GameId;
-            // Texts have no template, so the (disabled) template popup must not
-            // silently filter every row away when only texts are shown.
-            var templateFilter = _kindFilterIndex == KindTexts ? AllTemplatesKey : GetSelectedTemplateKey();
             var search = string.IsNullOrWhiteSpace(_search) ? null : _search.Trim();
 
             var rows = new List<SceneRow>(LinkBuffer.Count + TextLinkBuffer.Count);
 
-            if (_kindFilterIndex != KindTexts)
+            if (_selectedKinds.Count == 0 || _selectedKinds.Contains("Objects"))
             {
                 foreach (var link in LinkBuffer)
                 {
@@ -466,8 +350,7 @@ namespace Grimoire.PluginV2.Editor
                     }
 
                     var row = BuildObjectRow(gameId, link);
-                    if (!string.IsNullOrEmpty(templateFilter) &&
-                        !string.Equals(row.TemplateName, templateFilter, StringComparison.Ordinal))
+                    if (_selectedTemplates.Count > 0 && !_selectedTemplates.Contains(row.TemplateName))
                     {
                         continue;
                     }
@@ -480,7 +363,8 @@ namespace Grimoire.PluginV2.Editor
             }
 
             // Text links carry no template, so a template filter excludes them.
-            if (_kindFilterIndex != KindObjects && string.IsNullOrEmpty(templateFilter))
+            if ((_selectedKinds.Count == 0 || _selectedKinds.Contains("Texts")) &&
+                _selectedTemplates.Count == 0)
             {
                 foreach (var link in TextLinkBuffer)
                 {
@@ -525,6 +409,9 @@ namespace Grimoire.PluginV2.Editor
                 templateName = summary.template?.name ?? summary.template?.id;
                 objectName = summary.name;
             }
+
+            if (link.Snapshot != null)
+                objectName = link.Snapshot.GetDisplayName(GrimoireSettings.Locale);
 
             return new SceneRow
             {
@@ -593,16 +480,6 @@ namespace Grimoire.PluginV2.Editor
             !string.IsNullOrEmpty(haystack) &&
             haystack.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
 
-        private string GetSelectedTemplateKey()
-        {
-            if (_templateFilterIndex < 0 || _templateFilterIndex >= _templateKeys.Length)
-            {
-                return AllTemplatesKey;
-            }
-
-            return _templateKeys[_templateFilterIndex] ?? AllTemplatesKey;
-        }
-
         private void RefreshTemplateOptions()
         {
             var gameId = GrimoireSettings.GameId;
@@ -627,23 +504,13 @@ namespace Grimoire.PluginV2.Editor
 
             var ordered = names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
             var keys = new string[ordered.Count + 1];
-            var labels = new string[ordered.Count + 1];
             keys[0] = AllTemplatesKey;
-            labels[0] = "All templates";
             for (var i = 0; i < ordered.Count; i++)
             {
                 keys[i + 1] = ordered[i];
-                labels[i + 1] = ordered[i];
             }
-
-            var previous = GetSelectedTemplateKey();
             _templateKeys = keys;
-            _templateLabels = labels;
-            _templateFilterIndex = Array.FindIndex(_templateKeys, k => k == previous);
-            if (_templateFilterIndex < 0)
-            {
-                _templateFilterIndex = 0;
-            }
+            _selectedTemplates.RemoveWhere(template => !ordered.Contains(template));
         }
 
         private void EnsureSummariesLoaded(bool force = false)
@@ -700,8 +567,6 @@ namespace Grimoire.PluginV2.Editor
 
         private void OnHierarchyChanged()
         {
-            // The note counts links that existed when the language was applied.
-            _clearedOverrides = 0;
             RequestRepaint();
         }
 

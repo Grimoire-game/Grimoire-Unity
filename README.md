@@ -39,7 +39,7 @@ Add the package to your project via the Package Manager:
 3. **Choose your company and game** from the dropdowns.
 
 The selected company and game are stored per Unity project. Settings (API base
-URL, scene language) are stored per-user in `EditorPrefs`; nothing is written to
+URL, game language) are stored per-user in `EditorPrefs`; nothing is written to
 files that could be committed.
 
 ## Usage
@@ -150,12 +150,14 @@ On the component, choose which fields to sync (defaults on):
 - **Id / Name** → `engine_instance_id` (Unity `GlobalObjectId` + GameObject name)
 
 Use **Sync now** on the component, or **Review** in Grimoire, to
-push transform changes after moving objects. Review lists the selected
-object separately from other pending linked objects and can sync or reset one
-or all.
+push transform changes after moving objects. Review shows pending object and
+text link counts, then the selected item and other changes. Commit actions
+appear when there are object changes; translation actions stay with text links.
 
-Use **Sync Everything** at the top of that tab to pull all content used by the
-Unity project in one pass. It downloads the game's language and string catalogs
+The first time you sign in and select a game, Grimoire automatically pulls its
+content and shows progress above the workspace and in **Content Library**.
+Use **Content Library > Pull from Grimoire > Sync everything** to run it again.
+The pull downloads the game's language and string catalogs
 once, then updates the variable library, imported dialogs, scene/prefab text
 links, object links, and cached nested objects. Every configured language is
 stored in Unity for offline builds. Unrelated remote objects and dialogs are not
@@ -168,8 +170,8 @@ restores the Unity transform from the values currently saved in Grimoire.
 ### Tasks tab
 
 The **Tasks** tab lists all workflow tasks for the selected game via
-`GET /api/v1/tasks`. Use the assignee filter to show all tasks, only tasks
-assigned to you, or tasks assigned to a specific team member.
+`GET /api/v1/tasks`. Its Filters dropdown can show several assignees and
+statuses at once.
 Search the task list and select a row to inspect its status, assignee, and linked
 content. The detail pane lets you update status or open a linked scene object.
 
@@ -181,23 +183,32 @@ and a status dropdown for other workflow moves.
 The **Scene** tab lists everything in the loaded scenes that is linked to
 Grimoire — `GrimoireObjectLink` objects and `GrimoireTextLink` copy — with change
 badges, search, and filters for kind / changed / template.
+The search field and multi-select Filters dropdown share the same layout as
+Content Library. Dialogs, Tasks, Variables, Versions, and the live Runtime
+overview use the same search and filter layout.
 
-**Scene language** switches the whole scene at once. The dropdown offers the
-languages configured for the game in Grimoire (Settings > Game Management), read
-from `GET /api/v1/games`; the first entry is the game's source language, meaning
-no translation. Picking one:
+The Grimoire sidebar groups Content Library, Scene, Object, and Dialogs under
+**Browse**; Tasks and Review under **Workflows**; and Versions and Runtime under
+**Database**.
+
+**Game language** is selected once in Grimoire Connect **Settings**. Scene shows
+the active language as read only. The dropdown offers the languages configured
+for the selected game in Grimoire (Settings > Game Management), read from
+`GET /api/v1/games`; the first entry shows the game's source text. Picking one:
 
 - stores it as the shared editor language for this Unity project,
-- clears any per-object **Preview language** so nothing keeps its own locale,
-- refreshes the copy shown on every Unity UI Text / TextMesh Pro target,
-- and resolves translated object fields and variable element names from the
-  copies retained by the last import or **Sync Everything** operation.
+- clears legacy per-object preview overrides,
+- downloads the game's translations from `GET /api/v1/strings` and refreshes
+  linked scene text and object snapshots from the API while preserving local edits,
+- updates the copy shown on Unity UI Text / TextMesh Pro targets and translated
+  strings in Content Library, Dialogs, and Variables.
 
 Links without copy for the chosen language preview as `not translated`, so gaps
 are visible while authoring; players still fall back to the source text.
 
-To preview a single object in a different language, set **Preview language** on
-its Grimoire Text Link. The next scene-language switch clears it again.
+Use **Refresh game languages and translations** in Settings after editing
+translations on the web. Missing translations show source text in content
+details; scene Text Links show `not translated` while authoring.
 
 ### Object tab
 
@@ -243,7 +254,7 @@ The Dialogs view now keeps the scene player, import filter, dialog list, and
 selected dialog details together. Imported dialogs show their node and variable
 counts and starting line.
 
-The language follows the Connect scene language in the editor and the language
+The language follows the Connect game language in the editor and the language
 selected by `GrimoireBootstrap` in builds. Set **Language** on the player to
 force one. Lines without a translation fall back to the source text. Calling
 `GrimoireBootstrap.ChangeLanguage` reapplies text links and republishes the

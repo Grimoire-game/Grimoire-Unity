@@ -49,6 +49,8 @@ namespace Grimoire.PluginV2.Editor
         private GrimoireContentLibraryView _libraryView;
         private Label _workspaceBreadcrumb;
         private Label _connectionStatus;
+        private VisualElement _syncStatusBar;
+        private ProgressBar _syncStatusProgress;
         private Button _libraryNav;
         private Button _settingsNav;
         private readonly Dictionary<int, Button> _tabNav = new Dictionary<int, Button>();
@@ -163,6 +165,11 @@ namespace Grimoire.PluginV2.Editor
             Selection.selectionChanged += OnSelectionChanged;
             GrimoireAuthSession.Changed += OnAuthChanged;
             GrimoireSettings.Changed += OnSettingsChanged;
+            GrimoireContentSync.Changed += OnContentSyncChanged;
+            GrimoireContentSync.Completed += OnContentSyncCompleted;
+            GrimoireSettings.LocaleChanged += OnGameLocaleChanged;
+            GrimoireGameLanguages.Changed += ScheduleRepaint;
+            GrimoireGameLanguagePreview.Changed += ScheduleRepaint;
             GrimoireObjectViewRenderer.RepaintNeeded += Repaint;
             GrimoireGameEngineSync.DocumentUpdated += OnGameEngineDocumentUpdated;
             GrimoireFieldSync.FieldsQueued += OnFieldsQueued;
@@ -246,6 +253,12 @@ namespace Grimoire.PluginV2.Editor
             header.Add(refresh);
             _workspaceRoot.Add(header);
 
+            _syncStatusBar = new VisualElement();
+            _syncStatusBar.AddToClassList("workspace-sync-status");
+            _syncStatusProgress = new ProgressBar();
+            _syncStatusBar.Add(_syncStatusProgress);
+            _workspaceRoot.Add(_syncStatusBar);
+
             var body = new VisualElement();
             body.AddToClassList("workspace-body");
             var sidebar = new VisualElement();
@@ -255,10 +268,11 @@ namespace Grimoire.PluginV2.Editor
             _tabNav.Clear();
             _tabNav[TabScene] = AddNav(sidebar, "Scene", () => SelectTab(TabScene));
             _tabNav[TabObject] = AddNav(sidebar, "Object", () => SelectTab(TabObject));
-            _tabNav[TabSync] = AddNav(sidebar, "Review", () => SelectTab(TabSync));
-            sidebar.Add(new Label("WORKFLOWS") { name = "workflow-caption" });
             _tabNav[TabDialogs] = AddNav(sidebar, "Dialogs", () => SelectTab(TabDialogs));
+            sidebar.Add(new Label("WORKFLOWS") { name = "workflow-caption" });
             _tabNav[TabTasks] = AddNav(sidebar, "Tasks", () => SelectTab(TabTasks));
+            _tabNav[TabSync] = AddNav(sidebar, "Review", () => SelectTab(TabSync));
+            sidebar.Add(new Label("DATABASE") { name = "database-caption" });
             _tabNav[TabExport] = AddNav(sidebar, "Versions", () => SelectTab(TabExport));
             _tabNav[TabRuntime] = AddNav(sidebar, "Runtime", () => SelectTab(TabRuntime));
             var spacer = new VisualElement();
@@ -283,6 +297,7 @@ namespace Grimoire.PluginV2.Editor
             _libraryView = new GrimoireContentLibraryView();
             _libraryView.Activate();
             _libraryView.Build(_libraryHost, true);
+            OnContentSyncChanged();
             _workspaceRoot.RegisterCallback<GeometryChangedEvent>(evt =>
             {
                 var compact = evt.newRect.width < 660f;
@@ -327,6 +342,7 @@ namespace Grimoire.PluginV2.Editor
                 ? $"{GrimoireSettings.CompanyName}  /  {GrimoireSettings.GameName}"
                 : "Choose a workspace";
             _connectionStatus.text = GrimoireAuthSession.IsSignedIn ? "● Connected" : "● Offline";
+            OnContentSyncChanged();
             if (!string.IsNullOrEmpty(_pendingDialogId) && _libraryView != null)
             {
                 _libraryView.SelectDialog(_pendingDialogId);
@@ -341,6 +357,11 @@ namespace Grimoire.PluginV2.Editor
             Selection.selectionChanged -= OnSelectionChanged;
             GrimoireAuthSession.Changed -= OnAuthChanged;
             GrimoireSettings.Changed -= OnSettingsChanged;
+            GrimoireContentSync.Changed -= OnContentSyncChanged;
+            GrimoireContentSync.Completed -= OnContentSyncCompleted;
+            GrimoireSettings.LocaleChanged -= OnGameLocaleChanged;
+            GrimoireGameLanguages.Changed -= ScheduleRepaint;
+            GrimoireGameLanguagePreview.Changed -= ScheduleRepaint;
             GrimoireObjectViewRenderer.RepaintNeeded -= Repaint;
             GrimoireGameEngineSync.DocumentUpdated -= OnGameEngineDocumentUpdated;
             GrimoireFieldSync.FieldsQueued -= OnFieldsQueued;
@@ -452,6 +473,8 @@ namespace Grimoire.PluginV2.Editor
         private void OnSetupCompleted()
         {
             _error = null;
+            _showLibrary = true;
+            _settingsOpen = false;
             _userTasksPanel.Reset();
             _userTasksPanel.Activate();
             _dialogsPanel?.Reset();
@@ -470,6 +493,23 @@ namespace Grimoire.PluginV2.Editor
 
             ReloadCurrent();
             UpdateWorkspaceUi();
+        }
+
+        private void OnContentSyncChanged()
+        {
+            if (_syncStatusBar == null || _syncStatusProgress == null) return;
+            _syncStatusBar.style.display = GrimoireContentSync.IsRunning
+                ? DisplayStyle.Flex : DisplayStyle.None;
+            _syncStatusProgress.value = GrimoireContentSync.Progress * 100f;
+            _syncStatusProgress.title = GrimoireContentSync.Message ?? "Pulling from Grimoire…";
+        }
+
+        private void OnContentSyncCompleted()
+        {
+            if (GrimoireSettings.IsConfigured)
+                ReloadCurrent();
+            UpdateWorkspaceUi();
+            ScheduleRepaint();
         }
 
         private void OnSelectionChanged()
@@ -521,6 +561,12 @@ namespace Grimoire.PluginV2.Editor
             {
                 LoadLink(_link, force: true);
             }
+        }
+
+        private void OnGameLocaleChanged()
+        {
+            ReloadCurrent();
+            ScheduleRepaint();
         }
 
         /// <summary>Re-fetch everything from the server: tasks, the current object, and exports.</summary>
@@ -958,16 +1004,37 @@ namespace Grimoire.PluginV2.Editor
             }
 
             EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField("Language", GrimoireEditorStyles.FieldLabelStyle);
+            GrimoireGameLanguages.EnsureLoaded();
+            GrimoireGameLanguagePreview.EnsureLoaded();
+            EditorGUILayout.LabelField("Game language", GrimoireEditorStyles.FieldLabelStyle);
             EditorGUI.BeginChangeCheck();
             var locale = GrimoireLanguagePopup.Draw(
                 GrimoireSettings.Locale,
                 GrimoireGameLanguages.SourceLanguageLabel);
             if (EditorGUI.EndChangeCheck())
             {
-                // Same switch as the Scene tab, so one language drives everything.
+                // One choice drives all Grimoire previews in this Unity project.
                 GrimoireTextLinkStore.ApplySceneLanguage(locale);
-                GrimoireObjectKeyResolver.InvalidateCache();
+            }
+            EditorGUILayout.LabelField(
+                "Preview translatable content in the selected game's language throughout Grimoire Connect and linked scene objects.",
+                EditorStyles.wordWrappedMiniLabel);
+            var languageHelp = GrimoireLanguagePopup.DescribeUnavailable();
+            if (languageHelp != null)
+                EditorGUILayout.LabelField(languageHelp, EditorStyles.wordWrappedMiniLabel);
+            if (GrimoireGameLanguagePreview.IsLoading)
+                EditorGUILayout.LabelField("Downloading translations and refreshing scene links…", EditorStyles.wordWrappedMiniLabel);
+            else if (!string.IsNullOrEmpty(GrimoireGameLanguagePreview.Error))
+                GrimoireEditorStyles.DrawErrorBox(GrimoireGameLanguagePreview.Error);
+            else if (GrimoireGameLanguagePreview.IsLoaded)
+                EditorGUILayout.LabelField($"{GrimoireGameLanguagePreview.StringCount} strings loaded from Grimoire.", EditorStyles.wordWrappedMiniLabel);
+            using (new EditorGUI.DisabledScope(GrimoireGameLanguagePreview.IsLoading))
+            {
+                if (GUILayout.Button("Refresh game languages and translations"))
+                {
+                    GrimoireGameLanguages.Refresh();
+                    GrimoireGameLanguagePreview.Refresh();
+                }
             }
 
             if (GrimoireSettings.HasCompanyId)

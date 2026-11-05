@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using UnityEditor;
@@ -17,6 +18,8 @@ namespace Grimoire.PluginV2.Editor
 
         private Vector2 _scroll;
         private string _search = "";
+        private readonly HashSet<string> _selectedGroups = new HashSet<string>(StringComparer.Ordinal);
+        private GrimoireVariableLibrary _visibleLibrary;
         private string _status;
         private string _error;
         private bool _syncing;
@@ -42,6 +45,7 @@ namespace Grimoire.PluginV2.Editor
 
         public void Draw()
         {
+            GrimoireGameLanguagePreview.EnsureLoaded();
             if (!GrimoireSettings.IsConfigured)
             {
                 GrimoireEditorStyles.DrawInfoBox("Sign in and choose a workspace first to sync variables.");
@@ -81,6 +85,7 @@ namespace Grimoire.PluginV2.Editor
                     "These variables were synced for another game. Click Sync variables to replace them.");
             }
 
+            _visibleLibrary = library;
             DrawSearch();
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
@@ -137,17 +142,30 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawSearch()
         {
-            EditorGUILayout.BeginHorizontal();
-            _search = EditorGUILayout.TextField(_search ?? "", EditorStyles.toolbarSearchField);
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.Space(4);
+            _search = GrimoireWorkflowGUI.SearchAndFilters(_search, ShowFilterMenu,
+                _selectedGroups.Count, Sync, _syncing);
+        }
+
+        private void ShowFilterMenu()
+        {
+            var menu = new GenericMenu();
+            GrimoireWorkflowGUI.AddAllChoice(menu, "All groups", _selectedGroups, RequestRepaint);
+            menu.AddSeparator("");
+            if (_visibleLibrary != null)
+                foreach (var group in _visibleLibrary.Variables.Where(v => v != null)
+                             .Select(v => string.IsNullOrEmpty(v.Group) ? "Variables" : v.Group)
+                             .Distinct(StringComparer.Ordinal).OrderBy(v => v, StringComparer.OrdinalIgnoreCase))
+                    GrimoireWorkflowGUI.AddMultiChoice(menu, group.Replace('/', '⁄'),
+                        _selectedGroups, group, RequestRepaint);
+            menu.ShowAsContext();
         }
 
         private void DrawVariables(GrimoireVariableLibrary library)
         {
             var query = (_search ?? "").Trim();
             var groups = library.Variables
-                .Where(v => v != null && Matches(v, query))
+                .Where(v => v != null && Matches(v, query) && (_selectedGroups.Count == 0 ||
+                    _selectedGroups.Contains(string.IsNullOrEmpty(v.Group) ? "Variables" : v.Group)))
                 .GroupBy(v => string.IsNullOrEmpty(v.Group) ? "Variables" : v.Group)
                 .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
 
@@ -223,7 +241,10 @@ namespace Grimoire.PluginV2.Editor
             EditorGUILayout.BeginHorizontal();
             GUILayout.Space(8);
             EditorGUILayout.LabelField(
-                new GUIContent(element.DisplayName, string.IsNullOrEmpty(element.Description) ? element.Id : element.Description),
+                new GUIContent(
+                    GrimoireGameLanguagePreview.DisplayText(element.StringId,
+                        element.GetDisplayName(GrimoireSettings.Locale)),
+                    string.IsNullOrEmpty(element.Description) ? element.Id : element.Description),
                 GUILayout.Width(160));
             EditorGUILayout.LabelField(ValuePreview(element), GrimoireEditorStyles.MiniSecondaryStyle);
 
@@ -298,7 +319,9 @@ namespace Grimoire.PluginV2.Editor
 
         private static bool Matches(GrimoireVariableElement element, string query)
         {
-            return Contains(element.Name, query) || Contains(element.Id, query);
+            return Contains(element.Name, query) || Contains(element.Id, query) ||
+                   Contains(GrimoireGameLanguagePreview.DisplayText(element.StringId,
+                       element.GetDisplayName(GrimoireSettings.Locale)), query);
         }
 
         private static bool Contains(string source, string query) =>

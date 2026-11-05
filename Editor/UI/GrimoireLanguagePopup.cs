@@ -6,13 +6,9 @@ using UnityEngine;
 namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
-    /// Dropdown of the selected game's supported languages, shared by the Scene
-    /// tab, the Text Link inspector, and Connect settings so every place offers
-    /// the same choices.
+    /// Dropdown of the selected game's supported languages from the Public API.
     ///
-    /// Falls back to a plain text field while the game's languages are unknown
-    /// (not signed in, still loading, or the fetch failed) so a locale can still
-    /// be typed rather than being locked out.
+    /// Waits for the game's configured languages before offering a choice.
     /// </summary>
     public static class GrimoireLanguagePopup
     {
@@ -24,7 +20,9 @@ namespace Grimoire.PluginV2.Editor
 
             if (!GrimoireGameLanguages.HasLanguages)
             {
-                return EditorGUILayout.TextField(label, code)?.Trim() ?? "";
+                using (new EditorGUI.DisabledScope(true))
+                    EditorGUILayout.TextField(label, code);
+                return code;
             }
 
             BuildOptions(code, emptyOptionLabel, out var codes, out var labels, out var index);
@@ -39,7 +37,9 @@ namespace Grimoire.PluginV2.Editor
 
             if (!GrimoireGameLanguages.HasLanguages)
             {
-                return EditorGUILayout.TextField(code, options)?.Trim() ?? "";
+                using (new EditorGUI.DisabledScope(true))
+                    EditorGUILayout.TextField(code, options);
+                return code;
             }
 
             BuildOptions(code, emptyOptionLabel, out var codes, out var labels, out var index);
@@ -72,7 +72,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             return "This game has no languages configured yet. Add them in Grimoire under " +
-                   "Settings > Game Management, or type a code here.";
+                   "Settings > Game Management, then refresh here.";
         }
 
         /// <summary>

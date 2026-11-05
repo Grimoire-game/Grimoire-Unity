@@ -104,6 +104,22 @@ namespace Grimoire.PluginV2.Editor
             return result;
         }
 
+        /// <summary>Resolve one API string for the editor's game language.</summary>
+        public static string DisplayText(StringResource resource, string languageCode, string fallback = null)
+        {
+            if (resource == null) return fallback ?? "";
+            var source = resource.source_text ?? fallback ?? "";
+            if (string.IsNullOrWhiteSpace(languageCode)) return source;
+            foreach (var row in resource.translations ?? Array.Empty<StringTranslation>())
+            {
+                if (row != null &&
+                    string.Equals(row.language_code, languageCode.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrEmpty(row.translated_text))
+                    return row.translated_text;
+            }
+            return source;
+        }
+
         public static async Task<ApiResult<GrimoireTranslationCatalog>> LoadAsync(
             string gameId,
             Action<string> progress = null)

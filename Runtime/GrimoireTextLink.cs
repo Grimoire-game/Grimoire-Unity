@@ -53,8 +53,8 @@ namespace Grimoire.PluginV2
 #if UNITY_EDITOR
         /// <summary>
         /// Supplies the Edit Mode preview locale. The editor assembly installs
-        /// this so previews follow the scene language chosen in Grimoire
-        /// Connect, including after a domain reload.
+        /// this so previews follow the game language in Grimoire Connect
+        /// Settings, including after a domain reload.
         /// </summary>
         public static Func<string> EditorLanguageResolver
         {
@@ -285,9 +285,13 @@ namespace Grimoire.PluginV2
             GrimoireTextTarget.TryApply(gameObject, GetResolvedText(locale));
         }
 
-        /// <summary>Preview override, Connect locale in editor, or export language at runtime.</summary>
+        /// <summary>Connect game language in Edit Mode, or export language at runtime.</summary>
         public string ResolveActiveLanguage()
         {
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+                return GrimoireLocalization.ActiveLanguage;
+#endif
             if (!string.IsNullOrWhiteSpace(_previewLanguage))
             {
                 return _previewLanguage.Trim();
@@ -329,7 +333,7 @@ namespace Grimoire.PluginV2
                 return;
             }
 
-            ApplyResolvedText(_previewLanguage);
+            ApplyResolvedText();
         }
 #endif
     }

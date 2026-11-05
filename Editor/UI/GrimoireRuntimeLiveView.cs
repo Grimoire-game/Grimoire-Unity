@@ -56,11 +56,12 @@ namespace Grimoire.PluginV2.Editor
 
             if (_showAdvancedInspector) return;
 
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Search", GUILayout.Width(44f));
-            _liveSearch = EditorGUILayout.TextField(_liveSearch ?? "", GUILayout.MinWidth(90f));
-            _liveCategoryIndex = EditorGUILayout.Popup(_liveCategoryIndex, LiveCategories, GUILayout.Width(130f));
-            EditorGUILayout.EndHorizontal();
+            _liveSearch = GrimoireWorkflowGUI.SearchAndFilters(_liveSearch, ShowLiveFilters,
+                _selectedLiveCategories.Count, () =>
+                {
+                    RefreshData();
+                    CaptureLiveSnapshot();
+                });
             EditorGUILayout.LabelField(_showLinkedNow
                 ? "Current values include linked data that has not changed this session."
                 : "Newest change first · previous and new values are consecutive live observations.",
@@ -91,13 +92,23 @@ namespace Grimoire.PluginV2.Editor
 
         private bool MatchesLiveFilter(string category, string name, string path, string value, string source)
         {
-            if (_liveCategoryIndex > 0 && category != LiveCategories[_liveCategoryIndex]) return false;
+            if (_selectedLiveCategories.Count > 0 && !_selectedLiveCategories.Contains(category)) return false;
             if (string.IsNullOrWhiteSpace(_liveSearch)) return true;
             var query = _liveSearch.Trim();
             return (name ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
                    (path ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
                    (value ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
                    (source ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void ShowLiveFilters()
+        {
+            var menu = new GenericMenu();
+            GrimoireWorkflowGUI.AddAllChoice(menu, "All linked data", _selectedLiveCategories, RequestRepaint);
+            menu.AddSeparator("");
+            foreach (var category in LiveCategories.Skip(1))
+                GrimoireWorkflowGUI.AddMultiChoice(menu, category, _selectedLiveCategories, category, RequestRepaint);
+            menu.ShowAsContext();
         }
 
         private void DrawLiveChangeRows()

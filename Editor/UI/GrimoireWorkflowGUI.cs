@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -30,6 +32,52 @@ namespace Grimoire.PluginV2.Editor
             EnsureStyles();
             GUILayout.Space(8f);
             EditorGUILayout.LabelField(title.ToUpperInvariant(), _section, GUILayout.Height(23f));
+        }
+
+        /// <summary>One search row shared by the browsable workspace views.</summary>
+        public static string SearchAndFilters(string search, Action showFilters, int activeFilters,
+            Action refresh = null, bool refreshDisabled = false)
+        {
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Search", GUILayout.Width(51f));
+            var next = EditorGUILayout.TextField(search ?? "", GUILayout.MinWidth(80f), GUILayout.Height(22f));
+            if (showFilters != null)
+            {
+                var previous = GUI.backgroundColor;
+                if (activeFilters > 0) GUI.backgroundColor = new Color(0.60f, 0.43f, 0.91f);
+                if (GUILayout.Button(activeFilters > 0 ? $"Filters ({activeFilters}) ▾" : "Filters ▾",
+                        EditorStyles.toolbarButton, GUILayout.Width(110f), GUILayout.Height(22f)))
+                    showFilters();
+                GUI.backgroundColor = previous;
+            }
+            if (refresh != null)
+            {
+                using (new EditorGUI.DisabledScope(refreshDisabled))
+                    if (GUILayout.Button("Refresh", GUILayout.Width(68f), GUILayout.Height(22f))) refresh();
+            }
+            EditorGUILayout.EndHorizontal();
+            GUILayout.Space(8f);
+            return next;
+        }
+
+        public static void AddMultiChoice(GenericMenu menu, string path, HashSet<string> selected,
+            string key, Action changed)
+        {
+            menu.AddItem(new GUIContent(path), selected.Contains(key), () =>
+            {
+                if (!selected.Add(key)) selected.Remove(key);
+                changed?.Invoke();
+            });
+        }
+
+        public static void AddAllChoice(GenericMenu menu, string path, HashSet<string> selected,
+            Action changed)
+        {
+            menu.AddItem(new GUIContent(path), selected.Count == 0, () =>
+            {
+                selected.Clear();
+                changed?.Invoke();
+            });
         }
 
         public static bool Row(string title, string metadata, string side, string status, bool selected)

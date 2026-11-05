@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
@@ -17,6 +18,7 @@ namespace Grimoire.PluginV2.Editor
         private Vector2 _scroll;
         private Vector2 _detailsScroll;
         private string _search = "";
+        private readonly HashSet<string> _selectedStates = new HashSet<string>(StringComparer.Ordinal);
         private string _selectedVersionId;
         private ExportVersion[] _versions;
         private bool _loading;
@@ -72,14 +74,8 @@ namespace Grimoire.PluginV2.Editor
             if (GUILayout.Button("Browse database", GUILayout.Width(125f)))
                 GrimoireDatabaseBrowser.ShowWindow();
             EditorGUILayout.EndHorizontal();
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Search", GUILayout.Width(44f));
-            _search = EditorGUILayout.TextField(_search ?? "", GUILayout.MinWidth(100f));
-            using (new EditorGUI.DisabledScope(_loading || _downloading))
-            {
-                if (GUILayout.Button("Refresh", GUILayout.Width(68f))) Refresh();
-            }
-            EditorGUILayout.EndHorizontal();
+            _search = GrimoireWorkflowGUI.SearchAndFilters(_search, ShowFilterMenu,
+                _selectedStates.Count, Refresh, _loading || _downloading);
             GUILayout.Space(5f);
 
             if (!string.IsNullOrEmpty(_error))
@@ -153,11 +149,26 @@ namespace Grimoire.PluginV2.Editor
 
         private bool VersionMatchesSearch(ExportVersion version)
         {
+            if (_selectedStates.Count > 0)
+            {
+                var state = version.id == GetImportedVersionId() ? "Imported" : "Available";
+                if (!_selectedStates.Contains(state)) return false;
+            }
             if (string.IsNullOrWhiteSpace(_search)) return true;
             var query = _search.Trim();
             return (version.version_name ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
                    (version.template_name ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
                    (version.platform ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void ShowFilterMenu()
+        {
+            var menu = new GenericMenu();
+            GrimoireWorkflowGUI.AddAllChoice(menu, "All versions", _selectedStates, RequestRepaint);
+            menu.AddSeparator("");
+            GrimoireWorkflowGUI.AddMultiChoice(menu, "Imported", _selectedStates, "Imported", RequestRepaint);
+            GrimoireWorkflowGUI.AddMultiChoice(menu, "Available", _selectedStates, "Available", RequestRepaint);
+            menu.ShowAsContext();
         }
 
         private void DrawWorkspaceDetail(string importedId)

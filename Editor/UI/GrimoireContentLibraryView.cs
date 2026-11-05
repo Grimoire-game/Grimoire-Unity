@@ -76,7 +76,7 @@ namespace Grimoire.PluginV2.Editor
         private string _search = "";
         private string _folder = AllFolder;
         private string _selectedId;
-        private Kind? _typeFilter;
+        private readonly HashSet<Kind> _typeFilters = new HashSet<Kind>();
         private Kind? _pickerKind;
         private Action<ObjectSummary> _onObjectPicked;
         private Action<GrimoireDialogAsset> _onDialogPicked;
@@ -90,7 +90,7 @@ namespace Grimoire.PluginV2.Editor
         private VisualElement _root;
         private VisualElement _folderList;
         private VisualElement _detailContent;
-        private VisualElement _filterButtons;
+        private Button _filterDropdown;
         private VisualElement _pickerBar;
         private Button _folderPopup;
         private Label _breadcrumb;
@@ -99,6 +99,10 @@ namespace Grimoire.PluginV2.Editor
         private Label _resultsHeading;
         private Label _footer;
         private Label _notice;
+        private VisualElement _syncSection;
+        private Button _syncButton;
+        private ProgressBar _syncProgress;
+        private Label _syncMessage;
         private TextField _searchField;
         private ListView _resultList;
 
@@ -139,9 +143,12 @@ namespace Grimoire.PluginV2.Editor
             _active = true;
             GrimoireSettings.Changed += OnWorkspaceChanged;
             GrimoireSettings.LocaleChanged += OnLocaleChanged;
+            GrimoireGameLanguagePreview.Changed += OnGameLanguageChanged;
             GrimoireAuthSession.Changed += OnWorkspaceChanged;
             GrimoireDialogImporter.Imported += OnDialogImported;
             GrimoireVariableSync.Synced += OnVariablesSynced;
+            GrimoireContentSync.Changed += OnSyncChanged;
+            GrimoireContentSync.Completed += OnSyncCompleted;
             EditorApplication.projectChanged += OnProjectChanged;
             EditorApplication.playModeStateChanged += OnPlayModeChanged;
             _folder = EditorPrefs.GetString(PrefKey("Folder"), AllFolder);
@@ -155,9 +162,12 @@ namespace Grimoire.PluginV2.Editor
             _detailGeneration++;
             GrimoireSettings.Changed -= OnWorkspaceChanged;
             GrimoireSettings.LocaleChanged -= OnLocaleChanged;
+            GrimoireGameLanguagePreview.Changed -= OnGameLanguageChanged;
             GrimoireAuthSession.Changed -= OnWorkspaceChanged;
             GrimoireDialogImporter.Imported -= OnDialogImported;
             GrimoireVariableSync.Synced -= OnVariablesSynced;
+            GrimoireContentSync.Changed -= OnSyncChanged;
+            GrimoireContentSync.Completed -= OnSyncCompleted;
             EditorApplication.projectChanged -= OnProjectChanged;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
         }
@@ -181,6 +191,11 @@ namespace Grimoire.PluginV2.Editor
             _detailLoading = false;
             RenderDetail();
             LoadSelectedDetail();
+        }
+
+        private void OnGameLanguageChanged()
+        {
+            if (_active) RenderDetail();
         }
 
         private void OnDialogImported(GrimoireDialogAsset _) => OnProjectChanged();
@@ -252,6 +267,32 @@ namespace Grimoire.PluginV2.Editor
             titlebar.Add(titleStack);
             _root.Add(titlebar);
 
+            if (!IsPicker)
+            {
+                _syncSection = Column("sync-section");
+                var syncHeading = Row("sync-heading");
+                var syncText = Column("sync-text");
+                var heading = new Label("Pull from Grimoire");
+                heading.AddToClassList("sync-title");
+                syncText.Add(heading);
+                var description = new Label("Update translations, variables, imported dialogs and linked scene content.");
+                description.AddToClassList("muted");
+                syncText.Add(description);
+                syncHeading.Add(syncText);
+                _syncButton = new Button(GrimoireContentSync.PullNow) { text = "Sync everything" };
+                _syncButton.AddToClassList("primary");
+                syncHeading.Add(_syncButton);
+                _syncSection.Add(syncHeading);
+                _syncProgress = new ProgressBar();
+                _syncProgress.AddToClassList("sync-progress");
+                _syncSection.Add(_syncProgress);
+                _syncMessage = new Label();
+                _syncMessage.AddToClassList("muted");
+                _syncSection.Add(_syncMessage);
+                _root.Add(_syncSection);
+                OnSyncChanged();
+            }
+
             _notice = new Label();
             _notice.AddToClassList("error-box");
             _root.Add(_notice);
@@ -268,15 +309,11 @@ namespace Grimoire.PluginV2.Editor
                 RenderItems();
             });
             searchbar.Add(_searchField);
-            _filterButtons = Row("filters");
             if (!IsPicker)
             {
-                foreach (var option in new[] { "All", "Objects", "Dialogs", "Variables" })
-                {
-                    var value = option;
-                    _filterButtons.Add(new Button(() => SetTypeFilter(value)) { text = option });
-                }
-                searchbar.Add(_filterButtons);
+                _filterDropdown = new Button(ShowTypeFilterMenu) { text = "Filters ▾" };
+                _filterDropdown.AddToClassList("filter-dropdown");
+                searchbar.Add(_filterDropdown);
             }
             _root.Add(searchbar);
 
@@ -315,6 +352,26 @@ namespace Grimoire.PluginV2.Editor
             _footer = new Label();
             _footer.AddToClassList("footer");
             _root.Add(_footer);
+        }
+
+        private void OnSyncChanged()
+        {
+            if (_syncSection == null) return;
+            _syncButton.SetEnabled(GrimoireSettings.IsConfigured && !GrimoireContentSync.IsRunning &&
+                !EditorApplication.isPlayingOrWillChangePlaymode);
+            _syncButton.text = GrimoireContentSync.IsRunning ? "Syncing…" : "Sync everything";
+            _syncProgress.style.display = GrimoireContentSync.IsRunning ? DisplayStyle.Flex : DisplayStyle.None;
+            _syncProgress.value = GrimoireContentSync.Progress * 100f;
+            _syncProgress.title = GrimoireContentSync.Message ?? "Syncing content";
+            var status = GrimoireContentSync.Error ?? GrimoireContentSync.Summary ??
+                (GrimoireContentSync.IsRunning ? GrimoireContentSync.Message : null);
+            _syncMessage.text = status ?? "";
+            _syncMessage.style.display = string.IsNullOrEmpty(status) ? DisplayStyle.None : DisplayStyle.Flex;
+        }
+
+        private void OnSyncCompleted()
+        {
+            if (_active && _root != null) RefreshAll();
         }
 
         private static VisualElement Row(string className)
@@ -821,12 +878,27 @@ namespace Grimoire.PluginV2.Editor
             });
         }
 
-        private void SetTypeFilter(string value)
+        private void ShowTypeFilterMenu()
         {
-            _typeFilter = value == "Objects" ? Kind.Object : value == "Dialogs" ? Kind.Dialog
-                : value == "Variables" ? Kind.Variable : (Kind?)null;
-            _folder = AllFolder;
-            RenderItems();
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("All types"), _typeFilters.Count == 0, () =>
+            {
+                _typeFilters.Clear();
+                RenderItems();
+            });
+            AddTypeFilter(menu, "Objects", Kind.Object);
+            AddTypeFilter(menu, "Dialogs", Kind.Dialog);
+            AddTypeFilter(menu, "Variables", Kind.Variable);
+            menu.ShowAsContext();
+        }
+
+        private void AddTypeFilter(GenericMenu menu, string label, Kind kind)
+        {
+            menu.AddItem(new GUIContent(label), _typeFilters.Contains(kind), () =>
+            {
+                if (!_typeFilters.Add(kind)) _typeFilters.Remove(kind);
+                RenderItems();
+            });
         }
 
         private void SetFolder(string path)
@@ -852,9 +924,8 @@ namespace Grimoire.PluginV2.Editor
             if (_pickerKind == Kind.Object && item.Type != Kind.Object) return false;
             if (_pickerKind == Kind.Dialog && item.Type != Kind.Dialog) return false;
             if (_pickerKind == Kind.Variable && item.Type != Kind.Variable && item.Type != Kind.DialogVariable) return false;
-            if (_typeFilter == Kind.Object && item.Type != Kind.Object) return false;
-            if (_typeFilter == Kind.Dialog && item.Type != Kind.Dialog) return false;
-            if (_typeFilter == Kind.Variable && item.Type != Kind.Variable && item.Type != Kind.DialogVariable) return false;
+            if (!IsPicker && _typeFilters.Count > 0 && !_typeFilters.Contains(item.Type) &&
+                !(item.Type == Kind.DialogVariable && _typeFilters.Contains(Kind.Variable))) return false;
             if (_folder != AllFolder && item.Folder != _folder &&
                 !item.Folder.StartsWith(_folder + "/", StringComparison.OrdinalIgnoreCase)) return false;
             if (string.IsNullOrWhiteSpace(_search)) return true;
@@ -894,15 +965,10 @@ namespace Grimoire.PluginV2.Editor
             _footer.text = $"{_items.Count} items · {_objects.Count} objects · {_dialogs.Count} dialogs · " +
                 $"{(_remoteVariablesLoaded ? _variables.Count : _cachedVariables?.Variables.Count ?? 0)} game variables" +
                 (_objectsLoading || _dialogsLoading || _variablesLoading || _foldersLoading ? " · Loading…" : "");
-            if (!IsPicker)
+            if (!IsPicker && _filterDropdown != null)
             {
-                foreach (var button in _filterButtons.Children().OfType<Button>())
-                {
-                    button.EnableInClassList("selected", button.text == "All" && !_typeFilter.HasValue ||
-                        button.text == "Objects" && _typeFilter == Kind.Object ||
-                        button.text == "Dialogs" && _typeFilter == Kind.Dialog ||
-                        button.text == "Variables" && _typeFilter == Kind.Variable);
-                }
+                _filterDropdown.text = _typeFilters.Count == 0 ? "Filters ▾" : $"Filters ({_typeFilters.Count}) ▾";
+                _filterDropdown.EnableInClassList("selected", _typeFilters.Count > 0);
             }
             var errors = new[] { _message, _objectError, _dialogError, _variableError, _folderError }
                 .Where(value => !string.IsNullOrEmpty(value)).ToArray();
@@ -999,6 +1065,7 @@ namespace Grimoire.PluginV2.Editor
         private void RenderDetail()
         {
             if (_detailContent == null) return;
+            GrimoireGameLanguagePreview.EnsureLoaded();
             _detailContent.Clear();
             var item = SelectedItem();
             if (item == null)
@@ -1010,7 +1077,10 @@ namespace Grimoire.PluginV2.Editor
 
             var kind = item.Type == Kind.DialogVariable ? "DIALOG VARIABLE" : item.Type.ToString().ToUpperInvariant();
             DetailLabel(kind, "detail-kind");
-            DetailLabel(item.Name, "detail-name");
+            DetailLabel(item.Type == Kind.Object && item.Object != null &&
+                _objectDetails.TryGetValue(item.Object.id, out var namedDocument) &&
+                !string.IsNullOrEmpty(namedDocument?.@object?.name)
+                    ? namedDocument.@object.name : item.Name, "detail-name");
             DetailLabel(item.Key, "detail-key");
             var actions = Row("actions");
             if (IsPicker)
@@ -1093,7 +1163,10 @@ namespace Grimoire.PluginV2.Editor
                 foreach (var node in asset.Nodes.Where(node => node != null).Take(100))
                 {
                     ValueRow(Display(node.name, node.identifier, node.id),
-                        Display(node.text, node.type.ToString()));
+                        Display(GrimoireGameLanguagePreview.DisplayText(node.stringId, node.text), node.type.ToString()));
+                    foreach (var option in node.options?.Where(option => option != null) ??
+                             Enumerable.Empty<GrimoireDialogOption>())
+                        ValueRow("↳ Choice", GrimoireGameLanguagePreview.DisplayText(option.stringId, option.text));
                 }
                 if (asset.Nodes.Count > 100) Info("Showing the first 100 nodes.");
                 Section("Dialog variables · " + asset.Variables.Count);
@@ -1111,7 +1184,10 @@ namespace Grimoire.PluginV2.Editor
                 Section("Nodes · " + (resource.data?.nodes?.Length ?? 0));
                 foreach (var node in (resource.data?.nodes ?? Array.Empty<DialogNodeDto>()).Where(node => node != null).Take(100))
                 {
-                    ValueRow(Display(node.name, node.node_identifier, node.id), Display(node.text, node.type));
+                    ValueRow(Display(node.name, node.node_identifier, node.id),
+                        Display(GrimoireGameLanguagePreview.DisplayText(node.string_id, node.text), node.type));
+                    foreach (var option in (node.options ?? Array.Empty<DialogOptionDto>()).Where(option => option != null))
+                        ValueRow("↳ Choice", GrimoireGameLanguagePreview.DisplayText(option.string_id, option.option_text));
                 }
                 Section("Dialog variables · " + (resource.data?.variables?.Length ?? 0));
                 foreach (var variable in (resource.data?.variables ?? Array.Empty<DialogVariableDto>()).Where(variable => variable != null))
@@ -1131,7 +1207,8 @@ namespace Grimoire.PluginV2.Editor
                 foreach (var element in (resource.elements ?? Array.Empty<VariableElementDto>()).Where(element => element != null))
                 {
                     var authored = element.value ?? (object)element.name;
-                    ValueRow(Display(element.name, element.id), ValueText(authored), resource.element_type);
+                    ValueRow(Display(GrimoireGameLanguagePreview.DisplayText(element.string_id, element.name), element.id),
+                        ValueText(authored), resource.element_type);
                     if (EditorApplication.isPlaying && _cachedVariables != null &&
                         _cachedVariables.TryGetElement(element.id, out _))
                         ValueRow("Play mode value", ValueText(GrimoireVariables.GetValue(element.id)));
@@ -1149,8 +1226,9 @@ namespace Grimoire.PluginV2.Editor
                 {
                     var value = EditorApplication.isPlaying ? GrimoireVariables.GetValue(element.Id)
                         : element.AuthoredValue ?? (object)element.DisplayName;
-                    ValueRow(element.DisplayName, ValueText(value), variable.ElementType);
-                    CopyButton(_detailContent, "Copy element ID: " + element.DisplayName, element.Id);
+                    var displayName = element.GetDisplayName(GrimoireSettings.Locale);
+                    ValueRow(displayName, ValueText(value), variable.ElementType);
+                    CopyButton(_detailContent, "Copy element ID: " + displayName, element.Id);
                 }
             }
             if (resource != null && GrimoireSettings.IsConfigured && !IsPicker)
