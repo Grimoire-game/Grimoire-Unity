@@ -18,13 +18,21 @@
 .grimoire-library .pickerbar .unity-label { flex-grow: 1; }
 .grimoire-library .titlebar { padding: 14px 17px 8px; align-items: flex-start; }
 .grimoire-library .title-stack { flex-grow: 1; }
+.grimoire-library .sync-section { margin-left: 15px; margin-right: 15px; margin-bottom: 10px; padding: 10px; background-color: #303138; border-left-width: 3px; border-left-color: #7959cb; }
+.grimoire-library.light .sync-section { background-color: #e8e5ef; }
+.grimoire-library .sync-heading { flex-direction: row; align-items: center; }
+.grimoire-library .sync-text { flex-grow: 1; min-width: 0; }
+.grimoire-library .sync-title { -unity-font-style: bold; margin-bottom: 3px; }
+.grimoire-library .sync-progress { margin-top: 8px; }
+.grimoire-library .sync-section .unity-button { margin-left: 9px; min-width: 112px; }
 .grimoire-library .title { font-size: 19px; -unity-font-style: bold; }
 .grimoire-library .subtitle, .grimoire-library .muted { color: #aeb0bb; font-size: 11px; }
 .grimoire-library.light .subtitle, .grimoire-library.light .muted { color: #666873; }
 .grimoire-library .searchbar { padding-left: 15px; padding-right: 15px; padding-bottom: 11px; }
 .grimoire-library .search-field { flex-grow: 1; min-width: 80px; }
 .grimoire-library .searchbar .unity-button { margin-left: 6px; }
-.grimoire-library .filters .unity-button.selected { background-color: #7050c9; color: white; }
+.grimoire-library .filter-dropdown { min-width: 110px; }
+.grimoire-library .filter-dropdown.selected { background-color: #7050c9; color: white; }
 .grimoire-library .folder-popup { display: none; margin-right: 6px; }
 .grimoire-library .panes { flex-grow: 1; flex-direction: row; min-height: 0; border-top-width: 1px; border-top-color: #44454e; }
 .grimoire-library.light .panes { border-top-color: #d0d0d5; }
@@ -84,7 +92,7 @@
 .grimoire-library.compact .folder-pane { display: none; }
 .grimoire-library.compact .folder-popup { display: flex; }
 .grimoire-library.compact .searchbar { flex-wrap: wrap; }
-.grimoire-library.compact .filters { width: 100%; margin-top: 5px; }
+.grimoire-library.compact .filter-dropdown { margin-top: 5px; }
 .grimoire-library.compact .panes { flex-direction: column; }
 .grimoire-library.compact .result-pane { height: 185px; flex-grow: 0; border-right-width: 0; border-bottom-width: 1px; border-bottom-color: #44454e; }
 .grimoire-library.compact .details-pane { width: auto; flex-grow: 1; min-height: 0; }

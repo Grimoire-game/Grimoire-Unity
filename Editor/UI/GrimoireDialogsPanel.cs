@@ -18,8 +18,8 @@ namespace Grimoire.PluginV2.Editor
         private Vector2 _scroll;
         private Vector2 _detailsScroll;
         private string _selectedDialogId;
-        private int _stateFilter;
-        private static readonly string[] StateFilters = { "All dialogs", "Imported", "Update available", "Not imported" };
+        private readonly HashSet<string> _selectedStates = new HashSet<string>(StringComparer.Ordinal);
+        private static readonly string[] StateFilters = { "Imported", "Update available", "Not imported" };
         private DialogSummary[] _dialogs;
         private Dictionary<string, GrimoireDialogAsset> _imported = new Dictionary<string, GrimoireDialogAsset>();
         private bool _loading;
@@ -27,6 +27,7 @@ namespace Grimoire.PluginV2.Editor
         private string _status;
         private string _search = "";
         private string _appliedSearch = "";
+        private double _searchDue;
         private int _offset;
         private int _loadGeneration;
         private string _busyDialogId;
@@ -39,6 +40,9 @@ namespace Grimoire.PluginV2.Editor
 
         public void Activate()
         {
+            GrimoireGameLanguagePreview.Changed -= RequestRepaint;
+            GrimoireGameLanguagePreview.Changed += RequestRepaint;
+            GrimoireGameLanguagePreview.EnsureLoaded();
             EditorApplication.projectChanged -= RefreshImported;
             EditorApplication.projectChanged += RefreshImported;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
@@ -53,6 +57,8 @@ namespace Grimoire.PluginV2.Editor
 
         public void Deactivate()
         {
+            EditorApplication.update -= ApplyPendingSearch;
+            GrimoireGameLanguagePreview.Changed -= RequestRepaint;
             EditorApplication.projectChanged -= RefreshImported;
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
         }
@@ -75,6 +81,7 @@ namespace Grimoire.PluginV2.Editor
         /// <summary>Forget the list, e.g. after switching games.</summary>
         public void Reset()
         {
+            EditorApplication.update -= ApplyPendingSearch;
             _loadGeneration++;
             _loading = false;
             _dialogs = null;
@@ -126,22 +133,34 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawWorkspaceFilters()
         {
-            var submit = Event.current.type == EventType.KeyDown &&
-                         (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter) &&
-                         GUI.GetNameOfFocusedControl() == SearchControlName;
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Search", GUILayout.Width(44f));
-            GUI.SetNextControlName(SearchControlName);
-            _search = EditorGUILayout.TextField(_search ?? "", GUILayout.MinWidth(90f));
-            using (new EditorGUI.DisabledScope(_loading))
-            {
-                if (GUILayout.Button("Search", GUILayout.Width(62f)) || submit) ApplySearch(_search);
-            }
-            _stateFilter = EditorGUILayout.Popup(_stateFilter, StateFilters, GUILayout.Width(125f));
-            if (GUILayout.Button("Refresh", GUILayout.Width(65f))) Refresh();
-            EditorGUILayout.EndHorizontal();
-            GUILayout.Space(5f);
+            var next = GrimoireWorkflowGUI.SearchAndFilters(_search, ShowFilterMenu,
+                _selectedStates.Count, Refresh, _loading);
+            if (next == _search) return;
+            _search = next;
+            _searchDue = EditorApplication.timeSinceStartup + 0.35;
+            EditorApplication.update -= ApplyPendingSearch;
+            EditorApplication.update += ApplyPendingSearch;
         }
+
+        private void ApplyPendingSearch()
+        {
+            if (EditorApplication.timeSinceStartup < _searchDue || _loading) return;
+            EditorApplication.update -= ApplyPendingSearch;
+            if ((_search ?? "").Trim() != _appliedSearch) ApplySearch(_search);
+        }
+
+        private void ShowFilterMenu()
+        {
+            var menu = new GenericMenu();
+            GrimoireWorkflowGUI.AddAllChoice(menu, "All dialogs", _selectedStates, RequestRepaint);
+            menu.AddSeparator("");
+            foreach (var state in StateFilters)
+                GrimoireWorkflowGUI.AddMultiChoice(menu, state, _selectedStates, state, RequestRepaint);
+            menu.ShowAsContext();
+        }
+
+        private bool MatchesState(DialogSummary dialog) =>
+            _selectedStates.Count == 0 || _selectedStates.Contains(DialogState(dialog, ImportedAsset(dialog)));
 
         private void DrawWorkspaceList()
         {
@@ -152,16 +171,14 @@ namespace Grimoire.PluginV2.Editor
                 GrimoireEditorStyles.DrawInfoBox("No dialogs found. Try another search or refresh.");
             else
             {
-                if (Array.Find(_dialogs, d => d.id == _selectedDialogId &&
-                    (_stateFilter == 0 || DialogState(d, ImportedAsset(d)) == StateFilters[_stateFilter])) == null)
-                    _selectedDialogId = Array.Find(_dialogs, d => _stateFilter == 0 ||
-                        DialogState(d, ImportedAsset(d)) == StateFilters[_stateFilter])?.id;
+                if (Array.Find(_dialogs, d => d.id == _selectedDialogId && MatchesState(d)) == null)
+                    _selectedDialogId = Array.Find(_dialogs, MatchesState)?.id;
                 var shown = 0;
                 foreach (var dialog in _dialogs)
                 {
                     _imported.TryGetValue(dialog.id ?? "", out var asset);
                     var state = DialogState(dialog, asset);
-                    if (_stateFilter > 0 && state != StateFilters[_stateFilter]) continue;
+                    if (!MatchesState(dialog)) continue;
                     shown++;
                     if (GrimoireWorkflowGUI.Row(
                             string.IsNullOrEmpty(dialog.name) ? "(unnamed dialog)" : dialog.name,
@@ -178,11 +195,7 @@ namespace Grimoire.PluginV2.Editor
 
         private void DrawWorkspaceDetail()
         {
-            var visible = _dialogs == null ? Array.Empty<DialogSummary>() : Array.FindAll(_dialogs, d =>
-            {
-                _imported.TryGetValue(d.id ?? "", out var imported);
-                return _stateFilter == 0 || DialogState(d, imported) == StateFilters[_stateFilter];
-            });
+            var visible = _dialogs == null ? Array.Empty<DialogSummary>() : Array.FindAll(_dialogs, MatchesState);
             var dialog = Array.Find(visible, d => d.id == _selectedDialogId) ??
                          (visible.Length > 0 ? visible[0] : null);
             if (dialog == null)
@@ -214,7 +227,7 @@ namespace Grimoire.PluginV2.Editor
                 GrimoireWorkflowGUI.DetailLine("Starting node", asset.StartingNode);
                 var first = asset.FindNode(asset.StartingNode);
                 if (first != null && !string.IsNullOrEmpty(first.text))
-                    GrimoireWorkflowGUI.Note(first.text);
+                    GrimoireWorkflowGUI.Note(GrimoireGameLanguagePreview.DisplayText(first.stringId, first.text));
             }
             else GrimoireWorkflowGUI.Note("Import this dialog to inspect its nodes and variables in Unity.");
         }

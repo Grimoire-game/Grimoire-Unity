@@ -62,7 +62,7 @@ namespace Grimoire.PluginV2.Editor
         private Vector2 _liveListScroll;
         private Vector2 _liveDetailScroll;
         private string _liveSearch = "";
-        private int _liveCategoryIndex;
+        private readonly HashSet<string> _selectedLiveCategories = new HashSet<string>(StringComparer.Ordinal);
         private bool _showLinkedNow;
         private bool _capturePaused;
         private bool _hasLiveBaseline;

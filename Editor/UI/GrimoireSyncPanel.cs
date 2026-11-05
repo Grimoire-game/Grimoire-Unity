@@ -62,13 +62,16 @@ namespace Grimoire.PluginV2.Editor
                     "Editable field commits can still be prepared after Play.");
             }
 
-            DrawSyncEverything();
-
             var entries = BuildEntries(out var selectedEntry, out var others);
             BuildTextEntries(out var selectedTextEntry, out var otherTextEntries);
-            var dirtyTotal = CountDirtyEntries(entries) + CountDirtyTextEntries(selectedTextEntry, otherTextEntries);
+            var objectDirty = CountDirtyEntries(entries);
+            var textDirty = CountDirtyTextEntries(selectedTextEntry, otherTextEntries);
 
-            DrawCommitForm(selectedEntry, selectedTextEntry, otherTextEntries, dirtyTotal);
+            GrimoireWorkflowGUI.Header("Review", "Inspect Unity changes before sending them to Grimoire.");
+            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
+            EditorGUILayout.LabelField($"{objectDirty} object changes", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"{textDirty} text links", EditorStyles.boldLabel);
+            EditorGUILayout.EndHorizontal();
 
             if (!string.IsNullOrEmpty(_error))
             {
@@ -82,32 +85,18 @@ namespace Grimoire.PluginV2.Editor
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
-            EditorGUILayout.LabelField("Selected object", EditorStyles.boldLabel);
-            if (selectedEntry == null)
+            if (objectDirty == 0 && textDirty == 0)
+                GrimoireEditorStyles.DrawInfoBox("Everything is up to date. Changes to linked objects and translations will appear here.");
+
+            if (selectedEntry != null)
             {
-                GrimoireEditorStyles.DrawInfoBox(
-                    "Select a GameObject with a Grimoire Object Link to see its live game engine data.");
-            }
-            else
-            {
+                GrimoireWorkflowGUI.Section("Selected object");
                 DrawChangeCard(selectedEntry, isSelected: true);
             }
 
-            EditorGUILayout.Space(12);
-            EditorGUILayout.LabelField(
-                others.Count == 0
-                    ? "Other pending changes"
-                    : $"Other pending changes ({others.Count})",
-                EditorStyles.boldLabel);
-
-            if (others.Count == 0)
+            if (others.Count > 0)
             {
-                EditorGUILayout.LabelField(
-                    "No other linked objects have unsynced transform or field changes.",
-                    GrimoireEditorStyles.MiniSecondaryStyle);
-            }
-            else
-            {
+                GrimoireWorkflowGUI.Section($"Other object changes · {others.Count}");
                 foreach (var entry in others)
                 {
                     DrawChangeCard(entry, isSelected: false);
@@ -115,125 +104,49 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
+            if (objectDirty > 0)
+                DrawCommitForm(selectedEntry, objectDirty);
+
+            if (selectedTextEntry != null || otherTextEntries.Count > 0)
+                DrawTextLinksSection(selectedTextEntry, otherTextEntries);
+
             EditorGUILayout.EndScrollView();
-
-            DrawTextLinksSection(selectedTextEntry, otherTextEntries);
-        }
-
-        private void DrawSyncEverything()
-        {
-            EditorGUILayout.LabelField("Pull from Grimoire", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(
-                "Fetch every configured language and update variables, imported dialogs, " +
-                "text links, object links and their cached nested objects.",
-                GrimoireEditorStyles.MiniSecondaryStyle);
-
-            using (new EditorGUI.DisabledScope(_busy || EditorApplication.isPlayingOrWillChangePlaymode))
-            {
-                if (GUILayout.Button(
-                        new GUIContent(
-                            _busy ? "Syncing..." : "Sync Everything",
-                            "Update every Grimoire resource used by this Unity project."),
-                        GrimoireEditorStyles.PrimaryButtonStyle,
-                        GUILayout.Height(30)))
-                {
-                    SyncEverythingAsync();
-                }
-            }
-
-            EditorGUILayout.Space(8);
-        }
-
-        private async void SyncEverythingAsync()
-        {
-            if (_busy)
-            {
-                return;
-            }
-
-            var generation = ++_opGeneration;
-            _busy = true;
-            _status = "Starting full sync...";
-            _error = null;
-            RequestRepaint();
-
-            ApiResult<GrimoireSyncEverything.Summary> result;
-            try
-            {
-                result = await GrimoireSyncEverything.RunAsync((message, amount) =>
-                {
-                    _status = message;
-                    RequestRepaint();
-                    return EditorUtility.DisplayCancelableProgressBar(
-                        "Grimoire — Sync Everything", message, amount);
-                });
-            }
-            finally
-            {
-                EditorUtility.ClearProgressBar();
-            }
-
-            if (generation != _opGeneration)
-            {
-                return;
-            }
-
-            _busy = false;
-            if (!result.Success)
-            {
-                _status = null;
-                _error = result.Error ?? "Sync failed.";
-            }
-            else
-            {
-                _status = result.Data.ToString();
-                _error = result.Data.Errors.Count > 0
-                    ? string.Join("\n", result.Data.Errors)
-                    : null;
-            }
-
-            RequestRepaint();
         }
 
         private void DrawTextLinksSection(TextSyncEntry selectedEntry, List<TextSyncEntry> others)
         {
             EditorGUILayout.Space(12);
-            EditorGUILayout.LabelField("Text links", EditorStyles.boldLabel);
+            GrimoireWorkflowGUI.Section("Text links");
             EditorGUILayout.LabelField(
                 "Translation edits push immediately via PATCH /strings/{id}/translations/{locale}. " +
                 "Source text edits stay local until changed in Grimoire.",
                 GrimoireEditorStyles.MiniSecondaryStyle);
 
-            if (selectedEntry == null)
-            {
-                GrimoireEditorStyles.DrawInfoBox(
-                    "Select a GameObject with a Grimoire Text Link to review its pending translation edits.");
-            }
-            else
+            if (selectedEntry != null)
             {
                 DrawTextChangeCard(selectedEntry, isSelected: true);
             }
 
-            EditorGUILayout.Space(8);
-            EditorGUILayout.LabelField(
-                others.Count == 0
-                    ? "Other pending text links"
-                    : $"Other pending text links ({others.Count})",
-                EditorStyles.boldLabel);
-
-            if (others.Count == 0)
+            if (others.Count > 0)
             {
-                EditorGUILayout.LabelField(
-                    "No other text links have unsynced translation changes.",
-                    GrimoireEditorStyles.MiniSecondaryStyle);
-            }
-            else
-            {
+                GrimoireWorkflowGUI.Section($"Other text changes · {others.Count}");
                 foreach (var entry in others)
                 {
                     DrawTextChangeCard(entry, isSelected: false);
                     EditorGUILayout.Space(4);
                 }
+            }
+
+            var pushable = CountPushableTextEntries(selectedEntry, others);
+            if (pushable > 0)
+            {
+                EditorGUILayout.BeginHorizontal();
+                using (new EditorGUI.DisabledScope(_busy))
+                {
+                    if (GUILayout.Button($"Push all translations ({pushable})", GUILayout.Width(210f)))
+                        PushAllTextDirty(selectedEntry, others);
+                }
+                EditorGUILayout.EndHorizontal();
             }
         }
 
@@ -316,23 +229,17 @@ namespace Grimoire.PluginV2.Editor
             GrimoireEditorStyles.EndCollapsibleSection();
         }
 
-        private void DrawCommitForm(
-            SyncEntry selectedEntry,
-            TextSyncEntry selectedTextEntry,
-            List<TextSyncEntry> otherTextEntries,
-            int dirtyTotal)
+        private void DrawCommitForm(SyncEntry selectedEntry, int dirtyTotal)
         {
-            var selectedDirty = (selectedEntry != null && selectedEntry.IsDirty) ||
-                                (selectedTextEntry != null && selectedTextEntry.PushableDirty);
-            var canCommit = dirtyTotal > 0 || selectedDirty;
+            var selectedDirty = selectedEntry != null && selectedEntry.IsDirty;
 
-            EditorGUILayout.LabelField("Commit", EditorStyles.boldLabel);
+            GrimoireWorkflowGUI.Section("Send object changes");
             EditorGUILayout.LabelField(
                 "Pushes a titled batch to Grimoire for review (POST /engine-commits). " +
                 "Values are not applied until accepted on the Engine Sync tab.",
                 GrimoireEditorStyles.MiniSecondaryStyle);
 
-            using (new EditorGUI.DisabledScope(_busy || !canCommit))
+            using (new EditorGUI.DisabledScope(_busy))
             {
                 _commitTitle = EditorGUILayout.TextField(
                     new GUIContent("Title", "Required. Shown to the reviewer."),
@@ -372,7 +279,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             EditorGUILayout.EndHorizontal();
-            EditorGUILayout.Space(2);
+            EditorGUILayout.Space(4);
             EditorGUILayout.BeginHorizontal();
 
             using (new EditorGUI.DisabledScope(_busy || !selectedDirty))
@@ -381,62 +288,19 @@ namespace Grimoire.PluginV2.Editor
                         new GUIContent(
                             "Reset selected",
                             "Restore the selected object's transform and discard unsaved field edits."),
-                        GUILayout.Height(28)))
+                        GUILayout.Width(110f)))
                 {
                     ResetAsync(new[] { selectedEntry });
                 }
             }
 
-            using (new EditorGUI.DisabledScope(_busy || dirtyTotal == 0))
+            using (new EditorGUI.DisabledScope(_busy))
             {
-                var label = dirtyTotal == 0 ? "Reset all" : $"Reset all ({dirtyTotal})";
-                if (GUILayout.Button(
-                        new GUIContent(
-                            label,
-                            "Discard local transform and field changes for every pending object."),
-                        GUILayout.Height(28)))
+                if (GUILayout.Button(new GUIContent($"Reset all ({dirtyTotal})",
+                        "Discard local transform and field changes for every pending object."),
+                        GUILayout.Width(120f)))
                 {
                     ResetAllDirty();
-                }
-            }
-
-            GUILayout.FlexibleSpace();
-
-            if (dirtyTotal > 0)
-            {
-                EditorGUILayout.LabelField(
-                    $"{dirtyTotal} pending",
-                    GrimoireEditorStyles.MiniSecondaryStyle,
-                    GUILayout.Width(80));
-            }
-
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.Space(2);
-
-            var selectedTextDirty = selectedTextEntry != null && selectedTextEntry.PushableDirty;
-            var textDirtyTotal = CountPushableTextEntries(selectedTextEntry, otherTextEntries);
-            EditorGUILayout.BeginHorizontal();
-
-            using (new EditorGUI.DisabledScope(_busy || !selectedTextDirty))
-            {
-                if (GUILayout.Button(
-                        new GUIContent(
-                            "Push selected translations",
-                            "PATCH deviated translations on the selected text link."),
-                        GUILayout.Height(28)))
-                {
-                    PushTextAsync(new[] { selectedTextEntry });
-                }
-            }
-
-            using (new EditorGUI.DisabledScope(_busy || textDirtyTotal == 0))
-            {
-                var label = textDirtyTotal == 0
-                    ? "Push all translations"
-                    : $"Push all translations ({textDirtyTotal})";
-                if (GUILayout.Button(new GUIContent(label), GUILayout.Height(28)))
-                {
-                    PushAllTextDirty(selectedTextEntry, otherTextEntries);
                 }
             }
 
@@ -530,17 +394,6 @@ namespace Grimoire.PluginV2.Editor
             {
                 Selection.activeGameObject = change.Link.gameObject;
                 EditorGUIUtility.PingObject(change.Link.gameObject);
-            }
-
-            var titleReady = !string.IsNullOrWhiteSpace(_commitTitle);
-            using (new EditorGUI.DisabledScope(_busy || !entry.IsDirty || !titleReady))
-            {
-                if (GUILayout.Button(
-                        new GUIContent("Commit", "Queue this object's pending changes for review."),
-                        GUILayout.Width(70)))
-                {
-                    CommitAsync(new[] { entry });
-                }
             }
 
             using (new EditorGUI.DisabledScope(_busy || !entry.IsDirty))
@@ -925,7 +778,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireTextLinkStore.CollectSceneLinks(TextLinkScratch);
             foreach (var link in TextLinkScratch)
             {
-                if (link != null && GrimoireTextLinkStore.HasPushableDeviations(link))
+                if (link != null && GrimoireTextLinkStore.HasDeviations(link))
                 {
                     textDirty++;
                 }

@@ -26,6 +26,8 @@ namespace Grimoire.PluginV2.Editor
         private string[] _statusFilterLabels = Array.Empty<string>();
         private int _assigneeFilterIndex;
         private int _statusFilterIndex;
+        private readonly HashSet<string> _selectedAssignees = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _selectedStatuses = new HashSet<string>(StringComparer.Ordinal);
         private bool _loading;
         private bool _usersLoading;
         private string _error;
@@ -53,6 +55,8 @@ namespace Grimoire.PluginV2.Editor
             _users = Array.Empty<UserDirectoryEntry>();
             _assigneeFilterIndex = 0;
             _statusFilterIndex = 0;
+            _selectedAssignees.Clear();
+            _selectedStatuses.Clear();
             _loading = false;
             _usersLoading = false;
             _error = null;
@@ -156,23 +160,28 @@ namespace Grimoire.PluginV2.Editor
         private void DrawWorkspaceFilters()
         {
             BuildStatusFilterOptions();
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Search", GUILayout.Width(44f));
-            _search = EditorGUILayout.TextField(_search ?? "", GUILayout.MinWidth(90f));
-            using (new EditorGUI.DisabledScope(_usersLoading || _assigneeLabels.Length == 0))
-            {
-                var next = EditorGUILayout.Popup(_assigneeFilterIndex, _assigneeLabels, GUILayout.Width(130f));
-                if (next != _assigneeFilterIndex)
+            _search = GrimoireWorkflowGUI.SearchAndFilters(_search, ShowFilterMenu,
+                _selectedAssignees.Count + _selectedStatuses.Count, Refresh, _loading || _usersLoading);
+        }
+
+        private void ShowFilterMenu()
+        {
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("All open tasks"),
+                _selectedAssignees.Count == 0 && _selectedStatuses.Count == 0, () =>
                 {
-                    _assigneeFilterIndex = next;
-                    RequestTasksRefresh();
-                }
-            }
-            if (_statusFilterLabels.Length > 0)
-                _statusFilterIndex = EditorGUILayout.Popup(_statusFilterIndex, _statusFilterLabels, GUILayout.Width(125f));
-            if (GUILayout.Button("Refresh", GUILayout.Width(65f))) Refresh();
-            EditorGUILayout.EndHorizontal();
-            GUILayout.Space(5f);
+                    _selectedAssignees.Clear();
+                    _selectedStatuses.Clear();
+                    RequestRepaint();
+                });
+            menu.AddSeparator("");
+            for (var i = 1; i < _assigneeKeys.Length; i++)
+                GrimoireWorkflowGUI.AddMultiChoice(menu, "Assignee/" + _assigneeLabels[i].Replace('/', '⁄'),
+                    _selectedAssignees, _assigneeKeys[i], RequestRepaint);
+            for (var i = 1; i < _statusFilterKeys.Length; i++)
+                GrimoireWorkflowGUI.AddMultiChoice(menu, "Status/" + _statusFilterLabels[i].Replace('/', '⁄'),
+                    _selectedStatuses, _statusFilterKeys[i], RequestRepaint);
+            menu.ShowAsContext();
         }
 
         private bool MatchesSearch(GrimoireTask task)
@@ -253,11 +262,12 @@ namespace Grimoire.PluginV2.Editor
             IEnumerable<GrimoireTask> visible = _tasks.Where(task =>
                 task.is_task && !GrimoireTasksPanel.IsTaskDone(gameId, task.status));
 
-            var statusKey = GetSelectedStatusKey();
-            if (!string.IsNullOrEmpty(statusKey))
-            {
-                visible = visible.Where(task => task.status == statusKey);
-            }
+            if (_selectedStatuses.Count > 0)
+                visible = visible.Where(task => _selectedStatuses.Contains(task.status ?? ""));
+            if (_selectedAssignees.Count > 0)
+                visible = visible.Where(task => task.assignees != null && task.assignees.Any(id =>
+                    _selectedAssignees.Contains(id) ||
+                    (id == GrimoireAuthSession.UserId && _selectedAssignees.Contains(MyTasksKey))));
 
             return visible.ToArray();
         }
@@ -518,7 +528,8 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
 
-            var result = await GrimoireApiClient.ListTasksAsync(gameId, GetSelectedUserId());
+            // Fetch the full task set so several assignees can be selected at once.
+            var result = await GrimoireApiClient.ListTasksAsync(gameId, null);
             if (generation != _fetchGeneration)
             {
                 return;

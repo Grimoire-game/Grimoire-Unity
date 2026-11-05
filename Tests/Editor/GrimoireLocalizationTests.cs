@@ -99,6 +99,24 @@ namespace Grimoire.PluginV2.Tests
         }
 
         [Test]
+        public void ApiStringPreviewUsesSelectedTranslationAndSourceFallback()
+        {
+            var resource = new StringResource
+            {
+                source_text = "Hello",
+                translations = new[]
+                {
+                    new StringTranslation { language_code = "nl", translated_text = "Hallo" },
+                    new StringTranslation { language_code = "fr", translated_text = "" },
+                },
+            };
+
+            Assert.AreEqual("Hallo", GrimoireTranslationCatalog.DisplayText(resource, "NL"));
+            Assert.AreEqual("Hello", GrimoireTranslationCatalog.DisplayText(resource, "fr"));
+            Assert.AreEqual("Hello", GrimoireTranslationCatalog.DisplayText(resource, ""));
+        }
+
+        [Test]
         public void SyncEverythingDeduplicatesUnityObjects()
         {
             var gameObject = new GameObject("translation-test");
@@ -171,6 +189,23 @@ namespace Grimoire.PluginV2.Tests
                 Assert.AreEqual(1, link.Translations.Count);
                 Assert.AreEqual("Local edit", link.Translations[0].LocalText);
                 Assert.IsTrue(link.Translations[0].IsDeviated);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
+        public void TextLinkPreviewAlwaysUsesGameLanguageSetting()
+        {
+            var gameObject = new GameObject("language-setting-test");
+            try
+            {
+                var link = gameObject.AddComponent<GrimoireTextLink>();
+                link.PreviewLanguage = "legacy-object-override";
+                Assert.AreEqual(GrimoireSettings.Locale,
+                    GrimoireTextLinkStore.ResolvePreviewLanguage(link));
             }
             finally
             {
