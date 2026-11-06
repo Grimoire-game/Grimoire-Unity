@@ -49,8 +49,10 @@ files that could be committed.
 Open `Window > Grimoire` and choose **Content Library** in the sidebar. This view
 shows the selected game's objects, dialogs and
 variables together. Choose a folder, search by name or key, then select an item
-to inspect its fields, dialog nodes or variable elements. Click **Copy** beside
-any value, or copy an item's key or ID from its details.
+to inspect its fields, dialog nodes or variable elements. Values appear in
+separate, wrapping cards grouped by section. With an unlinked GameObject
+selected in the scene, select a Grimoire object and click **Bind to selected**
+in its details to add an Object Link and load its fields.
 
 The library loads each resource in pages and also shows imported dialog assets
 and synced variables in the project. You can import or update a dialog, or sync

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Grimoire.PluginV2.Internal;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -66,6 +67,7 @@ namespace Grimoire.PluginV2.Editor
         private bool _foldersLoading;
         private bool _detailLoading;
         private bool _busy;
+        private bool _binding;
         private string _objectError;
         private string _dialogError;
         private string _variableError;
@@ -73,6 +75,8 @@ namespace Grimoire.PluginV2.Editor
         private string _detailError;
         private string _detailFailedId;
         private string _message;
+        private string _bindMessage;
+        private string _bindItemId;
         private string _search = "";
         private string _folder = AllFolder;
         private string _selectedId;
@@ -151,6 +155,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireContentSync.Completed += OnSyncCompleted;
             EditorApplication.projectChanged += OnProjectChanged;
             EditorApplication.playModeStateChanged += OnPlayModeChanged;
+            Selection.selectionChanged += OnSceneSelectionChanged;
             _folder = EditorPrefs.GetString(PrefKey("Folder"), AllFolder);
             _selectedId = EditorPrefs.GetString(PrefKey("Selected"), "");
         }
@@ -170,6 +175,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireContentSync.Completed -= OnSyncCompleted;
             EditorApplication.projectChanged -= OnProjectChanged;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+            Selection.selectionChanged -= OnSceneSelectionChanged;
         }
 
         private static string PrefKey(string suffix) =>
@@ -208,6 +214,11 @@ namespace Grimoire.PluginV2.Editor
         }
 
         private void OnPlayModeChanged(PlayModeStateChange _) => RenderDetail();
+
+        private void OnSceneSelectionChanged()
+        {
+            if (_active && !IsPicker) RenderDetail();
+        }
 
         internal void Build(VisualElement host, bool embedded)
         {
@@ -429,6 +440,8 @@ namespace Grimoire.PluginV2.Editor
             _folderError = null;
             _detailError = null;
             _detailFailedId = null;
+            _bindMessage = null;
+            _bindItemId = null;
             _message = null;
             _objectsLoading = false;
             _dialogsLoading = false;
@@ -1050,6 +1063,8 @@ namespace Grimoire.PluginV2.Editor
             _detailError = null;
             _detailFailedId = null;
             _detailLoading = false;
+            _bindMessage = null;
+            _bindItemId = null;
             RenderDetail();
             LoadSelectedDetail();
         }
@@ -1091,15 +1106,13 @@ namespace Grimoire.PluginV2.Editor
                 pick.SetEnabled(canPick);
                 actions.Add(pick);
             }
-            CopyButton(actions, "Copy key", item.Key);
-            CopyButton(actions, "Copy ID", item.Type == Kind.Object ? item.Object?.id :
-                item.Type == Kind.Dialog ? item.Dialog?.id ?? item.Asset?.DialogId :
-                item.Type == Kind.Variable ? item.Variable?.id ?? item.CachedVariable?.Id : item.Id);
             if (item.Asset != null)
             {
                 actions.Add(new Button(() => EditorGUIUtility.PingObject(item.Asset)) { text = "Ping asset" });
             }
-            _detailContent.Add(actions);
+            if (actions.childCount > 0) _detailContent.Add(actions);
+            if (item.Type == Kind.Object && !IsPicker) RenderSceneBinding(item);
+            Section("Overview");
             ValueRow("Folder", item.Folder);
             var folderId = item.Type == Kind.Object ? item.Object?.folder
                 : item.Type == Kind.Dialog ? item.Dialog?.folder
@@ -1141,6 +1154,98 @@ namespace Grimoire.PluginV2.Editor
                 ValueRow(field.DisplayLabel, string.Join(", ", values), field.FieldType);
             }
             if (snapshot.Fields.Count == 0) Info("This object has no fields.");
+        }
+
+        private void RenderSceneBinding(Item item)
+        {
+            Section("Scene binding");
+            var selected = Selection.activeGameObject;
+            if (selected == null || !selected.scene.IsValid() || !selected.scene.isLoaded ||
+                EditorUtility.IsPersistent(selected))
+            {
+                Info("Select a GameObject in the scene to bind this Grimoire object.");
+            }
+            else if (selected.GetComponent<GrimoireObjectLink>() != null)
+            {
+                Info($"'{selected.name}' already has a Grimoire Object Link.");
+            }
+            else
+            {
+                var button = new Button(() => BindSelectedGameObject(item.Object, item.Id))
+                {
+                    text = _binding ? "Binding…" : $"Bind to selected: {selected.name}",
+                    tooltip = $"Add a Grimoire Object Link to '{selected.name}'.",
+                };
+                button.AddToClassList("primary");
+                button.AddToClassList("bind-button");
+                button.SetEnabled(!_binding && GrimoireSettings.IsConfigured &&
+                    !GrimoireGameEngineSync.IsPlayModeBlocked);
+                _detailContent.Add(button);
+            }
+
+            if (_bindItemId == item.Id && !string.IsNullOrEmpty(_bindMessage)) Info(_bindMessage);
+        }
+
+        private async void BindSelectedGameObject(ObjectSummary summary, string itemId)
+        {
+            if (_binding || summary == null || string.IsNullOrEmpty(summary.id) ||
+                !GrimoireSettings.IsConfigured || GrimoireGameEngineSync.IsPlayModeBlocked) return;
+
+            var selected = Selection.activeGameObject;
+            if (selected == null || !selected.scene.IsValid() || !selected.scene.isLoaded ||
+                EditorUtility.IsPersistent(selected) || selected.GetComponent<GrimoireObjectLink>() != null)
+            {
+                RenderDetail();
+                return;
+            }
+
+            _binding = true;
+            _bindItemId = itemId;
+            _bindMessage = $"Binding '{selected.name}'…";
+            RenderDetail();
+
+            try
+            {
+                var link = Undo.AddComponent<GrimoireObjectLink>(selected);
+                Undo.RecordObject(link, "Bind Grimoire object");
+                link.ObjectKey = summary.code_id ?? "";
+                link.CachedObjectId = summary.id;
+                GrimoireObjectKeyResolver.Remember(GrimoireSettings.GameId, summary.code_id, summary.id);
+                GrimoireObjectKeyResolver.RememberSummary(GrimoireSettings.GameId, summary);
+                EditorUtility.SetDirty(link);
+                GrimoireDialogObjectResolver.InvalidateSceneScan();
+
+                var upsert = await GrimoireGameEngineSync.UpsertAsync(link);
+                if (link == null) return;
+                if (upsert.Success) GrimoireGameEngineSyncHooks.Remember(link);
+
+                var refreshed = await GrimoireLinkedFieldStore.RefreshFromGrimoireAsync(
+                    link, preserveLocalEdits: false);
+                if (link == null) return;
+                if (refreshed.Success)
+                {
+                    GrimoireObjectCache.Register(link);
+                    GrimoireObjectCache.NotifyUpdated();
+                }
+
+                var name = string.IsNullOrEmpty(summary.name) ? summary.code_id ?? summary.id : summary.name;
+                _bindMessage = $"Bound '{selected.name}' to '{name}'.";
+                if (refreshed.Success)
+                    _bindMessage += $" Loaded {link.LinkedFields.Count} field(s).";
+                else
+                    _bindMessage += $" Field loading failed: {refreshed.Error}";
+                if (!upsert.Success)
+                    _bindMessage += $" Scene sync failed: {upsert.Error}";
+            }
+            catch (Exception ex)
+            {
+                _bindMessage = "Could not finish binding: " + ex.Message;
+            }
+            finally
+            {
+                _binding = false;
+                if (_active) RenderDetail();
+            }
         }
 
         private void RenderDialog(Item item)
@@ -1214,7 +1319,6 @@ namespace Grimoire.PluginV2.Editor
                         ValueRow("Play mode value", ValueText(GrimoireVariables.GetValue(element.id)));
                     if (element.range_min.HasValue && element.range_max.HasValue)
                         ValueRow("Allowed range", $"{element.range_min} – {element.range_max}");
-                    CopyButton(_detailContent, "Copy element ID: " + Display(element.name, element.id), element.id);
                 }
             }
             else if (item.CachedVariable != null)
@@ -1228,7 +1332,6 @@ namespace Grimoire.PluginV2.Editor
                         : element.AuthoredValue ?? (object)element.DisplayName;
                     var displayName = element.GetDisplayName(GrimoireSettings.Locale);
                     ValueRow(displayName, ValueText(value), variable.ElementType);
-                    CopyButton(_detailContent, "Copy element ID: " + displayName, element.Id);
                 }
             }
             if (resource != null && GrimoireSettings.IsConfigured && !IsPicker)
@@ -1273,24 +1376,22 @@ namespace Grimoire.PluginV2.Editor
 
         private void ValueRow(string label, string value, string hint = null)
         {
-            var row = Row("value-row");
-            var caption = new Label(string.IsNullOrEmpty(hint) ? label : label + "  ·  " + hint);
+            var card = Column("value-card");
+            var header = Row("value-header");
+            var caption = new Label(label);
             caption.AddToClassList("value-label");
-            row.Add(caption);
-            var text = new Label(string.IsNullOrEmpty(value) ? "—" : value);
-            text.tooltip = value ?? "";
+            header.Add(caption);
+            if (!string.IsNullOrEmpty(hint))
+            {
+                var type = new Label(hint);
+                type.AddToClassList("value-type");
+                header.Add(type);
+            }
+            card.Add(header);
+            var text = new Label(string.IsNullOrEmpty(value) ? "Not set" : value);
             text.AddToClassList("value-text");
-            row.Add(text);
-            if (!string.IsNullOrEmpty(value)) CopyButton(row, "Copy", value, "value-copy");
-            _detailContent.Add(row);
-        }
-
-        private static void CopyButton(VisualElement parent, string label, string value, string className = null)
-        {
-            if (string.IsNullOrEmpty(value)) return;
-            var button = new Button(() => EditorGUIUtility.systemCopyBuffer = value) { text = label };
-            if (!string.IsNullOrEmpty(className)) button.AddToClassList(className);
-            parent.Add(button);
+            card.Add(text);
+            _detailContent.Add(card);
         }
 
         private static string ValueText(object value)

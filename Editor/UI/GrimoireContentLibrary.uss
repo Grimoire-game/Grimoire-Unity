@@ -7,7 +7,7 @@
     min-height: 0;
 }
 .grimoire-library.light { background-color: #f0f0f2; color: #24252b; }
-.grimoire-library .topbar, .grimoire-library .titlebar, .grimoire-library .searchbar, .grimoire-library .pickerbar, .grimoire-library .actions, .grimoire-library .value-row, .grimoire-library .result-row, .grimoire-library .folder-row { flex-direction: row; align-items: center; }
+.grimoire-library .topbar, .grimoire-library .titlebar, .grimoire-library .searchbar, .grimoire-library .pickerbar, .grimoire-library .actions, .grimoire-library .result-row, .grimoire-library .folder-row { flex-direction: row; align-items: center; }
 .grimoire-library .topbar { min-height: 42px; padding-left: 14px; padding-right: 10px; background-color: #303138; border-bottom-width: 1px; border-bottom-color: #45464e; }
 .grimoire-library.embedded .topbar { display: none; }
 .grimoire-library.light .topbar { background-color: #e7e7ea; border-bottom-color: #d0d0d5; }
@@ -67,7 +67,7 @@
 .grimoire-library.medium .details-pane { width: 270px; }
 .grimoire-library.light .details-pane { background-color: #f8f8fa; }
 .grimoire-library .detail-scroll { flex-grow: 1; }
-.grimoire-library .detail-content { padding: 13px; }
+.grimoire-library .detail-content { padding: 15px; }
 .grimoire-library .detail-kind { color: #bda7f1; font-size: 10px; -unity-font-style: bold; }
 .grimoire-library.light .detail-kind { color: #6747b4; }
 .grimoire-library .detail-name { font-size: 16px; -unity-font-style: bold; margin-top: 2px; }
@@ -77,12 +77,17 @@
 .grimoire-library .actions .unity-button { margin-right: 5px; margin-bottom: 5px; }
 .grimoire-library .primary { background-color: #7050c9; color: white; border-top-color: #8c6edf; border-right-color: #8c6edf; border-bottom-color: #8c6edf; border-left-color: #8c6edf; }
 .grimoire-library .primary:hover { background-color: #8163d8; }
-.grimoire-library .detail-section { margin-top: 13px; margin-bottom: 6px; -unity-font-style: bold; }
-.grimoire-library .value-row { min-height: 32px; padding-left: 8px; padding-right: 4px; border-top-width: 1px; border-top-color: #4b4c55; }
-.grimoire-library.light .value-row { border-top-color: #dadadf; }
-.grimoire-library .value-label { flex-grow: 1; min-width: 0; }
-.grimoire-library .value-text { -unity-font-style: bold; max-width: 170px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.grimoire-library .value-copy { width: 46px; margin-left: 6px; }
+.grimoire-library .bind-button { min-height: 30px; margin-top: 3px; margin-bottom: 5px; }
+.grimoire-library .detail-section { margin-top: 17px; margin-bottom: 9px; padding-bottom: 6px; -unity-font-style: bold; border-bottom-width: 1px; border-bottom-color: #50515b; }
+.grimoire-library.light .detail-section { border-bottom-color: #d7d7dd; }
+.grimoire-library .value-card { min-width: 0; margin-bottom: 7px; padding: 10px; background-color: #393a42; border-left-width: 2px; border-left-color: #615673; }
+.grimoire-library.light .value-card { background-color: #ededf1; border-left-color: #b8a5d8; }
+.grimoire-library .value-header { flex-direction: row; align-items: flex-start; min-width: 0; margin-bottom: 5px; }
+.grimoire-library .value-label { flex-grow: 1; min-width: 0; -unity-font-style: bold; white-space: normal; }
+.grimoire-library .value-type { flex-shrink: 0; margin-left: 7px; color: #bfaee7; font-size: 10px; }
+.grimoire-library.light .value-type { color: #7053a4; }
+.grimoire-library .value-text { min-width: 0; white-space: normal; color: #e6e6ec; }
+.grimoire-library.light .value-text { color: #303139; }
 .grimoire-library .info-box { margin-top: 10px; padding: 9px; background-color: #39364b; border-left-width: 3px; border-left-color: #a588ee; white-space: normal; }
 .grimoire-library.light .info-box { background-color: #eee7f8; border-left-color: #7654c8; }
 .grimoire-library .error-box { margin: 7px 13px; padding: 8px; background-color: #5d3434; white-space: normal; }
