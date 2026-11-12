@@ -44,6 +44,11 @@ namespace Grimoire.PluginV2.Editor
         private static string _search = "";
         private static string _statusMessage;
 
+        internal static void FocusField(string fieldId)
+        {
+            _search = fieldId ?? "";
+        }
+
         public static void Draw(ObjectViewDocument document, GrimoireObjectLink link)
         {
             var snapshot = ResolveSnapshot(document, link);

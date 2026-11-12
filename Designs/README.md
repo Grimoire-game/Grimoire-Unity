@@ -1,5 +1,46 @@
 # Grimoire Unity Editor redesign — concept
 
+## Latest: combined Scene and Object workspace
+
+The [combined Scene concept](./SceneObjectUnifiedConcept.html) replaces the
+separate Scene and Object destinations with one Content Library-style browser.
+Its left pane follows loaded Unity scenes and hierarchy groups, the middle pane
+lists every GameObject (including unlinked objects), and the right pane shows
+the selected GameObject's Grimoire values, editing controls, or code example.
+Selecting a row would also select that GameObject in Unity; a selection made in
+Unity's Hierarchy would highlight the same row. Unlinked GameObjects have a
+Content Library binding action. Text Links preview the game language chosen in
+Settings. In a narrow dock, the list sits above the selected object's details.
+
+Previews: [linked Object Link](./UnifiedSceneLinkedConcept.png),
+[unlinked GameObject](./UnifiedSceneUnlinkedConcept.png),
+[Text Link](./UnifiedSceneTextConcept.png),
+[Use in code](./UnifiedSceneCodeConcept.png), and
+[narrow dock](./UnifiedSceneNarrowConcept.png). These use illustrative data.
+The plugin implementation has not changed for this concept.
+
+## Object workspace update
+
+The [revised Object tab concept](./ObjectTabRedesign.html) brings the selected
+Unity GameObject into the same header, search, filter, and split-pane layout as
+Content Library. It shows source values, editable fields, linked scene instances,
+tasks, and variables as sections of one Object workspace. A **Use in code**
+helper stays at the top of the right pane: select a field and copy a complete
+`GrimoireObjectLink` example. That snippet reads through the configured data
+source, so game code does not need to switch between API snapshots and imported
+versions. In a narrow dock, **Use in code** is available from the section list.
+The right pane also keeps the selected scene link and its transform visible.
+Static
+previews: [Overview](./ObjectTabOverviewDesign.png),
+[Editable fields](./ObjectTab-fields-Design.png),
+[Linked instances](./ObjectTab-instances-Design.png),
+[Use in code](./ObjectTab-code-Design.png),
+[Tasks and variables](./ObjectTab-work-Design.png), and
+[narrow layout](./ObjectTab-narrow-Design.png).
+
+This is an illustrative design for review. The Object tab implementation has
+not been changed for this concept.
+
 ## Current recommendation: Content Library
 
 The focused [Content Library concept](./ContentLibraryConcept.html) puts objects, dialogs, and variables in one folder-based browser with immediate value previews and context-aware picking. See its [design notes](./ContentLibraryConcept.md). The wider workspace concept below remains useful for tasks, sync review, versions, and runtime tools.

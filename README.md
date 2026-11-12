@@ -182,14 +182,17 @@ and a status dropdown for other workflow moves.
 
 ### Scene tab
 
-The **Scene** tab lists everything in the loaded scenes that is linked to
-Grimoire — `GrimoireObjectLink` objects and `GrimoireTextLink` copy — with change
-badges, search, and filters for kind / changed / template.
-The search field and multi-select Filters dropdown share the same layout as
-Content Library. Dialogs, Tasks, Variables, Versions, and the live Runtime
-overview use the same search and filter layout.
+The **Scene** tab combines scene browsing and object inspection in one workspace.
+The left pane groups the loaded Unity scenes by hierarchy root, the middle pane
+lists every GameObject (including unlinked objects), and the right pane shows
+the selected object's values. Clicking a row selects that GameObject in Unity's
+Hierarchy; selecting one in the Hierarchy updates the Scene workspace. Search
+matches object names, paths, Grimoire keys, and cached field values. The
+multi-select Filters dropdown narrows Object Links, Text Links, unlinked objects,
+or objects with pending changes. An unlinked object's details provide **Bind from
+Content Library**, which opens the library while keeping the GameObject selected.
 
-The Grimoire sidebar groups Content Library, Scene, Object, and Dialogs under
+The Grimoire sidebar groups Content Library, Scene, and Dialogs under
 **Browse**; Tasks and Review under **Workflows**; and Versions and Runtime under
 **Database**.
 
@@ -212,17 +215,23 @@ Use **Refresh game languages and translations** in Settings after editing
 translations on the web. Missing translations show source text in content
 details; scene Text Links show `not translated` while authoring.
 
-### Object tab
+### Scene object details
 
-With Grimoire open, select a linked GameObject in the Hierarchy. The
-**Object** tab fetches the object's view document and exposes three sub-tabs:
+Select a GameObject with a `GrimoireObjectLink` in Scene or Unity's Hierarchy.
+Its detail pane has these views:
 
-- **Info** — object overview, informational fields
-  (`hints.game_engine_editable: false`), and attached tasks/notes
-- **Editable** — game-engine fields (`hints.game_engine_editable: true`) with
+- **Values** — current fields from the Object Link's selected data source,
+  displayed in the game language configured in Settings
+- **Edit** — game-engine fields (`hints.game_engine_editable: true`) with
   editors; use **Sync to Grimoire** to push changes back so the web app stays
   aligned
-- **Game Engine Data** — linked scene instance transforms
+- **Tasks** — tasks and notes attached to the Grimoire object
+- **Use in code** — copy field access code through the Object Link or object key;
+  use a field card's shortcut to narrow the list to that field
+- **Full details** — the complete API view, including linked scene instances
+
+Scene objects with a `GrimoireTextLink` show a preview in the selected game
+language. Unlinked GameObjects show their transform and Unity components.
 
 Use **Change workspace** in Settings to switch company or game for this Unity
 project.
