@@ -57,7 +57,8 @@ namespace Grimoire.PluginV2.Editor
         {
             if (!GrimoireSettings.IsConfigured || EditorApplication.isPlayingOrWillChangePlaymode) return;
             var context = CurrentContext();
-            if (IsRunning || SessionState.GetString(SessionKey, "") == context) return;
+            if (IsRunning || SessionState.GetString(SessionKey, "") == context &&
+                GrimoireStringSync.HasLibraryFor(GrimoireSettings.GameId)) return;
             SessionState.SetString(SessionKey, context);
             StartSync(context);
         }

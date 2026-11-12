@@ -42,6 +42,8 @@ namespace Grimoire.PluginV2.Editor
         private VisualElement _detail;
         private ListView _list;
         private Label _summary;
+        private Label _summaryTitle;
+        private Label _languageBadge;
         private Label _resultHeading;
         private Label _footer;
         private Button _groupPopup;
@@ -162,12 +164,24 @@ namespace Grimoire.PluginV2.Editor
                 var selected = Selection.activeGameObject;
                 if (selected != null) EditorGUIUtility.PingObject(selected);
             }) { text = "Select in Hierarchy" });
-            title.Add(new Button(() => GrimoireCreateObjectWindow.Open(null)) { text = "Create object" });
+            var createObject = new Button(() => GrimoireCreateObjectWindow.Open(null))
+                { text = "Create object" };
+            createObject.AddToClassList("scene-primary");
+            title.Add(createObject);
             _root.Add(title);
 
             var summaryRow = Row("scene-summary");
-            _summary = Label("", "scene-summary-text");
-            summaryRow.Add(_summary);
+            var summaryText = Column("scene-summary-text");
+            _summaryTitle = Label("", "scene-summary-title");
+            summaryText.Add(_summaryTitle);
+            _summary = Label("", "scene-muted");
+            summaryText.Add(_summary);
+            summaryRow.Add(summaryText);
+            var summaryBadges = Row("scene-summary-badges");
+            _languageBadge = Label("", "scene-language-badge");
+            summaryBadges.Add(_languageBadge);
+            summaryBadges.Add(Label("Selection synced with Unity", "scene-sync-badge"));
+            summaryRow.Add(summaryBadges);
             _root.Add(summaryRow);
 
             var searchBar = Row("scene-searchbar");
@@ -199,6 +213,8 @@ namespace Grimoire.PluginV2.Editor
             var listPane = Column("scene-list-pane");
             _resultHeading = Label("SCENE OBJECTS", "scene-pane-heading");
             listPane.Add(_resultHeading);
+            listPane.Add(Label("Click a row to select its GameObject in Unity and inspect it here.",
+                "scene-list-hint"));
             _list = new ListView(_visible, 62, MakeRow, BindRow)
             {
                 selectionType = SelectionType.Single,
@@ -209,7 +225,7 @@ namespace Grimoire.PluginV2.Editor
             panes.Add(listPane);
 
             var detailPane = Column("scene-detail-pane");
-            detailPane.Add(Label("DETAILS", "scene-pane-heading"));
+            detailPane.Add(Label("SELECTED GAMEOBJECT", "scene-pane-heading"));
             var detailScroll = new ScrollView();
             detailScroll.AddToClassList("scene-detail-scroll");
             _detail = Column("scene-detail-content");
@@ -223,8 +239,8 @@ namespace Grimoire.PluginV2.Editor
             _root.RegisterCallback<GeometryChangedEvent>(evt =>
             {
                 var width = evt.newRect.width;
-                _root.EnableInClassList("compact", width < 650f);
-                _root.EnableInClassList("medium", width >= 650f && width < 920f);
+                _root.EnableInClassList("compact", width < 850f);
+                _root.EnableInClassList("medium", width >= 850f && width < 1100f);
             });
             Refresh();
         }
@@ -292,9 +308,28 @@ namespace Grimoire.PluginV2.Editor
                 {
                     var root = rootGroup.Key;
                     if (root != null)
-                        AddGroup(root.name, RootKey(root), rootGroup.Count(), 2);
+                        AddHierarchyRoot(root, rootGroup.Count());
                 }
             }
+        }
+
+        private void AddHierarchyRoot(GameObject root, int count)
+        {
+            var row = Row("scene-group-row");
+            if (_group == RootKey(root)) row.AddToClassList("selected");
+            if (Selection.activeGameObject == root) row.AddToClassList("unity-selected");
+            row.style.paddingLeft = 36;
+            row.Add(Label(root.name, "scene-group-name"));
+            row.Add(Label(count.ToString(), "scene-group-count"));
+            row.RegisterCallback<MouseUpEvent>(_ => SelectHierarchyRoot(root));
+            _groups.Add(row);
+        }
+
+        internal void SelectHierarchyRoot(GameObject root)
+        {
+            if (root == null || !_items.Any(item => item.GameObject == root)) return;
+            SetGroup(RootKey(root));
+            SelectGameObject(root);
         }
 
         private void AddGroup(string name, string key, int count, int depth)
@@ -315,6 +350,15 @@ namespace Grimoire.PluginV2.Editor
             RenderList();
         }
 
+        private void SelectGameObject(GameObject gameObject)
+        {
+            if (gameObject == null) return;
+            _detailTab = 0;
+            Selection.activeGameObject = gameObject;
+            EditorGUIUtility.PingObject(gameObject);
+            RefreshSelection();
+        }
+
         private static string SceneKey(Scene scene) => "scene:" + scene.handle;
         private static string RootKey(GameObject root) => "root:" + root.GetInstanceID();
 
@@ -332,7 +376,7 @@ namespace Grimoire.PluginV2.Editor
                 {
                     var rootKey = RootKey(root);
                     menu.AddItem(new GUIContent(sceneName + "/" + root.name), _group == rootKey,
-                        () => SetGroup(rootKey));
+                        () => SelectHierarchyRoot(root));
                 }
             }
             menu.ShowAsContext();
@@ -380,15 +424,25 @@ namespace Grimoire.PluginV2.Editor
             if (selectedIndex >= 0) _list.SetSelectionWithoutNotify(new[] { selectedIndex });
             else _list.ClearSelection();
             _suppressSelection = false;
-            _resultHeading.text = "SCENE OBJECTS  ·  " + _visible.Count + " SHOWN";
+            var groupName = _group == AllGroup ? "SCENE OBJECTS" :
+                _group.StartsWith("scene:", StringComparison.Ordinal) ?
+                    _items.FirstOrDefault(item => SceneKey(item.Scene) == _group)?.Scene.name :
+                    _items.FirstOrDefault(item => item.Root != null && RootKey(item.Root) == _group)?.Root.name;
+            _resultHeading.text = (string.IsNullOrEmpty(groupName) ? "SCENE OBJECTS" : groupName.ToUpperInvariant()) +
+                "  ·  " + _visible.Count + " SHOWN";
             _filterButton.text = _kinds.Count + (_changedOnly ? 1 : 0) > 0
                 ? $"Filters ({_kinds.Count + (_changedOnly ? 1 : 0)}) ▾" : "Filters ▾";
             _filterButton.EnableInClassList("selected", _kinds.Count > 0 || _changedOnly);
             _groupPopup.text = _group == AllGroup ? "All loaded scenes ▾" : "Hierarchy group ▾";
             var linked = _items.Count(item => item.ObjectLink != null);
             var texts = _items.Count(item => item.TextLink != null);
+            _summaryTitle.text = SceneManager.sceneCount == 1 && _items.Count > 0
+                ? _items[0].Scene.name : "Loaded scenes";
             _summary.text = $"{_items.Count} GameObjects · {linked} Object Links · {texts} Text Links · " +
                 $"{_items.Count(item => item.ObjectLink == null && item.TextLink == null)} unlinked";
+            _languageBadge.text = "Game language: " + (string.IsNullOrEmpty(GrimoireSettings.Locale)
+                ? GrimoireGameLanguages.SourceLanguageLabel
+                : GrimoireGameLanguages.DisplayName(GrimoireSettings.Locale));
             _footer.text = $"{_visible.Count} shown in loaded scenes  ·  Game language: " +
                 (string.IsNullOrEmpty(GrimoireSettings.Locale)
                     ? GrimoireGameLanguages.SourceLanguageLabel
@@ -438,11 +492,14 @@ namespace Grimoire.PluginV2.Editor
         {
             var row = Row("scene-item-row");
             var main = Column("scene-item-main");
-            main.Add(new Label { name = "name" });
+            var title = Row("scene-item-title");
+            title.Add(new Label { name = "name" });
+            title.Add(new Label { name = "badge" });
+            main.Add(title);
             main.Add(new Label { name = "meta" });
             row.Add(main);
             var side = Column("scene-item-side");
-            side.Add(new Label { name = "kind" });
+            side.Add(new Label { name = "type" });
             side.Add(new Label { name = "status" });
             row.Add(side);
             return row;
@@ -452,6 +509,7 @@ namespace Grimoire.PluginV2.Editor
         {
             if (index < 0 || index >= _visible.Count) return;
             var item = _visible[index];
+            row.EnableInClassList("selected", item.GameObject == Selection.activeGameObject);
             var name = row.Q<Label>("name");
             name.text = item.GameObject.name;
             name.AddToClassList("scene-item-name");
@@ -459,13 +517,35 @@ namespace Grimoire.PluginV2.Editor
             meta.text = item.Path + (item.ObjectLink != null && item.ObjectLink.HasKey
                 ? "  ·  " + item.ObjectLink.ObjectKey : "");
             meta.AddToClassList("scene-item-meta");
-            var kind = row.Q<Label>("kind");
-            kind.text = item.ObjectLink != null ? "Object Link" : item.TextLink != null ? "Text Link" : "Unlinked";
-            kind.AddToClassList("scene-item-kind");
+            var badge = row.Q<Label>("badge");
+            badge.text = item.ObjectLink != null ? "Object Link" : item.TextLink != null ? "Text Link" : "Unlinked";
+            badge.RemoveFromClassList("object");
+            badge.RemoveFromClassList("text");
+            badge.RemoveFromClassList("unlinked");
+            badge.AddToClassList("scene-item-badge");
+            badge.AddToClassList(item.ObjectLink != null ? "object" : item.TextLink != null ? "text" : "unlinked");
+            var type = row.Q<Label>("type");
+            type.text = ItemType(item);
+            type.AddToClassList("scene-item-type");
             var status = row.Q<Label>("status");
             status.text = item.IsDirty ? "Changed" : item.TextLink != null ? "Localized" :
                 item.ObjectLink != null ? "Linked" : "No Grimoire link";
             status.AddToClassList("scene-item-status");
+        }
+
+        private static string ItemType(SceneItem item)
+        {
+            if (item.ObjectLink != null)
+            {
+                if (GrimoireObjectKeyResolver.TryGetSummary(GrimoireSettings.GameId,
+                    item.ObjectLink.CachedObjectId, item.ObjectLink.ObjectKey, out var summary))
+                    return summary.template?.name ?? summary.template?.id ?? "Object";
+                return "Object";
+            }
+            if (item.TextLink != null) return "UI Text";
+            var component = item.GameObject.GetComponents<Component>().FirstOrDefault(value =>
+                value != null && !(value is Transform));
+            return component != null ? component.GetType().Name : "GameObject";
         }
 
         private void OnListSelection(IEnumerable<object> selection)
@@ -473,10 +553,7 @@ namespace Grimoire.PluginV2.Editor
             if (_suppressSelection) return;
             var item = selection.OfType<SceneItem>().FirstOrDefault();
             if (item?.GameObject == null) return;
-            _detailTab = 0;
-            Selection.activeGameObject = item.GameObject;
-            EditorGUIUtility.PingObject(item.GameObject);
-            RefreshDetail();
+            SelectGameObject(item.GameObject);
         }
 
         internal void RefreshSelection()
@@ -486,9 +563,11 @@ namespace Grimoire.PluginV2.Editor
             var index = _visible.FindIndex(item => item.GameObject == Selection.activeGameObject);
             if (index >= 0) _list.SetSelectionWithoutNotify(new[] { index });
             else _list.ClearSelection();
+            _list.RefreshItems();
             _suppressSelection = false;
             _detailTab = 0;
             RefreshDetail();
+            RenderGroups();
         }
 
         internal void RefreshDetail()
@@ -499,20 +578,30 @@ namespace Grimoire.PluginV2.Editor
             if (selected == null || !selected.scene.IsValid() || !selected.scene.isLoaded ||
                 EditorUtility.IsPersistent(selected))
             {
-                Info("Select a GameObject in this list or Unity's Hierarchy to inspect it here.");
+                _detail.Add(Label("SELECTED GAMEOBJECT", "scene-detail-kind"));
+                _detail.Add(Label("Select a scene object", "scene-detail-name"));
+                Info("Choose an object in the list or Unity's Hierarchy to see its values and scene binding.");
                 return;
             }
 
             var link = selected.GetComponent<GrimoireObjectLink>();
             var textLink = selected.GetComponent<GrimoireTextLink>();
-            _detail.Add(Label(link != null ? "GRIMOIRE OBJECT LINK" :
-                textLink != null ? "GRIMOIRE TEXT LINK" : "UNITY GAMEOBJECT", "scene-detail-kind"));
+            _detail.Add(Label("SELECTED IN UNITY HIERARCHY", "scene-detail-kind"));
             _detail.Add(Label(selected.name, "scene-detail-name"));
-            _detail.Add(Label(link != null ? link.ObjectKey :
-                textLink != null ? textLink.TextCode : "No Grimoire link", "scene-detail-key"));
+            var path = _items.FirstOrDefault(item => item.GameObject == selected)?.Path ?? selected.name;
+            _detail.Add(Label(selected.scene.name + " / " + path.Replace("/", " / "), "scene-detail-key"));
             var actions = Row("scene-actions");
-            actions.Add(new Button(() => EditorGUIUtility.PingObject(selected)) { text = "Select in Hierarchy" });
-            if (link != null) actions.Add(new Button(_refreshObject) { text = "Refresh object" });
+            actions.Add(new Button(() =>
+            {
+                Selection.activeGameObject = selected;
+                if (SceneView.lastActiveSceneView != null)
+                    SceneView.lastActiveSceneView.FrameSelected();
+            }) { text = "Focus in Scene" });
+            actions.Add(new Button(() =>
+            {
+                Selection.activeGameObject = selected;
+                EditorApplication.ExecuteMenuItem("Window/General/Inspector");
+            }) { text = "Open Inspector" });
             _detail.Add(actions);
 
             if (link != null) RenderObjectDetail(selected, link);
@@ -523,12 +612,26 @@ namespace Grimoire.PluginV2.Editor
         private void RenderObjectDetail(GameObject selected, GrimoireObjectLink link)
         {
             var document = _documentFor(link);
+            var linkCard = Column("scene-link-card");
+            linkCard.Add(Label("GRIMOIRE OBJECT LINK", "scene-detail-kind"));
+            var linkTitle = Row("scene-link-title");
+            linkTitle.Add(Label(string.IsNullOrEmpty(link.ObjectKey) ? selected.name : link.ObjectKey,
+                "scene-link-name"));
+            linkTitle.Add(Label("Linked", "scene-linked-badge"));
+            linkCard.Add(linkTitle);
+            linkCard.Add(Label((document?.@object?.name ?? link.ObjectKey) + " · " +
+                (link.ActiveSource == GrimoireObjectDataSource.VersionDatabase
+                    ? "Version database" : "Connected snapshot"), "scene-muted"));
+            _detail.Add(linkCard);
             var tabs = Row("scene-detail-tabs");
             AddTab(tabs, "Values", 0);
             AddTab(tabs, "Edit", 1);
-            AddTab(tabs, "Tasks", 2);
             AddTab(tabs, "Use in code", 3);
-            AddTab(tabs, "Full details", 4);
+            var more = new Button(ShowObjectMoreMenu) { text = _detailTab == 2 ? "Tasks ▾" :
+                _detailTab == 4 ? "Full details ▾" : "More ▾" };
+            more.AddToClassList("scene-detail-tab");
+            if (_detailTab == 2 || _detailTab == 4) more.AddToClassList("selected");
+            tabs.Add(more);
             _detail.Add(tabs);
             var status = _statusFor(link);
             if (!string.IsNullOrEmpty(status)) Info(status);
@@ -553,17 +656,6 @@ namespace Grimoire.PluginV2.Editor
 
             var snapshot = link.HasSnapshot ? link.Snapshot :
                 document != null ? GrimoireObjectSnapshotMapper.FromDocument(document) : null;
-            if (document?.@object != null)
-            {
-                Section("Overview");
-                ValueCard("Grimoire object", document.@object.name, document.@object.template?.name);
-                ValueCard("Status", document.@object.status, document.@object.version);
-            }
-            Section("Scene instance");
-            ValueCard("Scene", selected.scene.name, null);
-            ValueCard("Source", link.ActiveSource == GrimoireObjectDataSource.VersionDatabase
-                ? "Version database" : "Grimoire API snapshot", null);
-            ValueCard("Position", selected.transform.localPosition.ToString(), null);
             if (snapshot == null || snapshot.Fields.Count == 0)
             {
                 Info(document == null ? _statusFor(link) ?? "Loading values from Grimoire…" :
@@ -597,6 +689,10 @@ namespace Grimoire.PluginV2.Editor
                         });
                 }
             }
+            Section("Scene instance");
+            ValueCard("Position", selected.transform.localPosition.ToString(), null);
+            ValueCard("Rotation", selected.transform.localEulerAngles.ToString(), null);
+            ValueCard("Scale", selected.transform.localScale.ToString(), null);
             if (link.GetComponent<GrimoireTextLink>() != null)
             {
                 Section("Text link");
@@ -607,6 +703,10 @@ namespace Grimoire.PluginV2.Editor
 
         private void RenderTextDetail(GameObject selected, GrimoireTextLink link)
         {
+            var linkCard = Column("scene-link-card");
+            linkCard.Add(Label("GRIMOIRE TEXT LINK", "scene-detail-kind"));
+            linkCard.Add(Label(link.TextCode, "scene-link-name"));
+            _detail.Add(linkCard);
             Section("Game language preview");
             var locale = GrimoireTextLinkStore.ResolvePreviewLanguage(link);
             ValueCard("Language", string.IsNullOrEmpty(locale)
@@ -621,7 +721,11 @@ namespace Grimoire.PluginV2.Editor
 
         private void RenderUnlinkedDetail(GameObject selected)
         {
-            Info("This GameObject has no Grimoire link. Select a Grimoire object in Content Library to bind it.");
+            var linkCard = Column("scene-link-card");
+            linkCard.Add(Label("NO GRIMOIRE LINK", "scene-detail-kind"));
+            linkCard.Add(Label("Ready to bind", "scene-link-name"));
+            linkCard.Add(Label("Choose a Grimoire object to show its values here.", "scene-muted"));
+            _detail.Add(linkCard);
             var bind = new Button(_openLibrary) { text = "Bind from Content Library" };
             bind.AddToClassList("scene-primary");
             _detail.Add(bind);
@@ -646,6 +750,22 @@ namespace Grimoire.PluginV2.Editor
             button.AddToClassList("scene-detail-tab");
             if (_detailTab == tab) button.AddToClassList("selected");
             parent.Add(button);
+        }
+
+        private void ShowObjectMoreMenu()
+        {
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Tasks"), _detailTab == 2, () =>
+            {
+                _detailTab = 2;
+                RefreshDetail();
+            });
+            menu.AddItem(new GUIContent("Full details"), _detailTab == 4, () =>
+            {
+                _detailTab = 4;
+                RefreshDetail();
+            });
+            menu.ShowAsContext();
         }
 
         private void Section(string title) => _detail.Add(Label(title, "scene-section"));

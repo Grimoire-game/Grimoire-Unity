@@ -245,8 +245,8 @@ namespace Grimoire.PluginV2.Editor
             _root.RegisterCallback<GeometryChangedEvent>(evt =>
             {
                 var width = evt.newRect.width;
-                _root.EnableInClassList("compact", width < (embedded ? 650f : 720f));
-                _root.EnableInClassList("medium", embedded && width >= 650f && width < 920f);
+                _root.EnableInClassList("compact", width < 850f);
+                _root.EnableInClassList("medium", width >= 850f && width < 1100f);
             });
             RefreshAll();
         }
@@ -286,7 +286,7 @@ namespace Grimoire.PluginV2.Editor
                 var heading = new Label("Pull from Grimoire");
                 heading.AddToClassList("sync-title");
                 syncText.Add(heading);
-                var description = new Label("Update translations, variables, imported dialogs and linked scene content.");
+                var description = new Label("Update translations, variables, all game dialogs and linked scene content.");
                 description.AddToClassList("muted");
                 syncText.Add(description);
                 syncHeading.Add(syncText);
@@ -374,8 +374,12 @@ namespace Grimoire.PluginV2.Editor
             _syncProgress.style.display = GrimoireContentSync.IsRunning ? DisplayStyle.Flex : DisplayStyle.None;
             _syncProgress.value = GrimoireContentSync.Progress * 100f;
             _syncProgress.title = GrimoireContentSync.Message ?? "Syncing content";
-            var status = GrimoireContentSync.Error ?? GrimoireContentSync.Summary ??
-                (GrimoireContentSync.IsRunning ? GrimoireContentSync.Message : null);
+            var status = GrimoireContentSync.Summary;
+            if (!string.IsNullOrEmpty(GrimoireContentSync.Error))
+                status = string.IsNullOrEmpty(status) ? GrimoireContentSync.Error :
+                    status + "\n" + GrimoireContentSync.Error;
+            if (string.IsNullOrEmpty(status) && GrimoireContentSync.IsRunning)
+                status = GrimoireContentSync.Message;
             _syncMessage.text = status ?? "";
             _syncMessage.style.display = string.IsNullOrEmpty(status) ? DisplayStyle.None : DisplayStyle.Flex;
         }

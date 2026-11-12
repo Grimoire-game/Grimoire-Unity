@@ -230,6 +230,29 @@ namespace Grimoire.PluginV2.Editor
                 : ApiResult<StringResource[]>.Fail(result.Error, result.Code, result.HttpStatus);
         }
 
+        /// <summary>String records with their String Tag IDs for the Artifacts browser.</summary>
+        public static async Task<ApiResult<StringResource[]>> ListTaggedStringsAsync(string gameId)
+        {
+            var url = BuildUrl("/api/strings-original", new Dictionary<string, string>
+            {
+                ["game_id"] = gameId,
+            });
+            var result = await SendAsync<ListEnvelope<StringResource>>("GET", url, null, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<StringResource[]>.Ok(result.Data.data ?? Array.Empty<StringResource>())
+                : ApiResult<StringResource[]>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
+        /// <summary>Tag names for resolving String Tag IDs to UI, Dialog, Object, and custom types.</summary>
+        public static async Task<ApiResult<StringTagResource[]>> ListStringTagsAsync(string gameId)
+        {
+            var url = BuildUrl("/api/tags", new Dictionary<string, string> { ["game_id"] = gameId });
+            var result = await SendAsync<ListEnvelope<StringTagResource>>("GET", url, null, ApiAuth.Bearer);
+            return result.Success
+                ? ApiResult<StringTagResource[]>.Ok(result.Data.data ?? Array.Empty<StringTagResource>())
+                : ApiResult<StringTagResource[]>.Fail(result.Error, result.Code, result.HttpStatus);
+        }
+
         /// <summary>
         /// PATCH /api/v1/strings/{id}/translations/{language_code} — upsert one translation.
         /// </summary>

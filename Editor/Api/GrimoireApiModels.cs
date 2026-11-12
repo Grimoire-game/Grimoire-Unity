@@ -736,7 +736,15 @@ namespace Grimoire.PluginV2.Editor
         public string status;
         public int? character_limit;
         public string voice_url;
+        public string[] tags;
         public StringTranslation[] translations;
+    }
+
+    public class StringTagResource
+    {
+        public string id;
+        public string name;
+        public string group_name;
     }
 
     // ---------------------------------------------------------------------

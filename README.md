@@ -160,9 +160,9 @@ The first time you sign in and select a game, Grimoire automatically pulls its
 content and shows progress above the workspace and in **Content Library**.
 Use **Content Library > Pull from Grimoire > Sync everything** to run it again.
 The pull downloads the game's language and string catalogs
-once, then updates the variable library, imported dialogs, scene/prefab text
-links, object links, and cached nested objects. Every configured language is
-stored in Unity for offline builds. Unrelated remote objects and dialogs are not
+once, then updates the runtime string and variable libraries, all game dialogs,
+scene/prefab text links, object links, and cached nested objects. Every configured
+language is stored in Unity for offline builds. Unrelated remote objects are not
 created as assets. Local text and editable-field deviations are preserved, and
 the final summary lists anything skipped or failed.
 
@@ -193,8 +193,25 @@ or objects with pending changes. An unlinked object's details provide **Bind fro
 Content Library**, which opens the library while keeping the GameObject selected.
 
 The Grimoire sidebar groups Content Library, Scene, and Dialogs under
-**Browse**; Tasks and Review under **Workflows**; and Versions and Runtime under
-**Database**.
+**Browse**; Tasks and Review under **Workflows**; Versions and Runtime under
+**Database**; and Strings under **Artifacts**.
+
+### Strings artifact
+
+Open **Artifacts > Strings** to browse the selected game's source strings and
+translations. Search keys or text, then use the multi-select **Types** filter to
+show UI, Dialog, Object, Variable, or custom String Tags. **Copy shown keys**
+copies the filtered list. Select one string to copy its key or a complete C#
+lookup call. The game string library is saved by **Sync everything** at
+`Assets/GrimoireStrings/Resources/GrimoireStrings.asset` for use in builds:
+
+```csharp
+var label = Grimoire.PluginV2.GrimoireStrings.Get("general/UI_Start_001");
+```
+
+The lookup follows the active game language and falls back to source text when
+that translation is missing. A specific language can be passed as the second
+argument.
 
 **Game language** is selected once in Grimoire Connect **Settings**. Scene shows
 the active language as read only. The dropdown offers the languages configured

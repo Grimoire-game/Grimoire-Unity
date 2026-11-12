@@ -12,8 +12,12 @@ namespace Grimoire.PluginV2.Editor
     /// <summary>Coordinates a complete pull of every Grimoire item used by this project.</summary>
     public static class GrimoireSyncEverything
     {
+        private const int DialogPageSize = 50;
+        private const int MaxDialogPages = 200;
+
         public sealed class Summary
         {
+            public int Strings;
             public int Variables;
             public int Dialogs;
             public int TextLinks;
@@ -27,7 +31,7 @@ namespace Grimoire.PluginV2.Editor
             public override string ToString()
             {
                 var result =
-                    $"Updated {Variables} variable library, {Dialogs} dialogs, " +
+                    $"Updated {Strings} strings, {Variables} variable library, {Dialogs} dialogs, " +
                     $"{TextLinks} text links, {Objects} objects and {NestedObjects} nested objects.";
                 if (Skipped > 0)
                 {
@@ -84,8 +88,10 @@ namespace Grimoire.PluginV2.Editor
             }
 
             var catalog = catalogResult.Data;
+            summary.Strings = GrimoireStringSync.Apply(catalog);
             if (Cancelled(progress, "Syncing variables...", 0.12f, summary))
             {
+                Finish(summary);
                 return ApiResult<Summary>.Ok(summary);
             }
 
@@ -103,19 +109,62 @@ namespace Grimoire.PluginV2.Editor
                 AddFailure(summary, "Variables", variables.Error);
             }
 
-            var dialogs = GrimoireDialogImporter.FindAllImported().Values
-                .Where(asset => asset != null && !string.IsNullOrEmpty(asset.DialogId))
-                .GroupBy(asset => asset.DialogId, StringComparer.Ordinal)
-                .Select(group => group.First())
-                .ToList();
+            var dialogs = new List<DialogSummary>();
+            var dialogIds = new HashSet<string>(StringComparer.Ordinal);
+            var dialogListingFailed = false;
+            for (var page = 0; page < MaxDialogPages; page++)
+            {
+                if (Cancelled(progress, $"Finding game dialogs (page {page + 1})...",
+                    Portion(0.18f, 0.04f, page, MaxDialogPages), summary))
+                {
+                    Finish(summary);
+                    return ApiResult<Summary>.Ok(summary);
+                }
+
+                var listed = await GrimoireApiClient.ListDialogsAsync(
+                    gameId, null, DialogPageSize, page * DialogPageSize);
+                if (!listed.Success)
+                {
+                    AddFailure(summary, "Listing dialogs", listed.Error);
+                    dialogListingFailed = true;
+                    break;
+                }
+
+                var pageItems = listed.Data ?? Array.Empty<DialogSummary>();
+                foreach (var dialog in pageItems)
+                {
+                    if (dialog != null && !string.IsNullOrEmpty(dialog.id) &&
+                        dialogIds.Add(dialog.id))
+                        dialogs.Add(dialog);
+                }
+
+                if (pageItems.Length < DialogPageSize) break;
+                if (page == MaxDialogPages - 1)
+                {
+                    AddFailure(summary, "Listing dialogs", "The dialog list exceeded 10,000 items.");
+                    dialogListingFailed = true;
+                }
+            }
+
+            if (dialogListingFailed)
+            {
+                foreach (var asset in GrimoireDialogImporter.FindAllImported().Values)
+                {
+                    if (asset != null && asset.GameId == gameId &&
+                        !string.IsNullOrEmpty(asset.DialogId) && dialogIds.Add(asset.DialogId))
+                        dialogs.Add(new DialogSummary { id = asset.DialogId, name = asset.DisplayName });
+                }
+            }
+
             var dialogCache = new Dictionary<string, DialogResource>(StringComparer.Ordinal);
             for (var i = 0; i < dialogs.Count; i++)
             {
-                var asset = dialogs[i];
+                var dialog = dialogs[i];
+                var dialogName = string.IsNullOrEmpty(dialog.name) ? dialog.id : dialog.name;
                 if (Cancelled(
                         progress,
-                        $"Updating dialog {i + 1}/{dialogs.Count}: {asset.DisplayName}",
-                        Portion(0.2f, 0.2f, i, dialogs.Count),
+                        $"Syncing dialog {i + 1}/{dialogs.Count}: {dialogName}",
+                        Portion(0.22f, 0.18f, i, dialogs.Count),
                         summary))
                 {
                     Finish(summary);
@@ -124,7 +173,7 @@ namespace Grimoire.PluginV2.Editor
 
                 var imported = await GrimoireDialogImporter.ImportAsync(
                     gameId,
-                    asset.DialogId,
+                    dialog.id,
                     null,
                     catalog,
                     syncVariables: false,
@@ -136,12 +185,12 @@ namespace Grimoire.PluginV2.Editor
                     foreach (var note in GrimoireDialogImporter.LastImportNotes)
                     {
                         summary.Skipped++;
-                        summary.Errors.Add($"Dialog '{asset.DisplayName}': {note}");
+                        summary.Errors.Add($"Dialog '{dialogName}': {note}");
                     }
                 }
                 else
                 {
-                    AddFailure(summary, $"Dialog '{asset.DisplayName}'", imported.Error);
+                    AddFailure(summary, $"Dialog '{dialogName}'", imported.Error);
                 }
             }
 
@@ -320,6 +369,7 @@ namespace Grimoire.PluginV2.Editor
         {
             AssetDatabase.SaveAssets();
             GrimoireVariables.Reload();
+            GrimoireStrings.Reload();
             GrimoireObjectCache.NotifyUpdated();
             GrimoireLinkedFieldStore.NotifyExternalChange();
             GrimoireLocalization.NotifyLanguageChanged();

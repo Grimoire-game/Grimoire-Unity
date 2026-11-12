@@ -14,6 +14,33 @@ namespace Grimoire.PluginV2.Tests
         {
             GrimoireLocalization.EditorLanguageResolver = null;
             GrimoireLocalization.SetRuntimeLanguage("");
+            GrimoireStrings.Reload();
+        }
+
+        [Test]
+        public void SyncedStringsResolveTranslationsAndRejectAmbiguousShortKeys()
+        {
+            var library = ScriptableObject.CreateInstance<GrimoireStringLibrary>();
+            try
+            {
+                library.SetSyncedData("game", new List<GrimoireStringEntry>
+                {
+                    new GrimoireStringEntry("first", "general/UI_Start_001", "UI_Start_001", "Start",
+                        new List<GrimoireLocalizedText> { new GrimoireLocalizedText("nl", "Starten") }),
+                    new GrimoireStringEntry("second", "menu/UI_Start_001", "UI_Start_001", "Start menu",
+                        new List<GrimoireLocalizedText>()),
+                });
+                GrimoireStrings.Library = library;
+
+                Assert.AreEqual("Starten", GrimoireStrings.Get("general/UI_Start_001", "nl"));
+                Assert.AreEqual("Start", GrimoireStrings.Get("first", "fr"));
+                Assert.IsFalse(GrimoireStrings.TryGet("UI_Start_001", out _));
+            }
+            finally
+            {
+                GrimoireStrings.Reload();
+                UnityEngine.Object.DestroyImmediate(library);
+            }
         }
 
         [Test]

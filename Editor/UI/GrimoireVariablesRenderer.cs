@@ -14,7 +14,7 @@ namespace Grimoire.PluginV2.Editor
     public static class GrimoireVariablesRenderer
     {
         private const float LabelWidth = 150f;
-        private const float CopyButtonWidth = 52f;
+        private const float CopyButtonWidth = 86f;
 
         private enum AccessMode
         {
@@ -43,6 +43,7 @@ namespace Grimoire.PluginV2.Editor
         private static AccessMode _accessMode = AccessMode.ObjectLink;
         private static string _search = "";
         private static string _statusMessage;
+        private static string _copiedFieldId;
 
         internal static void FocusField(string fieldId)
         {
@@ -129,7 +130,9 @@ namespace Grimoire.PluginV2.Editor
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Access from", GrimoireEditorStyles.MiniSecondaryStyle, GUILayout.Width(90));
+            var previousMode = _accessMode;
             _accessMode = (AccessMode)GUILayout.Toolbar((int)_accessMode, AccessModeLabels, EditorStyles.miniButton);
+            if (_accessMode != previousMode) _copiedFieldId = null;
             EditorGUILayout.EndHorizontal();
 
             if (!string.IsNullOrEmpty(_statusMessage))
@@ -173,21 +176,23 @@ namespace Grimoire.PluginV2.Editor
                 EditorStyles.label);
             EditorGUILayout.LabelField(TypeLabel(field), GrimoireEditorStyles.MiniSecondaryStyle, GUILayout.Width(80));
 
-            if (GUILayout.Button(new GUIContent("Copy", snippet), GUILayout.Width(CopyButtonWidth)))
-            {
-                EditorGUIUtility.systemCopyBuffer = snippet;
-                _statusMessage = $"Copied code for \"{field.DisplayLabel}\" to the clipboard.";
-                GUI.FocusControl(null);
-            }
-
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
-            GUILayout.Space(LabelWidth + 4);
             EditorGUILayout.SelectableLabel(
                 expression,
                 EditorStyles.miniLabel,
-                GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                GUILayout.Height(EditorGUIUtility.singleLineHeight),
+                GUILayout.ExpandWidth(true));
+            var copyLabel = _copiedFieldId == field.FieldId ? "Copied" : "Copy code";
+            if (GUILayout.Button(new GUIContent(copyLabel, "Copy a complete C# example for this field."),
+                GUILayout.Width(CopyButtonWidth)))
+            {
+                EditorGUIUtility.systemCopyBuffer = snippet;
+                _copiedFieldId = field.FieldId;
+                _statusMessage = $"Copied code for \"{field.DisplayLabel}\" to the clipboard.";
+                GUI.FocusControl(null);
+            }
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.Space(2);
         }

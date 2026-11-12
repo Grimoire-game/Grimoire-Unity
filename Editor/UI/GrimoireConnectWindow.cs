@@ -17,6 +17,7 @@ namespace Grimoire.PluginV2.Editor
         private const int TabRuntime = 5;
         private const int TabDialogs = 6;
         private const int TabVariables = 7;
+        private const int TabStrings = 8;
 
         private const int ObjectTabInfo = 0;
         private const int ObjectTabEditable = 1;
@@ -45,9 +46,11 @@ namespace Grimoire.PluginV2.Editor
         private VisualElement _setupRoot;
         private VisualElement _libraryHost;
         private VisualElement _sceneHost;
+        private VisualElement _stringsHost;
         private VisualElement _legacyHost;
         private GrimoireContentLibraryView _libraryView;
         private GrimoireSceneWorkspaceView _sceneView;
+        private GrimoireStringsView _stringsView;
         private Label _workspaceBreadcrumb;
         private Label _connectionStatus;
         private VisualElement _syncStatusBar;
@@ -80,6 +83,7 @@ namespace Grimoire.PluginV2.Editor
             Open();
             var window = GetWindow<GrimoireConnectWindow>();
             window._sceneView?.Deactivate();
+            window._stringsView?.Deactivate();
             window._showLibrary = true;
             window._settingsOpen = false;
             window._pendingDialogId = dialogId;
@@ -151,6 +155,7 @@ namespace Grimoire.PluginV2.Editor
                 DrawSceneObjectDetailTab,
                 RefreshObject,
                 () => OpenLibrary());
+            _stringsView = new GrimoireStringsView();
 
             _syncPanel = new GrimoireSyncPanel();
             _syncPanel.RepaintNeeded += ScheduleRepaint;
@@ -208,6 +213,10 @@ namespace Grimoire.PluginV2.Editor
             else if (_selectedTab == TabVariables)
             {
                 _variablesPanel.Activate();
+            }
+            else if (_selectedTab == TabStrings && !_showLibrary && !_settingsOpen)
+            {
+                _stringsView.Activate();
             }
 
             OnSelectionChanged();
@@ -281,6 +290,8 @@ namespace Grimoire.PluginV2.Editor
             sidebar.Add(new Label("DATABASE") { name = "database-caption" });
             _tabNav[TabExport] = AddNav(sidebar, "Versions", () => SelectTab(TabExport));
             _tabNav[TabRuntime] = AddNav(sidebar, "Runtime", () => SelectTab(TabRuntime));
+            sidebar.Add(new Label("ARTIFACTS") { name = "artifacts-caption" });
+            _tabNav[TabStrings] = AddNav(sidebar, "Strings", () => SelectTab(TabStrings));
             var spacer = new VisualElement();
             spacer.style.flexGrow = 1f;
             sidebar.Add(spacer);
@@ -295,6 +306,9 @@ namespace Grimoire.PluginV2.Editor
             _sceneHost = new VisualElement();
             _sceneHost.AddToClassList("scene-host");
             content.Add(_sceneHost);
+            _stringsHost = new VisualElement();
+            _stringsHost.AddToClassList("strings-host");
+            content.Add(_stringsHost);
             _legacyHost = new IMGUIContainer(DrawWorkspaceBody);
             _legacyHost.AddToClassList("legacy-host");
             content.Add(_legacyHost);
@@ -307,6 +321,7 @@ namespace Grimoire.PluginV2.Editor
             _libraryView.Activate();
             _libraryView.Build(_libraryHost, true);
             _sceneView?.Build(_sceneHost);
+            _stringsView?.Build(_stringsHost);
             OnContentSyncChanged();
             _workspaceRoot.RegisterCallback<GeometryChangedEvent>(evt =>
             {
@@ -328,6 +343,7 @@ namespace Grimoire.PluginV2.Editor
         private void OpenSettings()
         {
             _sceneView?.Deactivate();
+            _stringsView?.Deactivate();
             _showLibrary = false;
             _settingsOpen = true;
             UpdateWorkspaceUi();
@@ -343,9 +359,12 @@ namespace Grimoire.PluginV2.Editor
 
             var libraryVisible = _showLibrary && !_settingsOpen;
             var sceneVisible = !_showLibrary && !_settingsOpen && _selectedTab == TabScene;
+            var stringsVisible = !_showLibrary && !_settingsOpen && _selectedTab == TabStrings;
             _libraryHost.style.display = libraryVisible ? DisplayStyle.Flex : DisplayStyle.None;
             _sceneHost.style.display = sceneVisible ? DisplayStyle.Flex : DisplayStyle.None;
-            _legacyHost.style.display = libraryVisible || sceneVisible ? DisplayStyle.None : DisplayStyle.Flex;
+            _stringsHost.style.display = stringsVisible ? DisplayStyle.Flex : DisplayStyle.None;
+            _legacyHost.style.display = libraryVisible || sceneVisible || stringsVisible ?
+                DisplayStyle.None : DisplayStyle.Flex;
             _libraryNav.EnableInClassList("selected", (_showLibrary || _selectedTab == TabVariables) && !_settingsOpen);
             _settingsNav.EnableInClassList("selected", _settingsOpen);
             foreach (var pair in _tabNav)
@@ -355,6 +374,8 @@ namespace Grimoire.PluginV2.Editor
             _workspaceBreadcrumb.text = GrimoireSettings.IsConfigured
                 ? $"{GrimoireSettings.CompanyName}  /  {GrimoireSettings.GameName}"
                 : "Choose a workspace";
+            if (sceneVisible) _workspaceBreadcrumb.text += "  /  Scene";
+            if (stringsVisible) _workspaceBreadcrumb.text += "  /  Strings";
             _connectionStatus.text = GrimoireAuthSession.IsSignedIn ? "● Connected" : "● Offline";
             OnContentSyncChanged();
             if (!string.IsNullOrEmpty(_pendingDialogId) && _libraryView != null)
@@ -369,6 +390,7 @@ namespace Grimoire.PluginV2.Editor
             _libraryView?.Deactivate();
             _libraryView = null;
             _sceneView?.Deactivate();
+            _stringsView?.Deactivate();
             Selection.selectionChanged -= OnSelectionChanged;
             GrimoireAuthSession.Changed -= OnAuthChanged;
             GrimoireSettings.Changed -= OnSettingsChanged;
@@ -586,6 +608,7 @@ namespace Grimoire.PluginV2.Editor
         private void RefreshAll()
         {
             _libraryView?.Refresh();
+            _stringsView?.Refresh();
             _sceneView?.Refresh();
             _objectTasksPanel.ResetStatusFetchState();
             _userTasksPanel.Refresh();
@@ -802,6 +825,10 @@ namespace Grimoire.PluginV2.Editor
             {
                 _dialogsPanel?.Deactivate();
             }
+            else if (_selectedTab == TabStrings)
+            {
+                _stringsView?.Deactivate();
+            }
 
             _selectedTab = tab;
             if (_selectedTab == TabTasks)
@@ -833,6 +860,10 @@ namespace Grimoire.PluginV2.Editor
             {
                 _variablesPanel?.Activate();
             }
+            else if (_selectedTab == TabStrings)
+            {
+                _stringsView?.Activate();
+            }
 
             UpdateWorkspaceUi();
         }
@@ -862,7 +893,7 @@ namespace Grimoire.PluginV2.Editor
             _dialogsPanel?.Draw(WorkflowWidth, WorkflowHeight);
         }
 
-        private float WorkflowWidth => Mathf.Max(250f, position.width - (position.width < 660f ? 110f : 158f) - 28f);
+        private float WorkflowWidth => Mathf.Max(250f, position.width - (position.width < 660f ? 110f : 195f) - 28f);
         private float WorkflowHeight => Mathf.Max(300f, position.height - 64f);
 
         private void DrawSceneObjectDetailTab(int tab)
