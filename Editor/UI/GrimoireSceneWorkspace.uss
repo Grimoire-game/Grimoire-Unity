@@ -5,22 +5,28 @@
     min-height: 0;
     background-color: #27282e;
     color: #e7e7ed;
+    font-size: 13px;
 }
 .grimoire-scene.light { background-color: #f0f0f2; color: #24252b; }
-.grimoire-scene .scene-titlebar { padding: 14px 17px 9px; align-items: center; }
+.grimoire-scene .scene-titlebar { padding: 17px 20px 12px; align-items: center; }
 .grimoire-scene .scene-title-text { flex-grow: 1; min-width: 0; }
-.grimoire-scene .scene-title { font-size: 19px; -unity-font-style: bold; }
-.grimoire-scene .scene-muted { color: #aeb0bb; font-size: 11px; white-space: normal; }
+.grimoire-scene .scene-title { font-size: 21px; -unity-font-style: bold; }
+.grimoire-scene .scene-muted { color: #aeb0bb; font-size: 12px; white-space: normal; }
 .grimoire-scene.light .scene-muted { color: #666873; }
 .grimoire-scene .scene-titlebar .unity-button { margin-left: 6px; }
 .grimoire-scene .scene-summary {
     margin-left: 15px; margin-right: 15px; margin-bottom: 10px;
-    padding: 10px; background-color: #303138;
+    padding: 12px; align-items: center; background-color: #303138;
     border-left-width: 3px; border-left-color: #7959cb;
 }
 .grimoire-scene.light .scene-summary { background-color: #e8e5ef; }
-.grimoire-scene .scene-summary-text { font-size: 11px; white-space: normal; }
-.grimoire-scene .scene-searchbar { align-items: center; padding-left: 15px; padding-right: 15px; padding-bottom: 11px; }
+.grimoire-scene .scene-summary-text { flex-grow: 1; min-width: 0; white-space: normal; }
+.grimoire-scene .scene-summary-title { -unity-font-style: bold; margin-bottom: 3px; }
+.grimoire-scene .scene-summary-badges { align-items: center; flex-wrap: wrap; }
+.grimoire-scene .scene-language-badge, .grimoire-scene .scene-sync-badge { font-size: 10px; padding: 5px; margin-left: 6px; background-color: #41434c; }
+.grimoire-scene .scene-sync-badge { color: #8be0b0; background-color: #23523e; }
+.grimoire-scene.light .scene-sync-badge { color: #1d6b48; background-color: #d6efe0; }
+.grimoire-scene .scene-searchbar { align-items: center; padding-left: 20px; padding-right: 20px; padding-top: 7px; padding-bottom: 14px; }
 .grimoire-scene .scene-search { flex-grow: 1; min-width: 90px; }
 .grimoire-scene .scene-searchbar .unity-button { margin-left: 6px; }
 .grimoire-scene .scene-group-popup { display: none; }
@@ -32,7 +38,7 @@
 }
 .grimoire-scene.light .scene-panes { border-top-color: #d0d0d5; }
 .grimoire-scene .scene-pane-heading {
-    min-height: 31px; padding-left: 12px; padding-top: 8px;
+    min-height: 32px; padding-left: 12px; padding-top: 8px;
     color: #a9abb8; font-size: 11px; -unity-font-style: bold;
     background-color: #2b2c33;
 }
@@ -43,29 +49,40 @@
     border-right-width: 1px; border-right-color: #41424a;
 }
 .grimoire-scene.light .scene-group-pane { background-color: #e9e9ec; border-right-color: #d0d0d5; }
-.grimoire-scene .scene-group-row { min-height: 28px; align-items: center; padding-right: 9px; }
+.grimoire-scene .scene-group-row { min-height: 32px; align-items: center; padding-right: 9px; }
 .grimoire-scene .scene-group-row:hover { background-color: #32333d; }
 .grimoire-scene.light .scene-group-row:hover { background-color: #dad6e5; }
 .grimoire-scene .scene-group-row.selected { background-color: #403653; border-left-width: 2px; border-left-color: #aa8bfa; }
+.grimoire-scene .scene-group-row.unity-selected { -unity-font-style: bold; color: #ffffff; }
 .grimoire-scene.light .scene-group-row.selected { background-color: #ded2f5; border-left-color: #704fc4; }
+.grimoire-scene.light .scene-group-row.unity-selected { color: #3b2867; }
 .grimoire-scene .scene-group-name { flex-grow: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .grimoire-scene .scene-group-count { color: #aaacb7; font-size: 11px; }
 .grimoire-scene.light .scene-group-count { color: #777982; }
 .grimoire-scene .scene-list-pane { flex-grow: 1; min-width: 0; min-height: 0; border-right-width: 1px; border-right-color: #44454e; }
 .grimoire-scene.light .scene-list-pane { border-right-color: #d0d0d5; }
 .grimoire-scene .scene-list { flex-grow: 1; min-height: 0; background-color: #27282e; }
+.grimoire-scene .scene-list-hint { min-height: 31px; padding-left: 12px; padding-top: 7px; color: #a9abb8; font-size: 11px; background-color: #222329; }
+.grimoire-scene.light .scene-list-hint { background-color: #ececef; color: #676973; }
 .grimoire-scene.light .scene-list { background-color: #f3f3f5; }
 .grimoire-scene .scene-item-row { height: 62px; align-items: center; padding-left: 10px; padding-right: 9px; border-bottom-width: 1px; border-bottom-color: #41424a; }
+.grimoire-scene .scene-item-row.selected { background-color: #403653; border-left-width: 3px; border-left-color: #aa8bfa; padding-left: 7px; }
 .grimoire-scene.light .scene-item-row { border-bottom-color: #dedee2; }
+.grimoire-scene.light .scene-item-row.selected { background-color: #ded2f5; border-left-color: #704fc4; }
 .grimoire-scene .scene-item-main { flex-grow: 1; min-width: 0; }
+.grimoire-scene .scene-item-title { align-items: center; min-width: 0; }
 .grimoire-scene .scene-item-name { -unity-font-style: bold; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.grimoire-scene .scene-item-badge { margin-left: 6px; padding-left: 5px; padding-right: 5px; padding-top: 2px; padding-bottom: 2px; font-size: 10px; -unity-font-style: bold; }
+.grimoire-scene .scene-item-badge.object { color: #b6f0ce; background-color: #24523b; }
+.grimoire-scene .scene-item-badge.text { color: #b5d9f6; background-color: #25506a; }
+.grimoire-scene .scene-item-badge.unlinked { color: #e0c5d2; background-color: #51414b; }
 .grimoire-scene .scene-item-meta { color: #a7a9b5; font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .grimoire-scene.light .scene-item-meta { color: #6b6d76; }
 .grimoire-scene .scene-item-side { align-items: flex-end; min-width: 85px; }
-.grimoire-scene .scene-item-kind { font-size: 11px; color: #c3adf5; }
-.grimoire-scene.light .scene-item-kind { color: #6747b4; }
+.grimoire-scene .scene-item-type { font-size: 11px; color: #e7e7ed; }
+.grimoire-scene.light .scene-item-type { color: #33343a; }
 .grimoire-scene .scene-item-status { font-size: 10px; color: #a7a9b5; }
-.grimoire-scene .scene-detail-pane { width: 350px; flex-shrink: 0; min-width: 0; min-height: 0; background-color: #303138; }
+.grimoire-scene .scene-detail-pane { width: 480px; flex-shrink: 0; min-width: 0; min-height: 0; background-color: #303138; }
 .grimoire-scene.light .scene-detail-pane { background-color: #f8f8fa; }
 .grimoire-scene .scene-detail-scroll { flex-grow: 1; min-height: 0; }
 .grimoire-scene .scene-detail-content { padding: 15px; }
@@ -76,6 +93,11 @@
 .grimoire-scene.light .scene-detail-key { color: #666873; }
 .grimoire-scene .scene-actions { flex-wrap: wrap; margin-top: 6px; margin-bottom: 9px; }
 .grimoire-scene .scene-actions .unity-button { margin-right: 5px; margin-bottom: 5px; }
+.grimoire-scene .scene-link-card { margin-top: 9px; margin-bottom: 11px; padding: 13px; background-color: #3a3547; border-left-width: 3px; border-left-color: #a588ee; }
+.grimoire-scene.light .scene-link-card { background-color: #eee7f8; }
+.grimoire-scene .scene-link-title { align-items: center; margin-top: 5px; margin-bottom: 5px; }
+.grimoire-scene .scene-link-name { -unity-font-style: bold; flex-grow: 1; }
+.grimoire-scene .scene-linked-badge { font-size: 10px; padding: 3px; background-color: #24523b; color: #b6f0ce; }
 .grimoire-scene .scene-detail-tabs { flex-wrap: wrap; border-bottom-width: 1px; border-bottom-color: #50515b; margin-bottom: 8px; }
 .grimoire-scene .scene-detail-tab { margin-right: 3px; margin-bottom: 3px; border-left-width: 0; border-top-width: 0; border-right-width: 0; border-bottom-width: 2px; border-bottom-color: transparent; background-color: transparent; }
 .grimoire-scene .scene-detail-tab.selected { color: #d9c8ff; border-bottom-color: #aa8bfa; -unity-font-style: bold; }
@@ -93,11 +115,12 @@
 .grimoire-scene .scene-info { margin-top: 10px; padding: 9px; background-color: #39364b; border-left-width: 3px; border-left-color: #a588ee; white-space: normal; }
 .grimoire-scene.light .scene-info { background-color: #eee7f8; border-left-color: #7654c8; }
 .grimoire-scene .scene-primary { min-height: 30px; margin-top: 8px; background-color: #7050c9; color: white; }
+.grimoire-scene .scene-titlebar .scene-primary { margin-top: 0; }
 .grimoire-scene .scene-legacy-detail { flex-grow: 1; min-height: 140px; }
 .grimoire-scene .scene-footer { min-height: 24px; padding-left: 10px; padding-top: 4px; background-color: #34353b; color: #a8abb6; font-size: 11px; }
 .grimoire-scene.light .scene-footer { background-color: #e3e3e6; color: #63656e; }
 .grimoire-scene.medium .scene-group-pane { width: 150px; }
-.grimoire-scene.medium .scene-detail-pane { width: 270px; }
+.grimoire-scene.medium .scene-detail-pane { width: 360px; }
 .grimoire-scene.compact .scene-group-pane { display: none; }
 .grimoire-scene.compact .scene-group-popup { display: flex; }
 .grimoire-scene.compact .scene-panes { flex-direction: column; }
@@ -105,3 +128,5 @@
 .grimoire-scene.compact .scene-detail-pane { width: auto; flex-grow: 1; }
 .grimoire-scene.compact .scene-titlebar { flex-wrap: wrap; }
 .grimoire-scene.compact .scene-title { font-size: 16px; }
+.grimoire-scene.compact .scene-summary { flex-wrap: wrap; }
+.grimoire-scene.compact .scene-summary-badges { margin-top: 6px; }

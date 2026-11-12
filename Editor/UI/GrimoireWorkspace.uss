@@ -27,7 +27,7 @@
 .grimoire-workspace .header-action { margin-left: 4px; }
 .grimoire-workspace .workspace-body { flex-grow: 1; flex-direction: row; min-height: 0; }
 .grimoire-workspace .workspace-sidebar {
-    width: 158px;
+    width: 195px;
     flex-shrink: 0;
     padding-top: 10px;
     padding-bottom: 9px;
@@ -39,11 +39,13 @@
 .grimoire-workspace .workspace-sidebar #browse-caption,
 .grimoire-workspace .workspace-sidebar #workflow-caption,
 .grimoire-workspace .workspace-sidebar #database-caption { color: #888a98; font-size: 10px; -unity-font-style: bold; margin-left: 13px; margin-top: 11px; margin-bottom: 5px; }
+.grimoire-workspace .workspace-sidebar #artifacts-caption { color: #888a98; font-size: 10px; -unity-font-style: bold; margin-left: 13px; margin-top: 11px; margin-bottom: 5px; }
 .grimoire-workspace .workspace-sync-status { padding-left: 15px; padding-right: 15px; padding-top: 5px; padding-bottom: 5px; background-color: #302e39; }
 .grimoire-workspace.light .workspace-sync-status { background-color: #e8e4ef; }
 .grimoire-workspace.light .workspace-sidebar #browse-caption,
 .grimoire-workspace.light .workspace-sidebar #workflow-caption,
 .grimoire-workspace.light .workspace-sidebar #database-caption { color: #777982; }
+.grimoire-workspace.light .workspace-sidebar #artifacts-caption { color: #777982; }
 .grimoire-workspace .workspace-nav {
     height: 32px;
     flex-shrink: 0;
@@ -59,6 +61,7 @@
     border-left-width: 2px;
     border-left-color: transparent;
     color: #d0d0da;
+    font-size: 13px;
 }
 .grimoire-workspace.light .workspace-nav { color: #34343b; }
 .grimoire-workspace .workspace-nav:hover { background-color: #32333d; }
@@ -66,7 +69,7 @@
 .grimoire-workspace .workspace-nav.selected { background-color: #403653; border-left-color: #aa8bfa; color: #ffffff; -unity-font-style: bold; }
 .grimoire-workspace.light .workspace-nav.selected { background-color: #ded2f5; border-left-color: #704fc4; color: #3b2867; }
 .grimoire-workspace .workspace-content { flex-grow: 1; min-width: 0; min-height: 0; }
-.grimoire-workspace .library-host, .grimoire-workspace .scene-host, .grimoire-workspace .legacy-host { flex-grow: 1; min-width: 0; min-height: 0; }
+.grimoire-workspace .library-host, .grimoire-workspace .scene-host, .grimoire-workspace .strings-host, .grimoire-workspace .legacy-host { flex-grow: 1; min-width: 0; min-height: 0; }
 .grimoire-workspace .legacy-host { padding-top: 10px; padding-right: 6px; overflow: hidden; }
 .grimoire-workspace.compact .workspace-sidebar { width: 110px; }
 .grimoire-workspace.compact .workspace-brand { width: 66px; font-size: 9px; }

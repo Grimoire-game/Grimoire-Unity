@@ -37,6 +37,13 @@ namespace Grimoire.PluginV2.Editor.Tests
                 list.SetSelection(childIndex);
                 Assert.That(Selection.activeGameObject, Is.EqualTo(child),
                     "Choosing a Scene row should select that GameObject in Unity.");
+
+                view.SelectHierarchyRoot(root);
+                Assert.That(Selection.activeGameObject, Is.EqualTo(root),
+                    "Choosing a hierarchy root should select that GameObject in Unity.");
+                Assert.That(host.Q<Label>(className: "scene-detail-name").text,
+                    Is.EqualTo(root.name),
+                    "The selected hierarchy object should appear in Details.");
             }
             finally
             {

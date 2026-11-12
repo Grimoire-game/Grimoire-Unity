@@ -1,0 +1,51 @@
+.grimoire-strings { flex-grow: 1; flex-direction: column; min-width: 0; min-height: 0; background-color: #27282e; color: #e7e7ed; font-size: 13px; }
+.grimoire-strings.light { background-color: #f0f0f2; color: #24252b; }
+.grimoire-strings .strings-header { padding: 17px 20px 12px; }
+.grimoire-strings .strings-title { font-size: 21px; -unity-font-style: bold; }
+.grimoire-strings .strings-muted { color: #aeb0bb; font-size: 12px; }
+.grimoire-strings.light .strings-muted { color: #666873; }
+.grimoire-strings .strings-summary { align-items: center; margin-left: 15px; margin-right: 15px; margin-bottom: 10px; padding: 10px 12px; background-color: #303138; border-left-width: 3px; border-left-color: #7959cb; }
+.grimoire-strings.light .strings-summary { background-color: #e8e5ef; }
+.grimoire-strings .strings-summary-text { flex-grow: 1; -unity-font-style: bold; }
+.grimoire-strings .strings-toolbar { align-items: center; padding: 5px 15px 12px; }
+.grimoire-strings .strings-search { flex-grow: 1; min-width: 100px; }
+.grimoire-strings .strings-toolbar .unity-button { margin-left: 6px; }
+.grimoire-strings .strings-filters { min-width: 110px; }
+.grimoire-strings .strings-filters.selected { background-color: #7050c9; color: white; }
+.grimoire-strings .strings-notice { margin: 0 15px 9px; padding: 8px 10px; white-space: normal; background-color: #39364b; border-left-width: 3px; border-left-color: #a588ee; }
+.grimoire-strings.light .strings-notice { background-color: #eee7f8; }
+.grimoire-strings .strings-panes { flex-grow: 1; min-height: 0; border-top-width: 1px; border-top-color: #44454e; }
+.grimoire-strings .strings-list-pane { flex-grow: 1; min-width: 0; min-height: 0; border-right-width: 1px; border-right-color: #44454e; }
+.grimoire-strings .strings-pane-heading { min-height: 32px; padding-left: 12px; padding-top: 8px; color: #a9abb8; font-size: 11px; -unity-font-style: bold; background-color: #2b2c33; }
+.grimoire-strings.light .strings-pane-heading { background-color: #e4e4e7; color: #676973; }
+.grimoire-strings .strings-list { flex-grow: 1; min-height: 0; background-color: #27282e; }
+.grimoire-strings.light .strings-list { background-color: #f3f3f5; }
+.grimoire-strings .strings-item { height: 64px; align-items: center; padding-left: 10px; padding-right: 9px; border-bottom-width: 1px; border-bottom-color: #41424a; }
+.grimoire-strings .strings-item.selected { background-color: #403653; border-left-width: 3px; border-left-color: #aa8bfa; padding-left: 7px; }
+.grimoire-strings.light .strings-item.selected { background-color: #ded2f5; border-left-color: #704fc4; }
+.grimoire-strings .strings-item-main { flex-grow: 1; min-width: 0; }
+.grimoire-strings .strings-item-main #key { -unity-font-style: bold; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.grimoire-strings .strings-item-main #preview { color: #aeb0bb; font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.grimoire-strings .strings-item-side { align-items: flex-end; min-width: 110px; }
+.grimoire-strings .strings-item-side #type { font-size: 11px; }
+.grimoire-strings .strings-item-side #coverage { color: #aeb0bb; font-size: 10px; }
+.grimoire-strings .strings-detail-pane { width: 480px; flex-shrink: 0; min-width: 0; min-height: 0; background-color: #303138; }
+.grimoire-strings.light .strings-detail-pane { background-color: #f8f8fa; }
+.grimoire-strings .strings-detail-scroll { flex-grow: 1; min-height: 0; }
+.grimoire-strings .strings-detail-content { padding: 15px; }
+.grimoire-strings .strings-kind { color: #bda7f1; font-size: 10px; -unity-font-style: bold; }
+.grimoire-strings .strings-detail-key { font-size: 16px; -unity-font-style: bold; white-space: normal; margin-top: 3px; }
+.grimoire-strings .strings-actions { flex-wrap: wrap; margin-top: 10px; margin-bottom: 9px; }
+.grimoire-strings .strings-actions .unity-button { margin-right: 6px; margin-bottom: 5px; }
+.grimoire-strings .strings-code { padding: 9px; white-space: normal; background-color: #222329; color: #d9c8ff; }
+.grimoire-strings.light .strings-code { background-color: #e7e3ee; color: #6747b4; }
+.grimoire-strings .strings-section { margin-top: 17px; margin-bottom: 9px; padding-bottom: 6px; -unity-font-style: bold; border-bottom-width: 1px; border-bottom-color: #50515b; }
+.grimoire-strings .strings-value-card { margin-bottom: 7px; padding: 10px; background-color: #393a42; border-left-width: 2px; border-left-color: #615673; }
+.grimoire-strings.light .strings-value-card { background-color: #ededf1; }
+.grimoire-strings .strings-value-heading { color: #bfaee7; font-size: 11px; margin-bottom: 4px; }
+.grimoire-strings .strings-value-text { white-space: normal; }
+.grimoire-strings .strings-info { margin-top: 8px; padding: 9px; white-space: normal; background-color: #39364b; border-left-width: 3px; border-left-color: #a588ee; }
+.grimoire-strings.compact .strings-panes { flex-direction: column; }
+.grimoire-strings.compact .strings-list-pane { height: 250px; flex-grow: 0; border-right-width: 0; border-bottom-width: 1px; border-bottom-color: #44454e; }
+.grimoire-strings.compact .strings-detail-pane { width: auto; flex-grow: 1; }
+.grimoire-strings.compact .strings-toolbar { flex-wrap: wrap; }
