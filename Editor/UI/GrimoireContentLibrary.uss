@@ -88,6 +88,10 @@
 .grimoire-library.light .value-type { color: #7053a4; }
 .grimoire-library .value-text { min-width: 0; white-space: normal; color: #e6e6ec; }
 .grimoire-library.light .value-text { color: #303139; }
+.grimoire-library .dialog-node-key { margin-bottom: 5px; font-size: 11px; color: #bfaee7; white-space: normal; }
+.grimoire-library.light .dialog-node-key { color: #7053a4; }
+.grimoire-library .dialog-node-code { margin-top: 8px; margin-bottom: 5px; padding: 7px; background-color: #25262c; color: #eeeaf6; font-size: 11px; white-space: normal; }
+.grimoire-library.light .dialog-node-code { background-color: #e2deeb; color: #292332; }
 .grimoire-library .info-box { margin-top: 10px; padding: 9px; background-color: #39364b; border-left-width: 3px; border-left-color: #a588ee; white-space: normal; }
 .grimoire-library.light .info-box { background-color: #eee7f8; border-left-color: #7654c8; }
 .grimoire-library .error-box { margin: 7px 13px; padding: 8px; background-color: #5d3434; white-space: normal; }

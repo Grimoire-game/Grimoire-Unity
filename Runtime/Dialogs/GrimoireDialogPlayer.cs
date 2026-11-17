@@ -127,10 +127,26 @@ namespace Grimoire.PluginV2
         /// </summary>
         public void StartDialog(GrimoireDialogAsset dialog)
         {
+            StartDialog(dialog, null);
+        }
+
+        /// <summary>
+        /// Play <paramref name="dialog"/> from a specific node identifier. Pass null
+        /// or an empty string to use the dialog's starting node. Automatic nodes
+        /// (conditions, setters and jumps) continue to their next playable node.
+        /// </summary>
+        public void StartDialog(GrimoireDialogAsset dialog, string startNode)
+        {
             if (dialog == null)
             {
                 Debug.LogWarning("[Grimoire Dialog] StartDialog was called without a dialog. Pass an asset from " +
                                  "Assets/GrimoireDialogs (import dialogs in Grimoire Connect > Dialogs).", this);
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(startNode) && dialog.FindNode(startNode) == null)
+            {
+                Debug.LogWarning($"[Grimoire Dialog] Node '{startNode}' was not found in '{dialog.DisplayName}'.", this);
                 return;
             }
 
@@ -157,7 +173,7 @@ namespace Grimoire.PluginV2
             OnDialogStarted.Invoke();
             GrimoireDialog.RaiseStarted(this, dialog);
             _runner.ShowContextNotes = showContextNotes;
-            _runner.Start(dialog);
+            _runner.Start(dialog, startNode);
         }
 
         /// <summary>

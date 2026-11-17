@@ -22,6 +22,10 @@ namespace Grimoire.PluginV2.Editor
         private static readonly string[] StateFilters = { "Imported", "Update available", "Not imported" };
         private DialogSummary[] _dialogs;
         private Dictionary<string, GrimoireDialogAsset> _imported = new Dictionary<string, GrimoireDialogAsset>();
+        private readonly Dictionary<string, DialogResource> _details = new Dictionary<string, DialogResource>(StringComparer.Ordinal);
+        private readonly HashSet<string> _loadingDetails = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _detailErrors = new Dictionary<string, string>(StringComparer.Ordinal);
+        private int _detailGeneration;
         private bool _loading;
         private string _error;
         private string _status;
@@ -88,6 +92,10 @@ namespace Grimoire.PluginV2.Editor
             _offset = 0;
             _error = null;
             _status = null;
+            _detailGeneration++;
+            _details.Clear();
+            _loadingDetails.Clear();
+            _detailErrors.Clear();
         }
 
         public void Draw(float width, float height)
@@ -204,6 +212,7 @@ namespace Grimoire.PluginV2.Editor
                 return;
             }
             _imported.TryGetValue(dialog.id ?? "", out var asset);
+            if (asset == null) LoadDetail(dialog);
             GrimoireWorkflowGUI.DetailHeading("Dialog details", dialog.name, dialog.dialog_key);
             using (new EditorGUI.DisabledScope(!string.IsNullOrEmpty(_busyDialogId)))
             {
@@ -225,11 +234,104 @@ namespace Grimoire.PluginV2.Editor
                 GrimoireWorkflowGUI.DetailLine("Nodes", asset.Nodes.Count.ToString());
                 GrimoireWorkflowGUI.DetailLine("Variables", asset.Variables.Count.ToString());
                 GrimoireWorkflowGUI.DetailLine("Starting node", asset.StartingNode);
-                var first = asset.FindNode(asset.StartingNode);
-                if (first != null && !string.IsNullOrEmpty(first.text))
-                    GrimoireWorkflowGUI.Note(GrimoireGameLanguagePreview.DisplayText(first.stringId, first.text));
+                GrimoireWorkflowGUI.Section("Nodes · " + asset.Nodes.Count);
+                EditorGUILayout.LabelField(
+                    "Copy a node's start call, then assign this imported asset to a GrimoireDialogAsset field named dialogAsset in your script.",
+                    EditorStyles.wordWrappedMiniLabel);
+                foreach (var node in asset.Nodes)
+                {
+                    if (node != null) DrawNode(node, asset.StartingNode);
+                }
             }
-            else GrimoireWorkflowGUI.Note("Import this dialog to inspect its nodes and variables in Unity.");
+            else if (_details.TryGetValue(dialog.id ?? "", out var resource))
+            {
+                if (!string.IsNullOrEmpty(resource.description))
+                    GrimoireWorkflowGUI.Note(resource.description);
+                var nodes = GrimoireDialogImporter.NormalizeNodes(resource.data, out var startingNode);
+                GrimoireWorkflowGUI.Section("Nodes · " + nodes.Count);
+                EditorGUILayout.LabelField(
+                    "Import this dialog before using its copied start calls in a build. Assign the imported asset to a GrimoireDialogAsset field named dialogAsset.",
+                    EditorStyles.wordWrappedMiniLabel);
+                foreach (var node in nodes)
+                {
+                    var identifier = string.IsNullOrEmpty(node.node_identifier) ? node.id : node.node_identifier;
+                    DrawNode(identifier, node.name, node.type, node.text, node.string_id,
+                        node.options?.Length ?? 0, identifier == startingNode);
+                }
+            }
+            else if (_detailErrors.TryGetValue(dialog.id ?? "", out var detailError))
+                GrimoireWorkflowGUI.Note("Could not load nodes: " + detailError);
+            else GrimoireWorkflowGUI.Note("Loading dialog nodes…");
+        }
+
+        private static void DrawNode(GrimoireDialogNode node, string startingNode)
+        {
+            var identifier = string.IsNullOrEmpty(node.identifier) ? node.id : node.identifier;
+            DrawNode(identifier, node.name, node.type.ToString(), node.text, node.stringId,
+                node.options?.Count ?? 0, identifier == startingNode);
+        }
+
+        private static void DrawNode(string identifier, string name, string type, string text, string stringId,
+            int choiceCount, bool isStart)
+        {
+            var title = string.IsNullOrEmpty(name) ? identifier : name;
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(title, EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            if (isStart)
+                GUILayout.Label("START", GrimoireEditorStyles.MiniSecondaryStyle);
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.LabelField(type + " · " + identifier, GrimoireEditorStyles.MiniSecondaryStyle);
+            var preview = GrimoireGameLanguagePreview.DisplayText(stringId, text);
+            if (!string.IsNullOrEmpty(preview))
+                EditorGUILayout.LabelField(preview, EditorStyles.wordWrappedMiniLabel);
+            if (choiceCount > 0)
+                EditorGUILayout.LabelField(choiceCount + " choice" + (choiceCount == 1 ? "" : "s"),
+                    GrimoireEditorStyles.MiniSecondaryStyle);
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(identifier)))
+            {
+                if (GUILayout.Button(new GUIContent("Copy start code",
+                        "Copy the C# call to start this dialog at this node."), GUILayout.Height(23f)))
+                    EditorGUIUtility.systemCopyBuffer = GrimoireDialogStartCode.ForNode(identifier);
+            }
+            EditorGUILayout.EndVertical();
+        }
+
+        private async void LoadDetail(DialogSummary dialog)
+        {
+            var id = dialog.id ?? "";
+            if (string.IsNullOrEmpty(id) || _details.ContainsKey(id) || _loadingDetails.Contains(id) ||
+                _detailErrors.ContainsKey(id)) return;
+            var gameId = GrimoireSettings.GameId;
+            var generation = _detailGeneration;
+            _loadingDetails.Add(id);
+            try
+            {
+                if (!await GrimoireAuthSession.EnsureFreshTokenAsync())
+                {
+                    if (generation == _detailGeneration && gameId == GrimoireSettings.GameId)
+                        _detailErrors[id] = "Sign in again to load this dialog.";
+                    return;
+                }
+                var result = await GrimoireApiClient.GetDialogAsync(gameId, id);
+                if (generation != _detailGeneration || gameId != GrimoireSettings.GameId) return;
+                if (result.Success && result.Data != null) _details[id] = result.Data;
+                else _detailErrors[id] = result.Error ?? "No dialog data returned.";
+            }
+            catch (Exception ex)
+            {
+                if (generation == _detailGeneration && gameId == GrimoireSettings.GameId)
+                    _detailErrors[id] = ex.Message;
+            }
+            finally
+            {
+                if (generation == _detailGeneration)
+                {
+                    _loadingDetails.Remove(id);
+                    RequestRepaint();
+                }
+            }
         }
 
         private static string DialogState(DialogSummary dialog, GrimoireDialogAsset asset)
@@ -482,6 +584,10 @@ namespace Grimoire.PluginV2.Editor
         {
             var generation = ++_loadGeneration;
             var gameId = GrimoireSettings.GameId;
+            _detailGeneration++;
+            _details.Clear();
+            _loadingDetails.Clear();
+            _detailErrors.Clear();
             _loading = true;
             _error = null;
             _status = "Loading dialogs...";
@@ -572,6 +678,16 @@ namespace Grimoire.PluginV2.Editor
         private void RequestRepaint()
         {
             RepaintNeeded?.Invoke();
+        }
+    }
+
+    internal static class GrimoireDialogStartCode
+    {
+        internal static string ForNode(string identifier)
+        {
+            var escaped = (identifier ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"")
+                .Replace("\r", "\\r").Replace("\n", "\\n");
+            return $"GrimoireDialogPlayer.Main.StartDialog(dialogAsset, \"{escaped}\");";
         }
     }
 }

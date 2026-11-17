@@ -278,9 +278,11 @@ the speaker names. Builds read only this asset, so players never sign in or go
 online. Dialogs that this one jumps to are imported with it. When a dialog
 changes in Grimoire, click **Update**; **Select asset** shows it in the Project
 window.
-The Dialogs view now keeps the scene player, import filter, dialog list, and
-selected dialog details together. Imported dialogs show their node and variable
-counts and starting line.
+The Dialogs view keeps the scene player, import filter, dialog list, and
+selected dialog details together. Selected dialogs show every node from the API
+or imported asset with its identifier, type, text preview, and a **Copy start
+code** button. The Content Library shows these nodes for a selected dialog too.
+Import the dialog before using it in a build.
 
 The language follows the Connect game language in the editor and the language
 selected by `GrimoireBootstrap` in builds. Set **Language** on the player to
@@ -308,6 +310,7 @@ public class Bed : MonoBehaviour
         if (!dialogs.IsPlaying)
         {
             dialogs.StartDialog(bedDialog);        // begin at the starting node
+            // dialogs.StartDialog(bedDialog, "bed_after_intro"); // begin at this node
         }
     }
 }
@@ -324,6 +327,11 @@ public class Bed : MonoBehaviour
 Starting a dialog while another one plays stops the first one. Unless **Keep
 Variables Between Runs** is on, dialog variables go back to their Grimoire values
 when a dialog ends.
+Use the node identifier shown in the Dialogs view or Content Library as the
+second argument to `StartDialog`. The node's **Copy start code** button copies
+the call with that identifier. A condition, setter, or jump node advances to
+the next playable node. An unknown identifier logs a warning and leaves the
+current dialog playing.
 
 **Your own UI**
 
