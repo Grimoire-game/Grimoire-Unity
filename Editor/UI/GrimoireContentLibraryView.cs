@@ -1269,15 +1269,18 @@ namespace Grimoire.PluginV2.Editor
             {
                 if (!string.IsNullOrEmpty(asset.Description)) Info(asset.Description);
                 Section("Imported nodes · " + asset.Nodes.Count);
-                foreach (var node in asset.Nodes.Where(node => node != null).Take(100))
+                Info("Copy a node's start call and assign this imported asset to a GrimoireDialogAsset field named dialogAsset in your script.");
+                foreach (var node in asset.Nodes.Where(node => node != null))
                 {
-                    ValueRow(Display(node.name, node.identifier, node.id),
-                        Display(GrimoireGameLanguagePreview.DisplayText(node.stringId, node.text), node.type.ToString()));
+                    var identifier = string.IsNullOrEmpty(node.identifier) ? node.id : node.identifier;
+                    RenderDialogNode(Display(node.name, node.identifier, node.id),
+                        identifier, node.type.ToString(),
+                        GrimoireGameLanguagePreview.DisplayText(node.stringId, node.text),
+                        identifier == asset.StartingNode);
                     foreach (var option in node.options?.Where(option => option != null) ??
                              Enumerable.Empty<GrimoireDialogOption>())
                         ValueRow("↳ Choice", GrimoireGameLanguagePreview.DisplayText(option.stringId, option.text));
                 }
-                if (asset.Nodes.Count > 100) Info("Showing the first 100 nodes.");
                 Section("Dialog variables · " + asset.Variables.Count);
                 foreach (var variable in asset.Variables.Where(variable => variable != null))
                 {
@@ -1290,11 +1293,16 @@ namespace Grimoire.PluginV2.Editor
             if (asset == null)
             {
                 if (!string.IsNullOrEmpty(resource.description)) Info(resource.description);
-                Section("Nodes · " + (resource.data?.nodes?.Length ?? 0));
-                foreach (var node in (resource.data?.nodes ?? Array.Empty<DialogNodeDto>()).Where(node => node != null).Take(100))
+                var nodes = GrimoireDialogImporter.NormalizeNodes(resource.data, out var startingNode);
+                Section("Nodes · " + nodes.Count);
+                Info("Import this dialog before using its start calls in a build. Assign the imported asset to a GrimoireDialogAsset field named dialogAsset.");
+                foreach (var node in nodes)
                 {
-                    ValueRow(Display(node.name, node.node_identifier, node.id),
-                        Display(GrimoireGameLanguagePreview.DisplayText(node.string_id, node.text), node.type));
+                    var identifier = string.IsNullOrEmpty(node.node_identifier) ? node.id : node.node_identifier;
+                    RenderDialogNode(Display(node.name, node.node_identifier, node.id),
+                        identifier, node.type,
+                        GrimoireGameLanguagePreview.DisplayText(node.string_id, node.text),
+                        identifier == startingNode);
                     foreach (var option in (node.options ?? Array.Empty<DialogOptionDto>()).Where(option => option != null))
                         ValueRow("↳ Choice", GrimoireGameLanguagePreview.DisplayText(option.string_id, option.option_text));
                 }
@@ -1304,6 +1312,38 @@ namespace Grimoire.PluginV2.Editor
                     ValueRow(variable.name, ValueText(variable.initialValue), variable.type);
                 }
             }
+        }
+
+        private void RenderDialogNode(string title, string identifier, string type, string preview, bool isStart)
+        {
+            var card = Column("value-card");
+            var header = Row("value-header");
+            var label = new Label(title);
+            label.AddToClassList("value-label");
+            header.Add(label);
+            var kind = new Label(isStart ? type + " · START" : type);
+            kind.AddToClassList("value-type");
+            header.Add(kind);
+            card.Add(header);
+            var key = new Label(string.IsNullOrEmpty(identifier) ? "No node identifier" : identifier);
+            key.AddToClassList("dialog-node-key");
+            card.Add(key);
+            if (!string.IsNullOrEmpty(preview))
+            {
+                var text = new Label(preview);
+                text.AddToClassList("value-text");
+                card.Add(text);
+            }
+            if (!string.IsNullOrEmpty(identifier))
+            {
+                var snippet = GrimoireDialogStartCode.ForNode(identifier);
+                var code = new Label(snippet);
+                code.AddToClassList("dialog-node-code");
+                card.Add(code);
+                card.Add(new Button(() => EditorGUIUtility.systemCopyBuffer = snippet)
+                    { text = "Copy start code" });
+            }
+            _detailContent.Add(card);
         }
 
         private void RenderVariable(Item item)
