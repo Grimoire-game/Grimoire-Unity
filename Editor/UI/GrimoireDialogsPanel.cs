@@ -535,7 +535,7 @@ namespace Grimoire.PluginV2.Editor
 
         private List<GrimoireDialogObjectRequirement> RequirementsFor(GrimoireDialogAsset asset)
         {
-            var key = asset.GetInstanceID() + "|" + asset.ImportedAt;
+            var key = UnityObjectId.Of(asset) + "|" + asset.ImportedAt;
             if (!_requirementCache.TryGetValue(key, out var requirements))
             {
                 requirements = GrimoireDialogObjectRequirements.Collect(asset);

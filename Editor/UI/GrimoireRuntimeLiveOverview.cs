@@ -155,7 +155,7 @@ namespace Grimoire.PluginV2.Editor
         private void OnTextChanged(GrimoireTextLink link)
         {
             if (!EditorApplication.isPlaying || link == null || !link.HasCode) return;
-            var id = "text|" + link.GetInstanceID();
+            var id = "text|" + UnityObjectId.Of(link);
             var before = _liveValues.TryGetValue(id, out var old) ? old.Value : link.SourceText;
             RecordExternal(id, "Text links", link.gameObject.name + " · Text", link.TextCode,
                 before, link.GetResolvedText(), "Text Link", link.gameObject);
@@ -164,7 +164,7 @@ namespace Grimoire.PluginV2.Editor
         private void OnFunctionTriggered(GrimoireObjectLink link, string function)
         {
             if (!EditorApplication.isPlaying || link == null) return;
-            var id = "logic|" + link.GetInstanceID() + "|" + function;
+            var id = "logic|" + UnityObjectId.Of(link) + "|" + function;
             RecordExternal(id, "Logic", link.gameObject.name + " · " + function,
                 link.ObjectKey + "." + function, "Idle", "Triggered", "Object Link", link.gameObject, true);
         }
@@ -172,7 +172,7 @@ namespace Grimoire.PluginV2.Editor
         private void OnDialogLine(GrimoireDialogPlayer player, DialogLine line)
         {
             if (!EditorApplication.isPlaying || player == null || line == null) return;
-            var id = "dialog|" + player.GetInstanceID() + "|node";
+            var id = "dialog|" + UnityObjectId.Of(player) + "|node";
             var before = _liveValues.TryGetValue(id, out var old) ? old.Value : "(start)";
             RecordExternal(id, "Dialogs", (line.Dialog?.DisplayName ?? player.name) + " · Current node",
                 (line.Dialog?.DialogKey ?? player.name) + ".current_node", before, line.NodeId,
@@ -180,7 +180,7 @@ namespace Grimoire.PluginV2.Editor
         }
 
         private static string ObjectFieldId(GameObject gameObject, string fieldName) =>
-            "object|" + gameObject.GetInstanceID() + "|" + (fieldName ?? "").Trim().ToLowerInvariant();
+            "object|" + UnityObjectId.Of(gameObject) + "|" + (fieldName ?? "").Trim().ToLowerInvariant();
 
         private static string FormatLiveValue(object value) =>
             value == null ? "(none)" : Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";

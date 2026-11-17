@@ -360,7 +360,7 @@ namespace Grimoire.PluginV2.Editor
         }
 
         private static string SceneKey(Scene scene) => "scene:" + scene.handle;
-        private static string RootKey(GameObject root) => "root:" + root.GetInstanceID();
+        private static string RootKey(GameObject root) => "root:" + UnityObjectId.Of(root);
 
         private void ShowGroupMenu()
         {

@@ -89,7 +89,7 @@ namespace Grimoire.PluginV2.Editor
 
             foreach (var player in UnityEngine.Object.FindObjectsOfType<GrimoireDialogPlayer>(true))
             {
-                var prefix = "dialog|" + player.GetInstanceID() + "|";
+                var prefix = "dialog|" + UnityObjectId.Of(player) + "|";
                 var dialogName = player.CurrentDialog?.DisplayName ?? player.LastStartedDialog?.DisplayName ?? player.name;
                 var dialogKey = player.CurrentDialog?.DialogKey ?? player.LastStartedDialog?.DialogKey ?? player.name;
                 AddObserved(values, prefix + "state", "Dialogs", dialogName + " · State",
@@ -119,7 +119,7 @@ namespace Grimoire.PluginV2.Editor
             foreach (var link in UnityEngine.Object.FindObjectsOfType<GrimoireTextLink>(true))
             {
                 if (!link.HasCode) continue;
-                var prefix = "text|" + link.GetInstanceID();
+                var prefix = "text|" + UnityObjectId.Of(link);
                 AddObserved(values, prefix, "Text links", link.gameObject.name + " · Text",
                     link.TextCode, link.GetResolvedText(), "Text Link", link.gameObject);
                 AddObserved(values, prefix + "|language", "Text links", link.gameObject.name + " · Language",
@@ -141,7 +141,7 @@ namespace Grimoire.PluginV2.Editor
             foreach (var gameObject in linkedObjects)
             {
                 if (gameObject == null) continue;
-                var prefix = "scene|" + gameObject.GetInstanceID() + "|";
+                var prefix = "scene|" + UnityObjectId.Of(gameObject) + "|";
                 var path = gameObject.scene.name + "/" + gameObject.name;
                 AddObserved(values, prefix + "active", "Scene links", gameObject.name + " · Active",
                     path + ".active", gameObject.activeSelf.ToString(), "Unity scene", gameObject);
@@ -162,7 +162,7 @@ namespace Grimoire.PluginV2.Editor
                     if (member.Value == null || member.Value.Length > 256 ||
                         member.Key == "name" || member.Key == "tag" || member.Key == "gameObject" ||
                         member.Key == "transform" || member.Key == "hideFlags") continue;
-                    AddObserved(values, "component|" + component.Component.GetInstanceID() + "|" + member.Key,
+                    AddObserved(values, "component|" + UnityObjectId.Of(component.Component) + "|" + member.Key,
                         "Scene links", component.GameObjectName + " · " + member.Key,
                         component.GameObjectName + "." + component.TypeName + "." + member.Key,
                         member.Value, component.TypeName, component.Component.gameObject);

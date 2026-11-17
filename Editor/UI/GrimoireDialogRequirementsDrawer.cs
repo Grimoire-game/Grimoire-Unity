@@ -141,7 +141,7 @@ namespace Grimoire.PluginV2.Editor
 
         private void EnsureCollected(GrimoireDialogAsset dialog)
         {
-            var stamp = dialog.GetInstanceID() + "|" + dialog.ImportedAt + "|" + _includeLinked;
+            var stamp = UnityObjectId.Of(dialog) + "|" + dialog.ImportedAt + "|" + _includeLinked;
             if (dialog == _dialog && stamp == _stamp)
             {
                 return;
