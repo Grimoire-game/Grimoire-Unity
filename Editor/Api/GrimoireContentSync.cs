@@ -20,6 +20,7 @@ namespace Grimoire.PluginV2.Editor
         public static float Progress { get; private set; }
         public static string Message { get; private set; }
         public static string Error { get; private set; }
+        public static string Warning { get; private set; }
         public static string Summary { get; private set; }
 
         static GrimoireContentSync()
@@ -81,6 +82,7 @@ namespace Grimoire.PluginV2.Editor
             Progress = 0f;
             Message = "Preparing Grimoire content…";
             Error = null;
+            Warning = null;
             Summary = null;
             Changed?.Invoke();
 
@@ -103,8 +105,11 @@ namespace Grimoire.PluginV2.Editor
                     Summary = result.Data.ToString();
                     if (result.Data.Errors.Count > 0)
                         Error = string.Join("\n", result.Data.Errors);
+                    if (result.Data.Warnings.Count > 0)
+                        Warning = string.Join("\n", result.Data.Warnings);
                     Progress = 1f;
-                    Message = "Content is up to date";
+                    Message = result.Data.Errors.Count > 0 ? "Content pull completed with issues" :
+                        result.Data.Warnings.Count > 0 ? "Content pull completed with warnings" : "Content is up to date";
                 }
             }
             catch (Exception exception)

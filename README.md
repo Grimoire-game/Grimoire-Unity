@@ -164,7 +164,12 @@ once, then updates the runtime string and variable libraries, all game dialogs,
 scene/prefab text links, object links, and cached nested objects. Every configured
 language is stored in Unity for offline builds. Unrelated remote objects are not
 created as assets. Local text and editable-field deviations are preserved, and
-the final summary lists anything skipped or failed.
+the final summary lists anything skipped or failed. Non-fatal dialog import
+notes are counted separately as warnings; they do not count as skipped dialogs.
+Object lookup warnings include the object UUID, selected game, and API error.
+If a copied dialog still references objects in another game, re-select its object
+fields in Grimoire. A "no Code ID" warning only appears after the object was
+successfully downloaded and its Code ID is actually empty.
 
 **Reset to Grimoire** (on the Object → Game Engine Data tab and the Sync tab)
 restores the Unity transform from the values currently saved in Grimoire.

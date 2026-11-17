@@ -27,6 +27,14 @@ namespace Grimoire.PluginV2.Editor
             public int Failed;
             public bool Cancelled;
             public readonly List<string> Errors = new List<string>();
+            public readonly List<string> Warnings = new List<string>();
+
+            internal void AddImportedDialog(string dialogName, IEnumerable<string> notes)
+            {
+                Dialogs++;
+                foreach (var note in notes)
+                    Warnings.Add($"Dialog '{dialogName}': {note}");
+            }
 
             public override string ToString()
             {
@@ -41,6 +49,11 @@ namespace Grimoire.PluginV2.Editor
                 if (Failed > 0)
                 {
                     result += $" Failed {Failed}.";
+                }
+
+                if (Warnings.Count > 0)
+                {
+                    result += $" Warnings {Warnings.Count}.";
                 }
 
                 if (Cancelled)
@@ -181,12 +194,7 @@ namespace Grimoire.PluginV2.Editor
                     resourceCache: dialogCache);
                 if (imported.Success)
                 {
-                    summary.Dialogs++;
-                    foreach (var note in GrimoireDialogImporter.LastImportNotes)
-                    {
-                        summary.Skipped++;
-                        summary.Errors.Add($"Dialog '{dialogName}': {note}");
-                    }
+                    summary.AddImportedDialog(dialogName, GrimoireDialogImporter.LastImportNotes);
                 }
                 else
                 {
