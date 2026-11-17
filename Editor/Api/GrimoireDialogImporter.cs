@@ -23,7 +23,7 @@ namespace Grimoire.PluginV2.Editor
 
         public static event Action<GrimoireDialogAsset> Imported;
 
-        /// <summary>Non-fatal remarks from the last import (e.g. referenced objects without a Code ID).</summary>
+        /// <summary>Non-fatal remarks from the last import, including unresolved object references.</summary>
         public static List<string> LastImportNotes { get; } = new List<string>();
 
         /// <summary>Imported dialog assets in the project, keyed by Grimoire dialog id.</summary>
@@ -747,11 +747,12 @@ namespace Grimoire.PluginV2.Editor
         /// The dialog API references object fields by UUID, but the export's
         /// ObjectRuntime is keyed by object code id and field name. Bake both in.
         /// </summary>
-        private static async Task ResolveObjectFieldsAsync(
+        internal static async Task ResolveObjectFieldsAsync(
             string gameId,
             IEnumerable<GrimoireDialogNode> nodes,
             Action<string> progress,
-            GrimoireTranslationCatalog catalog)
+            GrimoireTranslationCatalog catalog,
+            Func<string, Task<ApiResult<GrimoireLocalizedObjectLoader.LoadedObject>>> objectLoader = null)
         {
             var nodeList = nodes.ToList();
             var refs = nodeList.SelectMany(AllRefs)
@@ -764,7 +765,11 @@ namespace Grimoire.PluginV2.Editor
             }
 
             progress?.Invoke("Resolving object fields...");
-            await GrimoireObjectKeyResolver.EnsureLibraryCachedAsync(gameId);
+            if (objectLoader == null)
+            {
+                await GrimoireObjectKeyResolver.EnsureLibraryCachedAsync(gameId);
+                objectLoader = id => GrimoireLocalizedObjectLoader.LoadAsync(gameId, id, catalog, progress);
+            }
 
             var views = new Dictionary<string, GrimoireLocalizedObjectLoader.LoadedObject>(StringComparer.Ordinal);
             var withoutKey = new HashSet<string>(StringComparer.Ordinal);
@@ -772,13 +777,23 @@ namespace Grimoire.PluginV2.Editor
             {
                 if (!views.TryGetValue(reference.objectId, out var loaded))
                 {
-                    var result = await GrimoireLocalizedObjectLoader.LoadAsync(
-                        gameId, reference.objectId, catalog, progress);
+                    var result = await objectLoader(reference.objectId);
                     loaded = result.Success ? result.Data : null;
                     views[reference.objectId] = loaded;
                     if (!result.Success)
                     {
-                        Debug.LogWarning($"[Grimoire Dialog] Could not load object '{reference.label}' ({reference.objectId}): {result.Error}");
+                        var detail = result.Error ?? "Unknown error";
+                        if (!string.IsNullOrEmpty(result.Code)) detail += $" [{result.Code}]";
+                        if (result.HttpStatus > 0) detail += $" (HTTP {result.HttpStatus})";
+                        var note = $"Could not load object '{reference.label}' ({reference.objectId}) " +
+                                   $"for game '{gameId}': {detail}.";
+                        if (result.Code == "resource_not_accessible")
+                            note += " Check that the dialog references an object in the selected game; " +
+                                    "re-select the object field in Grimoire if the dialog was copied from another game.";
+                        else if (result.Code == "not_found")
+                            note += " Re-select the object field in Grimoire; the referenced object may have been deleted or replaced.";
+                        LastImportNotes.Add(note);
+                        Debug.LogWarning("[Grimoire Dialog] " + note);
                     }
                 }
 
@@ -822,7 +837,8 @@ namespace Grimoire.PluginV2.Editor
                     }
                 }
 
-                if (string.IsNullOrEmpty(reference.objectKey) && withoutKey.Add(reference.objectId))
+                // A failed download leaves the key unknown; it does not prove the object has no Code ID.
+                if (view?.@object != null && string.IsNullOrEmpty(reference.objectKey) && withoutKey.Add(reference.objectId))
                 {
                     var shown = string.IsNullOrEmpty(reference.objectName) ? reference.objectId : reference.objectName;
                     LastImportNotes.Add(

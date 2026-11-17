@@ -375,6 +375,9 @@ namespace Grimoire.PluginV2.Editor
             _syncProgress.value = GrimoireContentSync.Progress * 100f;
             _syncProgress.title = GrimoireContentSync.Message ?? "Syncing content";
             var status = GrimoireContentSync.Summary;
+            if (!string.IsNullOrEmpty(GrimoireContentSync.Warning))
+                status = string.IsNullOrEmpty(status) ? GrimoireContentSync.Warning :
+                    status + "\n" + GrimoireContentSync.Warning;
             if (!string.IsNullOrEmpty(GrimoireContentSync.Error))
                 status = string.IsNullOrEmpty(status) ? GrimoireContentSync.Error :
                     status + "\n" + GrimoireContentSync.Error;
