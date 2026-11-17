@@ -495,10 +495,10 @@ namespace Grimoire.PluginV2.Editor
         internal static List<T> Distinct<T>(IEnumerable<T> items) where T : UnityEngine.Object
         {
             var result = new List<T>();
-            var ids = new HashSet<int>();
+            var ids = new HashSet<UnityObjectId>();
             foreach (var item in items)
             {
-                if (item != null && ids.Add(item.GetInstanceID()))
+                if (item != null && ids.Add(UnityObjectId.Of(item)))
                 {
                     result.Add(item);
                 }

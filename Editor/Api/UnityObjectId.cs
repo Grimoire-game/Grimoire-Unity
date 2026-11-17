@@ -5,11 +5,11 @@ namespace Grimoire.PluginV2.Editor
 {
     /// <summary>
     /// Session-local identity for a <see cref="UnityEngine.Object"/>.
-    /// Unity 6.4+ uses <c>EntityId</c>; older editors still use the integer InstanceID.
+    /// Unity 6.5+ uses <c>EntityId</c>; older editors still use the integer InstanceID.
     /// </summary>
     internal readonly struct UnityObjectId : IEquatable<UnityObjectId>
     {
-#if UNITY_6000_4_OR_NEWER
+#if UNITY_6000_5_OR_NEWER
         private readonly EntityId _value;
 
         public UnityObjectId(EntityId value) => _value = value;
@@ -25,8 +25,8 @@ namespace Grimoire.PluginV2.Editor
             new UnityObjectId(obj.GetInstanceID());
 #endif
 
-#if UNITY_6000_4_OR_NEWER
-        public bool IsValid => !_value.Equals(default(EntityId));
+#if UNITY_6000_5_OR_NEWER
+        public bool IsValid => !_value.Equals(EntityId.None);
 #else
         public bool IsValid => _value != 0;
 #endif

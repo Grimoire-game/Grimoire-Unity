@@ -164,6 +164,26 @@ namespace Grimoire.PluginV2.Tests
         }
 
         [Test]
+        public void UnityObjectIdDistinguishesObjectsInBothEditorIdApis()
+        {
+            var first = new GameObject("first-id-test");
+            var second = new GameObject("second-id-test");
+            try
+            {
+                var firstId = UnityObjectId.Of(first);
+                Assert.IsTrue(firstId.IsValid);
+                Assert.AreEqual(firstId, UnityObjectId.Of(first));
+                Assert.AreNotEqual(firstId, UnityObjectId.Of(second));
+                Assert.IsFalse(default(UnityObjectId).IsValid);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(first);
+                UnityEngine.Object.DestroyImmediate(second);
+            }
+        }
+
+        [Test]
         public void ObjectRefreshKeepsOnlyActualLocalDeviations()
         {
             var gameObject = new GameObject("object-refresh-test");
