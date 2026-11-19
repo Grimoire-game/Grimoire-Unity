@@ -170,6 +170,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             var dialogCache = new Dictionary<string, DialogResource>(StringComparer.Ordinal);
+            var syncedDialogs = new Dictionary<string, GrimoireDialogAsset>(StringComparer.Ordinal);
             for (var i = 0; i < dialogs.Count; i++)
             {
                 var dialog = dialogs[i];
@@ -194,6 +195,7 @@ namespace Grimoire.PluginV2.Editor
                     resourceCache: dialogCache);
                 if (imported.Success)
                 {
+                    syncedDialogs[dialog.id] = imported.Data;
                     summary.AddImportedDialog(dialogName, GrimoireDialogImporter.LastImportNotes);
                 }
                 else
@@ -268,7 +270,7 @@ namespace Grimoire.PluginV2.Editor
                 }
 
                 var refreshed = await LoadObjectCached(
-                    gameId, objectId, catalog, objectCache);
+                    gameId, objectId, catalog, objectCache, syncedDialogs);
                 if (!refreshed.Success)
                 {
                     AddFailure(summary, $"Object '{link.ObjectKey}'", refreshed.Error);
@@ -316,7 +318,7 @@ namespace Grimoire.PluginV2.Editor
                     }
 
                     var nested = await LoadObjectCached(
-                        gameId, nestedId, catalog, objectCache);
+                        gameId, nestedId, catalog, objectCache, syncedDialogs);
                     if (nested.Success)
                     {
                         link.RememberNestedSnapshot(CloneSnapshot(nested.Data.Snapshot));
@@ -341,7 +343,8 @@ namespace Grimoire.PluginV2.Editor
                 string gameId,
                 string objectId,
                 GrimoireTranslationCatalog catalog,
-                Dictionary<string, GrimoireLocalizedObjectLoader.LoadedObject> cache)
+                Dictionary<string, GrimoireLocalizedObjectLoader.LoadedObject> cache,
+                Dictionary<string, GrimoireDialogAsset> syncedDialogs)
         {
             if (string.IsNullOrEmpty(objectId))
             {
@@ -355,7 +358,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             var loaded = await GrimoireLocalizedObjectLoader.LoadAsync(
-                gameId, objectId, catalog);
+                gameId, objectId, catalog, includeLogic: true, syncedDialogs: syncedDialogs);
             if (loaded.Success)
             {
                 cache[objectId] = loaded.Data;

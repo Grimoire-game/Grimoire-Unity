@@ -1145,6 +1145,7 @@ namespace Grimoire.PluginV2.Editor
             if (item.Object == null || !_objectDetails.TryGetValue(item.Object.id, out var document)) return;
             var snapshot = GrimoireObjectSnapshotMapper.FromDocument(document);
             if (snapshot == null) return;
+            RenderObjectFunctions(document.logic);
             string section = null;
             foreach (var field in snapshot.Fields)
             {
@@ -1161,6 +1162,38 @@ namespace Grimoire.PluginV2.Editor
                 ValueRow(field.DisplayLabel, string.Join(", ", values), field.FieldType);
             }
             if (snapshot.Fields.Count == 0) Info("This object has no fields.");
+        }
+
+        private void RenderObjectFunctions(GrimoireObjectLogic logic)
+        {
+            Section("Functions");
+            if (logic == null || logic.version == 0)
+            {
+                Info("Function data is unavailable from the connected API.");
+                return;
+            }
+            if (logic.version != 1)
+            {
+                Info($"Update the plugin to read logic version {logic.version}.");
+                return;
+            }
+            if (logic.functions == null || logic.functions.Length == 0)
+            {
+                Info("No public functions defined.");
+                return;
+            }
+
+            foreach (var fn in logic.functions)
+            {
+                if (string.IsNullOrEmpty(fn?.name)) continue;
+                var row = Row("value-header");
+                var name = new Label(fn.name) { enableRichText = false, tooltip = fn.name };
+                name.AddToClassList("value-label");
+                row.Add(name);
+                row.Add(new Button(() => EditorGUIUtility.systemCopyBuffer = fn.name) { text = "Copy name" });
+                _detailContent.Add(row);
+                if (!string.IsNullOrEmpty(fn.error)) Info(fn.error);
+            }
         }
 
         private void RenderSceneBinding(Item item)
@@ -1477,7 +1510,8 @@ namespace Grimoire.PluginV2.Editor
                 }
                 if (isObject)
                 {
-                    var result = await GrimoireApiClient.GetObjectViewAsync(gameId, item.Object.id, GrimoireSettings.Locale);
+                    var result = await GrimoireApiClient.GetObjectViewAsync(
+                        gameId, item.Object.id, GrimoireSettings.Locale, includeLogic: true);
                     if (!IsCurrentDetail(generation, gameId)) return;
                     if (result.Success && result.Data != null) _objectDetails[item.Object.id] = result.Data;
                     else

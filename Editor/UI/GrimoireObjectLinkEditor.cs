@@ -19,6 +19,7 @@ namespace Grimoire.PluginV2.Editor
         private MessageType _validationType = MessageType.None;
         private bool _syncing;
         private bool _syncFoldout = true;
+        private bool _functionsFoldout = true;
         private bool _fieldsFoldout = true;
         private bool _refsFoldout = true;
 
@@ -58,6 +59,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             DrawDataSourceSection(link);
+            DrawFunctionsSection(link);
             DrawSyncSection(link);
             DrawRuntimeChangesSection(link);
             DrawEditableFieldsSection(link);
@@ -70,6 +72,45 @@ namespace Grimoire.PluginV2.Editor
             else if (!string.IsNullOrEmpty(_validationMessage))
             {
                 EditorGUILayout.HelpBox(_validationMessage, _validationType);
+            }
+        }
+
+        private void DrawFunctionsSection(GrimoireObjectLink link)
+        {
+            if (link.ActiveSource != GrimoireObjectDataSource.ConnectedSnapshot ||
+                (!link.HasKey && string.IsNullOrEmpty(link.CachedObjectId) && !link.HasSnapshot)) return;
+
+            EditorGUILayout.Space(5);
+            _functionsFoldout = EditorGUILayout.Foldout(_functionsFoldout, "Functions", true, EditorStyles.foldoutHeader);
+            if (!_functionsFoldout) return;
+
+            var logic = link.ApiSnapshot?.Logic;
+            if (logic == null || logic.version == 0)
+            {
+                EditorGUILayout.HelpBox("Refresh from Grimoire to load this object's functions.", MessageType.Info);
+                return;
+            }
+            if (logic.version != 1)
+            {
+                EditorGUILayout.HelpBox($"Update the plugin to read logic version {logic.version}.", MessageType.Warning);
+                return;
+            }
+            if (logic.functions == null || logic.functions.Length == 0)
+            {
+                EditorGUILayout.LabelField("No public functions defined.", EditorStyles.miniLabel);
+                return;
+            }
+
+            foreach (var fn in logic.functions)
+            {
+                if (string.IsNullOrEmpty(fn?.name)) continue;
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.SelectableLabel(fn.name, GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                    if (GUILayout.Button("Copy name", EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
+                        EditorGUIUtility.systemCopyBuffer = fn.name;
+                }
+                if (!string.IsNullOrEmpty(fn.error)) EditorGUILayout.HelpBox(fn.error, MessageType.Warning);
             }
         }
 
@@ -87,7 +128,14 @@ namespace Grimoire.PluginV2.Editor
                 EditorUtility.SetDirty(link);
             }
             EditorGUILayout.LabelField("Active: " + link.ActiveSource, EditorStyles.miniLabel);
-            if (link.ActiveSource != GrimoireObjectDataSource.VersionDatabase) return;
+            if (link.ActiveSource != GrimoireObjectDataSource.VersionDatabase)
+            {
+                serializedObject.Update();
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("_customFunctionsOnly"),
+                    new GUIContent("Custom handlers only", "Use this when C# already implements these functions."));
+                serializedObject.ApplyModifiedProperties();
+                return;
+            }
 
             EditorGUILayout.BeginHorizontal();
             EditorGUI.BeginChangeCheck();

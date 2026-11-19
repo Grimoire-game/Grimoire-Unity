@@ -53,6 +53,7 @@ namespace Grimoire.PluginV2
         private GrimoireDialogVariables _variables;
         private GrimoireDialogRunner _runner;
         private bool _switching;
+        private Action<GrimoireDialogEndReason> _onPlaybackEnded;
         private readonly Dictionary<GrimoireDialogAsset, string> _checkedObjects = new Dictionary<GrimoireDialogAsset, string>();
 
         /// <summary>The dialog player in the scene (the last one enabled).</summary>
@@ -114,6 +115,7 @@ namespace Grimoire.PluginV2
 
         private void OnDisable()
         {
+            _onPlaybackEnded = null;
             GrimoireLocalization.LanguageChanged -= Refresh;
             if (Main == this)
             {
@@ -135,7 +137,9 @@ namespace Grimoire.PluginV2
         /// or an empty string to use the dialog's starting node. Automatic nodes
         /// (conditions, setters and jumps) continue to their next playable node.
         /// </summary>
-        public void StartDialog(GrimoireDialogAsset dialog, string startNode)
+        public void StartDialog(GrimoireDialogAsset dialog, string startNode) => StartDialog(dialog, startNode, null);
+
+        internal void StartDialog(GrimoireDialogAsset dialog, string startNode, Action<GrimoireDialogEndReason> onEnded)
         {
             if (dialog == null)
             {
@@ -163,6 +167,7 @@ namespace Grimoire.PluginV2
                 }
             }
 
+            _onPlaybackEnded = onEnded;
             LastStartedDialog = dialog;
             CurrentLine = null;
             if (warnAboutMissingObjects)
@@ -309,6 +314,8 @@ namespace Grimoire.PluginV2
 
         private void HandleEnded(GrimoireDialogEndReason reason)
         {
+            var completed = _onPlaybackEnded;
+            _onPlaybackEnded = null;
             LastEndReason = reason;
             CurrentLine = null;
 
@@ -320,6 +327,7 @@ namespace Grimoire.PluginV2
 
             OnDialogEnded.Invoke();
             GrimoireDialog.RaiseEnded(this, reason);
+            completed?.Invoke(reason);
         }
 
         private DialogLine BuildLine(GrimoireDialogAsset current, GrimoireDialogNode node, IReadOnlyList<GrimoireDialogOption> options)

@@ -138,12 +138,13 @@ namespace Grimoire.PluginV2.Editor
         /// GET /api/v1/objects/{id} — the Object View Document, tasks included.
         /// </summary>
         public static async Task<ApiResult<ObjectViewDocument>> GetObjectViewAsync(
-            string gameId, string objectId, string locale = null)
+            string gameId, string objectId, string locale = null, bool includeLogic = false)
         {
             var url = BuildUrl($"/api/v1/objects/{UnityWebRequest.EscapeURL(objectId)}", new Dictionary<string, string>
             {
                 ["game_id"] = gameId,
                 ["locale"] = string.IsNullOrWhiteSpace(locale) ? null : locale.Trim(),
+                ["include"] = includeLogic ? "logic" : null,
             });
 
             var result = await SendAsync<SingleEnvelope<ObjectViewDocument>>("GET", url, null, ApiAuth.Bearer);

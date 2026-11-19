@@ -97,9 +97,40 @@ Local editable values that differ from their Grimoire baseline override the
 selected source. In Version Database mode, `SetFieldValue` also writes to
 `ObjectRuntime` when it is available. `TriggerFunction` calls the imported
 `LogicRuntime` in Version Database mode and fires
-`GrimoireObjectLink.FunctionTriggered` in either mode. In Connected Snapshot
-mode, subscribe to that event to implement function behavior; the API snapshot
-does not contain an executable logic runtime.
+`GrimoireObjectLink.FunctionTriggered` in either mode.
+
+### Find and call an object's functions
+
+Select an object in **Content Library > Details > Functions**, or select its GameObject
+and open **Grimoire Object Link > Functions** in Connected Snapshot mode. The library
+shows the API response and the inspector shows the last synced snapshot. Use **Copy name**
+to get the exact spelling and capitalization. Each row shows an error if the API
+could not compile that function.
+
+Call any listed function from C#, for example `link.TriggerFunction("OpenShop")`.
+For a UnityEvent, drag the Object Link into the event, choose
+**GrimoireObjectLink > InvokeFunction (string)** under **Static Parameters**, and paste
+the name. Refresh the link after renaming a function and update event arguments that
+use its previous name.
+
+### Play an object's greeting and set a value
+
+1. In Grimoire, add `OnInteract` to the template. Choose a fixed dialog or the
+   template's greeting dialog field. Set the greeting on each object.
+2. Author a shared template section that sets `Self.HasSpoken` to true. Link
+   that section from the object's `OnInteract`. An object can also select its
+   own dialog on the function to override the template default.
+3. In Unity, use **Refresh from Grimoire** on the Object Link or **Sync everything**.
+   Add the scene player through **Dialogs > Add Dialog to scene**.
+4. Call `link.TriggerFunction("OnInteract")` from the game's interaction handler,
+   or bind a UnityEvent to **GrimoireObjectLink.OnInteract**.
+   Connected Snapshot plays the synced dialog offline. Completing it sets the
+   value on that link. Stopping it cancels the remaining steps.
+
+Enable **Custom handlers only** on a link if its existing `FunctionTriggered`
+subscriber already implements the same actions. Synced functions support scalar
+assignments to receiver fields and variable elements, comparisons, and linked
+sections. The Console identifies a function that uses an unsupported operation.
 
 ### Linking a GameObject
 

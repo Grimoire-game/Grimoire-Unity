@@ -84,6 +84,13 @@ namespace Grimoire.PluginV2.Editor
             Undo.RecordObject(link, "Update Grimoire linked fields");
             link.ReplaceLinkedFields(next);
             var snapshot = localizedSnapshot ?? GrimoireObjectSnapshotMapper.FromDocument(document);
+            // Display-only reads also update editable fields. Preserve the last full sync.
+            if (localizedSnapshot == null && document.logic == null &&
+                snapshot.ObjectId == link.ApiSnapshot?.ObjectId)
+            {
+                snapshot.Logic = link.ApiSnapshot.Logic;
+                snapshot.LogicDialogs = link.ApiSnapshot.LogicDialogs;
+            }
             foreach (var linked in next)
             {
                 if (linked == null || string.IsNullOrEmpty(linked.FieldId))
@@ -336,13 +343,15 @@ namespace Grimoire.PluginV2.Editor
             }
 
             var loaded = await GrimoireLocalizedObjectLoader.LoadAsync(
-                gameId, objectId, catalog, progress);
+                gameId, objectId, catalog, progress, includeLogic: true);
             if (!loaded.Success)
             {
                 return ApiResult<ObjectViewDocument>.Fail(
                     loaded.Error, loaded.Code, loaded.HttpStatus);
             }
 
+            if (link == null || link.CachedObjectId != objectId || GrimoireSettings.GameId != gameId)
+                return ApiResult<ObjectViewDocument>.Fail("The linked object changed during refresh.");
             ApplyFromDocument(
                 link,
                 loaded.Data.Source,

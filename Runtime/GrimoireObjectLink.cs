@@ -24,6 +24,9 @@ namespace Grimoire.PluginV2
         [Tooltip("The Grimoire object key (code_id), e.g. 'characters/aragorn'.")]
         private string _objectKey = "";
 
+        [SerializeField, Tooltip("Run only custom FunctionTriggered handlers for connected functions.")]
+        private bool _customFunctionsOnly;
+
         [SerializeField]
         [HideInInspector]
         private string _cachedObjectId = "";
@@ -547,7 +550,8 @@ namespace Grimoire.PluginV2
             SetFieldValue(fieldName, value.ToString(System.Globalization.CultureInfo.InvariantCulture), source);
 
         /// <summary>
-        /// Fire a named object function through the selected source. Imported
+        /// Fire a named object function through the selected source. Connected snapshots
+        /// run synced steps. Imported
         /// versions use LogicRuntime. The event also fires in either mode, so
         /// custom gameplay handlers can use the same call without an export.
         /// Returns false when no function runtime or handler is available.
@@ -559,6 +563,8 @@ namespace Grimoire.PluginV2
             if (ActiveSource == GrimoireObjectDataSource.VersionDatabase &&
                 TryGetResolvedVersionKey(out var key))
                 handled = GrimoireVersionObjectAdapter.TryTriggerFunction(key, functionName);
+            if (ActiveSource == GrimoireObjectDataSource.ConnectedSnapshot && !_customFunctionsOnly)
+                handled = ApiSnapshot?.Logic?.Trigger(this, functionName) ?? false;
             var handler = FunctionTriggered;
             if (handler != null)
             {
@@ -567,6 +573,12 @@ namespace Grimoire.PluginV2
             }
             return handled;
         }
+
+        /// <summary>UnityEvent entry point. Pass the function name shown in the Object Link inspector.</summary>
+        public void InvokeFunction(string functionName) => TriggerFunction(functionName);
+
+        /// <summary>Bind a UnityEvent to this method to invoke the template's OnInteract function.</summary>
+        public void OnInteract() => TriggerFunction("OnInteract");
 
         public bool TryGetString(string fieldName, out string value)
         {
