@@ -347,6 +347,7 @@ namespace Grimoire.PluginV2.Editor
 
     public class ObjectViewDocument
     {
+        public GrimoireObjectLogic logic;
         public string schema_version;
         public ObjectSummary @object;
         public ViewLocale locale;

@@ -472,6 +472,9 @@ namespace Grimoire.PluginV2
     [Serializable]
     public class GrimoireObjectSnapshot
     {
+        public GrimoireObjectLogic Logic;
+        public List<GrimoireDialogAsset> LogicDialogs = new List<GrimoireDialogAsset>();
+
         [SerializeField]
         private string _objectId = "";
 

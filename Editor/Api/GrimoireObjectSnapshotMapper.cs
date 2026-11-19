@@ -16,6 +16,7 @@ namespace Grimoire.PluginV2.Editor
                 return snapshot;
             }
 
+            snapshot.Logic = document.logic;
             var summary = document.@object;
             if (summary != null)
             {

@@ -17,10 +17,12 @@ namespace Grimoire.PluginV2.Editor
             string gameId,
             string objectId,
             GrimoireTranslationCatalog catalog = null,
-            Action<string> progress = null)
+            Action<string> progress = null,
+            bool includeLogic = false,
+            IReadOnlyDictionary<string, GrimoireDialogAsset> syncedDialogs = null)
         {
             progress?.Invoke("Downloading object source...");
-            var source = await GrimoireApiClient.GetObjectViewAsync(gameId, objectId);
+            var source = await GrimoireApiClient.GetObjectViewAsync(gameId, objectId, includeLogic: includeLogic);
             if (!source.Success)
             {
                 return ApiResult<LoadedObject>.Fail(
@@ -80,6 +82,14 @@ namespace Grimoire.PluginV2.Editor
 
                 GrimoireObjectSnapshotMapper.MergeLocalizedDocument(
                     snapshot, localized.Data, language);
+            }
+
+            if (includeLogic && snapshot.Logic?.version == 1)
+            {
+                var dependencies = await GrimoireLogicDependencies.LoadAsync(
+                    gameId, snapshot, catalog, progress, syncedDialogs);
+                if (!dependencies.Success)
+                    return ApiResult<LoadedObject>.Fail(dependencies.Error, dependencies.Code, dependencies.HttpStatus);
             }
 
             return ApiResult<LoadedObject>.Ok(new LoadedObject
