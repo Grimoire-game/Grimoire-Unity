@@ -10,7 +10,7 @@ namespace Grimoire.PluginV2
     public sealed class GrimoireObjectLogic
     {
         public int version;
-        public bool IsSupported => version == 1 || version == 2;
+        public bool IsSupported => version >= 1 && version <= 3;
         public Function[] functions;
 
         [Serializable] public sealed class Function
@@ -56,7 +56,7 @@ namespace Grimoire.PluginV2
             public string start;
         }
 
-        internal bool Trigger(GrimoireObjectLink link, string name)
+        internal bool Trigger(GrimoireObjectLink link, string name, Action completed = null)
         {
             if (!IsSupported)
             {
@@ -64,7 +64,7 @@ namespace Grimoire.PluginV2
                 return false;
             }
             var fn = Array.Find(functions ?? Array.Empty<Function>(), f => f != null && f.name == name);
-            return fn != null && new Invocation(link, fn).Start();
+            return fn != null && new Invocation(link, fn, completed).Start();
         }
 
         private sealed class Invocation
@@ -72,15 +72,17 @@ namespace Grimoire.PluginV2
             private readonly GrimoireObjectLink _link;
             private readonly GrimoireObjectSnapshot _snapshot;
             private readonly Function _function;
+            private readonly Action _completed;
             private int _step;
             private int _dialog;
             private bool _entered;
 
-            public Invocation(GrimoireObjectLink link, Function function)
+            public Invocation(GrimoireObjectLink link, Function function, Action completed)
             {
                 _link = link;
                 _snapshot = link.ApiSnapshot;
                 _function = function;
+                _completed = completed;
             }
 
             public bool Start() => string.IsNullOrEmpty(_function.error) ? Advance() : Fail(_function.error);
@@ -106,13 +108,14 @@ namespace Grimoire.PluginV2
                         if (_dialog < (step.dialogs?.Length ?? 0)) return Play(step.dialogs[_dialog++]);
                         var sets = step.sets ?? Array.Empty<Expression>();
                         // An unloaded target must not leave an earlier assignment in this step applied.
-                        if (_snapshot.Logic.version == 2)
+                        if (_snapshot.Logic.version >= 2)
                             foreach (var set in sets) ValidateAssignment(set);
                         foreach (var set in sets) Set(set);
                         _step++;
                         _dialog = 0;
                         _entered = false;
                     }
+                    _completed?.Invoke();
                     return true;
                 }
                 catch (InvalidOperationException error)
@@ -181,7 +184,7 @@ namespace Grimoire.PluginV2
 
             private void ValidateAssignment(Expression set)
             {
-                if (set.op != "equal" && set.op != "add" && set.op != "subtract")
+                if (set.op != "equal" && set.op != "add" && set.op != "subtract" && set.op != "append")
                     throw new InvalidOperationException($"Unsupported assignment '{set.op}'.");
                 if (set.left.kind == "variable" && set.op == "equal")
                 {
@@ -192,11 +195,14 @@ namespace Grimoire.PluginV2
                     if (set.left.kind != "field" && set.left.kind != "objectField")
                         throw new InvalidOperationException("Assignment requires a field.");
                     var field = Field(set.left, out _);
-                    if (set.op == "subtract" && !(field.Multiple &&
+                    if ((set.op == "subtract" || set.op == "append") && !(field.Multiple &&
                         (field.FieldType == "glossaryItem" || field.FieldType == "objectList")))
-                        throw new InvalidOperationException($"Subtract requires an object list on '{field.DisplayLabel}'.");
+                        throw new InvalidOperationException($"{set.op} requires an object list on '{field.DisplayLabel}'.");
                 }
-                Read(set.right);
+                var value = Read(set.right);
+                if (set.op == "append" && (!(value is string id) || string.IsNullOrWhiteSpace(id) ||
+                    id.IndexOfAny(new[] { ',', '\r', '\n' }) >= 0))
+                    throw new InvalidOperationException("Append requires one object reference.");
             }
 
             private void Set(Expression set)
@@ -216,6 +222,13 @@ namespace Grimoire.PluginV2
                 {
                     case "equal": break;
                     case "add": value = AddToField(field, value); break;
+                    case "append":
+                        var entries = field.ReferencedIds();
+                        var incoming = (string)value;
+                        if (entries.Exists(entry => SameObject(entry, incoming))) return;
+                        entries.Add(incoming);
+                        value = entries;
+                        break;
                     case "subtract":
                         if (!(value is string id) || string.IsNullOrWhiteSpace(id)) return;
                         var ids = field.ReferencedIds();

@@ -1,6 +1,6 @@
 {
   "name": "com.grimoire.plugin",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "displayName": "Grimoire Plugin",
   "description": "Link Unity GameObjects to Grimoire objects, inspect data and tasks in the editor, sync game_engine_data, and optionally import Unity exports for offline logic, translations, and variables at runtime.",
   "unity": "2021.3",

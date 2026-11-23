@@ -556,15 +556,21 @@ namespace Grimoire.PluginV2
         /// custom gameplay handlers can use the same call without an export.
         /// Returns false when no function runtime or handler is available.
         /// </summary>
-        public bool TriggerFunction(string functionName)
+        public bool TriggerFunction(string functionName) => TriggerFunctionOnCompletion(functionName, null);
+
+        /// <summary>Calls completed after the authored function finishes successfully, including its connected dialogs.</summary>
+        public bool TriggerFunctionOnCompletion(string functionName, Action completed)
         {
             if (string.IsNullOrWhiteSpace(functionName)) return false;
             var handled = false;
             if (ActiveSource == GrimoireObjectDataSource.VersionDatabase &&
                 TryGetResolvedVersionKey(out var key))
+            {
                 handled = GrimoireVersionObjectAdapter.TryTriggerFunction(key, functionName);
+                if (handled) completed?.Invoke();
+            }
             if (ActiveSource == GrimoireObjectDataSource.ConnectedSnapshot && !_customFunctionsOnly)
-                handled = ApiSnapshot?.Logic?.Trigger(this, functionName) ?? false;
+                handled = ApiSnapshot?.Logic?.Trigger(this, functionName, completed) ?? false;
             var handler = FunctionTriggered;
             if (handler != null)
             {
