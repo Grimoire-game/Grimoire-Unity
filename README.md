@@ -52,7 +52,11 @@ variables together. Choose a folder, search by name or key, then select an item
 to inspect its fields, dialog nodes or variable elements. Values appear in
 separate, wrapping cards grouped by section. With an unlinked GameObject
 selected in the scene, select a Grimoire object and click **Bind to selected**
-in its details to add an Object Link and load its fields.
+in its details to add an Object Link and load its fields. If the GameObject already
+has an Object Link, **Scene binding** shows its current target. Choose a library
+object and click **Link to** or **Relink to** to use it. **Remove Object Link**
+removes the component. If another script requires it, **Unlink** clears the
+connection and leaves the component available for a new binding.
 
 The library loads each resource in pages and also shows imported dialog assets
 and synced variables in the project. You can import or update a dialog, or sync

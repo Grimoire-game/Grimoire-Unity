@@ -1,12 +1,81 @@
 using Grimoire.PluginV2.Editor;
 using NUnit.Framework;
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEngine;
 
 namespace Grimoire.PluginV2.Tests
 {
     public class GrimoireContentLibraryTests
     {
+        private static GrimoireLocalizedObjectLoader.LoadedObject BindingTarget(string id, string key)
+        {
+            return new GrimoireLocalizedObjectLoader.LoadedObject
+            {
+                Source = new ObjectViewDocument { @object = new ObjectSummary { id = id, code_id = key } },
+                Snapshot = new GrimoireObjectSnapshot { ObjectId = id, ObjectKey = key },
+            };
+        }
+
+        [Test]
+        public void EmptyLinkCanBeReusedAndRelinkedWithoutCarryingOverTheOldObject()
+        {
+            var mom = new GameObject("Mom");
+            try
+            {
+                var link = mom.AddComponent<GrimoireObjectLink>();
+                link.SyncRotation = false;
+                Assert.AreSame(link, GrimoireContentLibraryView.ApplySceneBinding(mom, BindingTarget("old", "")));
+                link.VersionKey = "old-version-key";
+                link.ApiSnapshot.Fields.Add(new GrimoireCachedField { FieldId = "old-field" });
+                link.RememberNestedSnapshot(new GrimoireObjectSnapshot { ObjectId = "old-reference" });
+                var next = BindingTarget("mother", "");
+                Assert.AreSame(link, GrimoireContentLibraryView.ApplySceneBinding(mom, next));
+                Assert.AreEqual("mother", link.CachedObjectId);
+                Assert.AreSame(next.Snapshot, link.ApiSnapshot);
+                Assert.IsEmpty(link.VersionKey);
+                Assert.IsEmpty(link.NestedSnapshots);
+                Assert.IsFalse(link.SyncRotation);
+                Assert.AreEqual(1, mom.GetComponents<GrimoireObjectLink>().Length);
+            }
+            finally { Object.DestroyImmediate(mom); }
+        }
+
+        [Test]
+        public void RemovingAnOptionalLinkKeepsItsGameObjectAndSupportsUndo()
+        {
+            var mom = new GameObject("Mom");
+            try
+            {
+                var link = GrimoireContentLibraryView.ApplySceneBinding(mom, BindingTarget("mother", "house/npc_mother"));
+                Undo.IncrementCurrentGroup();
+                Assert.IsFalse(GrimoireContentLibraryView.RemoveSceneLink(link));
+                Assert.IsNull(mom.GetComponent<GrimoireObjectLink>());
+                Undo.PerformUndo();
+                Assert.AreEqual("mother", mom.GetComponent<GrimoireObjectLink>().CachedObjectId);
+            }
+            finally { Object.DestroyImmediate(mom); }
+        }
+
+        [Test]
+        public void UnlinkingARequiredComponentLeavesItAvailableForAnotherObject()
+        {
+            var mom = new GameObject("Mom");
+            try
+            {
+                mom.AddComponent<RequiresObjectLinkForBindingTest>();
+                var link = GrimoireContentLibraryView.ApplySceneBinding(mom, BindingTarget("other", "wrong"));
+                Assert.IsTrue(GrimoireContentLibraryView.RemoveSceneLink(link));
+                Assert.AreSame(link, mom.GetComponent<GrimoireObjectLink>());
+                Assert.IsEmpty(link.CachedObjectId);
+                Assert.IsFalse(link.HasKey);
+                Assert.IsFalse(link.HasSnapshot);
+                Assert.AreSame(link, GrimoireContentLibraryView.ApplySceneBinding(mom, BindingTarget("mother", "mom")));
+                Assert.AreEqual("mother", link.CachedObjectId);
+            }
+            finally { Object.DestroyImmediate(mom); }
+        }
+
         [TestCase(false, null, null, "Missing")]
         [TestCase(true, null, "2026-11-22T17:00:00Z", "Unknown")]
         [TestCase(true, "2026-11-22T17:00:00Z", null, "Unknown")]
@@ -117,4 +186,7 @@ namespace Grimoire.PluginV2.Tests
             Assert.AreEqual("Main story", paths["Dialogs:1776458565530"]);
         }
     }
+
+    [RequireComponent(typeof(GrimoireObjectLink))]
+    internal class RequiresObjectLinkForBindingTest : MonoBehaviour { }
 }

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Grimoire.PluginV2.Internal;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -72,6 +73,7 @@ namespace Grimoire.PluginV2.Editor
         private bool _updatesOnly;
         private bool _canPullItem;
         private bool _binding;
+        private GameObject _bindTarget;
         private string _objectError;
         private string _dialogError;
         private string _variableError;
@@ -160,6 +162,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireContentSync.Completed += OnSyncCompleted;
             EditorApplication.projectChanged += OnProjectChanged;
             EditorApplication.hierarchyChanged += QueueLocalRefresh;
+            Undo.undoRedoPerformed += QueueLocalRefresh;
             GrimoireLinkedFieldStore.Changed += QueueLocalRefresh;
             _canPullItem = GrimoireContentSync.CanPull;
             EditorApplication.playModeStateChanged += OnPlayModeChanged;
@@ -183,6 +186,7 @@ namespace Grimoire.PluginV2.Editor
             GrimoireContentSync.Completed -= OnSyncCompleted;
             EditorApplication.projectChanged -= OnProjectChanged;
             EditorApplication.hierarchyChanged -= QueueLocalRefresh;
+            Undo.undoRedoPerformed -= QueueLocalRefresh;
             GrimoireLinkedFieldStore.Changed -= QueueLocalRefresh;
             EditorApplication.delayCall -= OnProjectChanged;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
@@ -1303,93 +1307,205 @@ namespace Grimoire.PluginV2.Editor
         private void RenderSceneBinding(Item item)
         {
             Section("Scene binding");
-            var selected = Selection.activeGameObject;
-            if (selected == null || !selected.scene.IsValid() || !selected.scene.isLoaded ||
-                EditorUtility.IsPersistent(selected))
+            var target = Selection.activeGameObject;
+            if (!IsSceneTarget(target))
             {
                 Info("Select a GameObject in the scene to bind this Grimoire object.");
-            }
-            else if (selected.GetComponent<GrimoireObjectLink>() != null)
-            {
-                Info($"'{selected.name}' already has a Grimoire Object Link.");
-            }
-            else
-            {
-                var button = new Button(() => BindSelectedGameObject(item.Object, item.Id))
-                {
-                    text = _binding ? "Binding…" : $"Bind to selected: {selected.name}",
-                    tooltip = $"Add a Grimoire Object Link to '{selected.name}'.",
-                };
-                button.AddToClassList("primary");
-                button.AddToClassList("bind-button");
-                button.SetEnabled(!_binding && GrimoireSettings.IsConfigured &&
-                    !GrimoireGameEngineSync.IsPlayModeBlocked);
-                _detailContent.Add(button);
-            }
-
-            if (_bindItemId == item.Id && !string.IsNullOrEmpty(_bindMessage)) Info(_bindMessage);
-        }
-
-        private async void BindSelectedGameObject(ObjectSummary summary, string itemId)
-        {
-            if (_binding || summary == null || string.IsNullOrEmpty(summary.id) ||
-                !GrimoireSettings.IsConfigured || GrimoireGameEngineSync.IsPlayModeBlocked) return;
-
-            var selected = Selection.activeGameObject;
-            if (selected == null || !selected.scene.IsValid() || !selected.scene.isLoaded ||
-                EditorUtility.IsPersistent(selected) || selected.GetComponent<GrimoireObjectLink>() != null)
-            {
-                RenderDetail();
                 return;
             }
 
-            _binding = true;
-            _bindItemId = itemId;
-            _bindMessage = $"Binding '{selected.name}'…";
-            RenderDetail();
+            var link = target.GetComponent<GrimoireObjectLink>();
+            var current = link != null && link.HasKey ? link.ObjectKey : link?.CachedObjectId;
+            if (link != null)
+                Info(string.IsNullOrEmpty(current) ? $"'{target.name}' has an empty Object Link." : $"'{target.name}' is linked to {current}.");
 
+            var actions = Row("actions");
+            var boundToSelection = link != null && link.CachedObjectId == item.Object.id &&
+                link.ApiSnapshot?.ObjectId == item.Object.id && link.ObjectKey == (item.Object.code_id ?? "");
+            if (!boundToSelection)
+            {
+                var bind = new Button(() => ChangeSceneBinding(target, item, remove: false))
+                {
+                    text = link == null ? $"Bind to selected: {target.name}" :
+                        string.IsNullOrEmpty(current) ? $"Link to {item.Name}" : $"Relink to {item.Name}",
+                    tooltip = $"Use '{item.Name}' for the Object Link on '{target.name}'.",
+                };
+                bind.AddToClassList("primary");
+                bind.AddToClassList("bind-button");
+                bind.SetEnabled(!_binding && GrimoireContentSync.CanPull);
+                actions.Add(bind);
+            }
+            if (link != null)
+            {
+                var dependency = ComponentRequiringLink(link);
+                var remove = new Button(() => ChangeSceneBinding(target, item, remove: true))
+                {
+                    text = dependency == null ? "Remove Object Link" : "Unlink",
+                    tooltip = dependency == null ? $"Remove the Object Link component from '{target.name}'."
+                        : $"Clear the connection. {dependency.GetType().Name} requires this component.",
+                };
+                remove.AddToClassList("bind-button");
+                remove.SetEnabled(!_binding && !GrimoireGameEngineSync.IsPlayModeBlocked &&
+                    !GrimoireContentSync.IsRunning && !GrimoireContentSync.IsSyncingItem &&
+                    (dependency == null || !string.IsNullOrEmpty(current) || link.HasSnapshot));
+                actions.Add(remove);
+            }
+            _detailContent.Add(actions);
+            if (_bindTarget == target && _bindItemId == item.Id && !string.IsNullOrEmpty(_bindMessage)) Info(_bindMessage);
+        }
+
+        private static bool IsSceneTarget(GameObject target) => target != null && target.scene.IsValid() &&
+            target.scene.isLoaded && !EditorUtility.IsPersistent(target) &&
+            StageUtility.GetStageHandle(target) == StageUtility.GetMainStageHandle();
+
+        private static Component ComponentRequiringLink(GrimoireObjectLink link)
+        {
+            var components = link.GetComponents<Component>();
+            bool NeedsLink(Type type) => type != null && type.IsInstanceOfType(link) &&
+                !components.Any(other => other != null && other != link && type.IsInstanceOfType(other));
+            foreach (var component in components)
+            {
+                if (component == null || component == link) continue;
+                foreach (RequireComponent requirement in component.GetType().GetCustomAttributes(typeof(RequireComponent), true))
+                    if (NeedsLink(requirement.m_Type0) || NeedsLink(requirement.m_Type1) || NeedsLink(requirement.m_Type2))
+                        return component;
+            }
+            return null;
+        }
+
+        private async void ChangeSceneBinding(GameObject target, Item item, bool remove)
+        {
+            if (_binding || !IsSceneTarget(target) || target != Selection.activeGameObject ||
+                GrimoireGameEngineSync.IsPlayModeBlocked || GrimoireContentSync.IsRunning || GrimoireContentSync.IsSyncingItem) return;
+            var link = target.GetComponent<GrimoireObjectLink>();
+            if (remove && link == null) return;
+            var hadLink = link != null;
+            var previous = GrimoireGameEngineSync.CaptureIdentity(link);
+            var originalId = previous.ObjectId;
+            var originalKey = link != null ? link.ObjectKey : null;
+            if (link != null && string.IsNullOrEmpty(previous.ObjectId))
+            {
+                previous.ObjectId = link.ApiSnapshot?.ObjectId;
+                if (string.IsNullOrEmpty(previous.ObjectId) && link.HasKey)
+                    previous.ObjectId = _objects.FirstOrDefault(obj =>
+                        string.Equals(obj.code_id, originalKey, StringComparison.OrdinalIgnoreCase))?.id;
+            }
+
+            var context = GrimoireContentSync.CurrentContext();
+            var gameId = GrimoireSettings.GameId;
+            var syncStarted = GrimoireContentSync.BeginItemSync();
+            if (!remove && !syncStarted) return;
+            _binding = true;
+            _bindTarget = target;
+            _bindItemId = item.Id;
+            _bindMessage = remove ? $"Removing the link from '{target.name}'…" : $"Linking '{target.name}' to '{item.Name}'…";
+            RenderDetail();
             try
             {
-                var link = Undo.AddComponent<GrimoireObjectLink>(selected);
-                Undo.RecordObject(link, "Bind Grimoire object");
-                link.ObjectKey = summary.code_id ?? "";
-                link.CachedObjectId = summary.id;
-                GrimoireObjectKeyResolver.Remember(GrimoireSettings.GameId, summary.code_id, summary.id);
-                GrimoireObjectKeyResolver.RememberSummary(GrimoireSettings.GameId, summary);
-                EditorUtility.SetDirty(link);
-                GrimoireDialogObjectResolver.InvalidateSceneScan();
-
-                var upsert = await GrimoireGameEngineSync.UpsertAsync(link);
-                if (link == null) return;
-                if (upsert.Success) GrimoireGameEngineSyncHooks.Remember(link);
-
-                var refreshed = await GrimoireLinkedFieldStore.RefreshFromGrimoireAsync(
-                    link, preserveLocalEdits: false);
-                if (link == null) return;
-                if (refreshed.Success)
+                if (remove)
                 {
-                    GrimoireObjectCache.Register(link);
-                    GrimoireObjectCache.NotifyUpdated();
+                    var kept = RemoveSceneLink(link);
+                    _bindMessage = kept ? $"Unlinked '{target.name}'." : $"Removed the Object Link from '{target.name}'.";
+                }
+                else
+                {
+                    if (!await GrimoireAuthSession.EnsureFreshTokenAsync() || !GrimoireContentSync.CanApply(context))
+                    {
+                        _bindMessage = "Sign in to the selected workspace and try again.";
+                        return;
+                    }
+                    var loaded = await GrimoireLocalizedObjectLoader.LoadAsync(gameId, item.Object.id, includeLogic: true);
+                    if (!loaded.Success)
+                    {
+                        _bindMessage = $"Could not load '{item.Name}': {loaded.Error}";
+                        return;
+                    }
+                    if (!IsSceneTarget(target) || !GrimoireContentSync.CanApply(context) ||
+                        (hadLink && link == null) || target.GetComponent<GrimoireObjectLink>() != link ||
+                        (link != null && (link.ObjectKey != originalKey || link.CachedObjectId != originalId)))
+                    {
+                        _bindMessage = "The scene link or workspace changed. Select the object and try again.";
+                        return;
+                    }
+                    link = ApplySceneBinding(target, loaded.Data);
+                    GrimoireObjectKeyResolver.RememberSummary(gameId, loaded.Data.Source.@object);
+                    _bindMessage = $"Linked '{target.name}' to '{item.Name}'.";
                 }
 
-                var name = string.IsNullOrEmpty(summary.name) ? summary.code_id ?? summary.id : summary.name;
-                _bindMessage = $"Bound '{selected.name}' to '{name}'.";
-                if (refreshed.Success)
-                    _bindMessage += $" Loaded {link.LinkedFields.Count} field(s).";
-                else
-                    _bindMessage += $" Field loading failed: {refreshed.Error}";
-                if (!upsert.Success)
-                    _bindMessage += $" Scene sync failed: {upsert.Error}";
+                if (!string.IsNullOrEmpty(previous.ObjectId) &&
+                    (remove || !string.Equals(previous.ObjectId, item.Object.id, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var removed = await GrimoireGameEngineSync.RemoveAsync(null, previous);
+                    if (!removed.Success) _bindMessage += $" Previous scene binding cleanup failed: {removed.Error}";
+                }
+                if (!remove && link != null && link.CachedObjectId == item.Object.id && GrimoireContentSync.CanApply(context))
+                {
+                    var upsert = await GrimoireGameEngineSync.UpsertAsync(link);
+                    if (upsert.Success && link != null && link.CachedObjectId == item.Object.id)
+                        GrimoireGameEngineSyncHooks.Remember(link);
+                    if (!upsert.Success) _bindMessage += $" Scene sync failed: {upsert.Error}";
+                }
             }
             catch (Exception ex)
             {
-                _bindMessage = "Could not finish binding: " + ex.Message;
+                _bindMessage += " " + ex.Message;
             }
             finally
             {
                 _binding = false;
+                if (syncStarted) GrimoireContentSync.EndItemSync();
                 if (_active) RenderDetail();
             }
+        }
+
+        internal static GrimoireObjectLink ApplySceneBinding(GameObject target, GrimoireLocalizedObjectLoader.LoadedObject loaded)
+        {
+            var summary = loaded.Source.@object;
+            var link = target.GetComponent<GrimoireObjectLink>();
+            if (link == null) link = Undo.AddComponent<GrimoireObjectLink>(target);
+            var sameObject = GrimoireSyncEverything.MatchesObject(link, summary);
+            Undo.RecordObject(link, "Bind Grimoire object");
+            if (!sameObject) ClearSceneBinding(link);
+            link.ObjectKey = summary.code_id ?? "";
+            link.CachedObjectId = summary.id;
+            GrimoireLinkedFieldStore.ApplyFromDocument(link, loaded.Source, sameObject, loaded.Snapshot);
+            PrefabUtility.RecordPrefabInstancePropertyModifications(link);
+            GrimoireDialogObjectResolver.InvalidateSceneScan();
+            GrimoireObjectCache.NotifyUpdated();
+            return link;
+        }
+
+        internal static bool RemoveSceneLink(GrimoireObjectLink link)
+        {
+            bool keep = ComponentRequiringLink(link) != null;
+            if (keep)
+            {
+                Undo.RecordObject(link, "Unlink Grimoire object");
+                ClearSceneBinding(link);
+                PrefabUtility.RecordPrefabInstancePropertyModifications(link);
+                EditorUtility.SetDirty(link);
+            }
+            else
+            {
+                // The caller queues remote cleanup using the identity captured before destruction.
+                GrimoireGameEngineSyncHooks.Forget(link);
+                Undo.DestroyObjectImmediate(link);
+            }
+            GrimoireDialogObjectResolver.InvalidateSceneScan();
+            GrimoireLinkedFieldStore.NotifyExternalChange();
+            GrimoireObjectCache.NotifyUpdated();
+            return keep;
+        }
+
+        private static void ClearSceneBinding(GrimoireObjectLink link)
+        {
+            GrimoireGameEngineSyncHooks.Forget(link);
+            link.ObjectKey = "";
+            link.CachedObjectId = "";
+            link.VersionKey = "";
+            link.VersionFieldAliases.Clear();
+            link.ClearLinkedFields();
+            GrimoireGameEngineDirtyTracker.Forget(link);
         }
 
         private void RenderDialog(Item item)
