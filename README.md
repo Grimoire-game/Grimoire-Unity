@@ -103,14 +103,15 @@ selected source. In Version Database mode, `SetFieldValue` also writes to
 
 Select an object in **Content Library > Details > Functions**, or select its GameObject
 and open **Grimoire Object Link > Functions** in Connected Snapshot mode. The library
-shows the API response and the inspector shows the last synced snapshot. Use **Copy name**
-to get the exact spelling and capitalization. Each row shows an error if the API
-could not compile that function.
+shows the API response and the inspector shows the last synced snapshot. Click **Copy call**
+beside a function and paste the C# statement into a script on the same GameObject as
+the Object Link. For example, **OnInteract** copies
+`GetComponent<Grimoire.PluginV2.GrimoireObjectLink>().TriggerFunction("OnInteract");`.
+Each row shows an error if the API could not compile that function.
 
-Call any listed function from C#, for example `link.TriggerFunction("OpenShop")`.
 For a UnityEvent, drag the Object Link into the event, choose
-**GrimoireObjectLink > InvokeFunction (string)** under **Static Parameters**, and paste
-the name. Refresh the link after renaming a function and update event arguments that
+**GrimoireObjectLink > InvokeFunction (string)** under **Static Parameters**, and enter
+the function name as shown. Refresh the link after renaming a function and update event arguments that
 use its previous name.
 
 ### Play an object's greeting and set a value
@@ -129,8 +130,28 @@ use its previous name.
 
 Enable **Custom handlers only** on a link if its existing `FunctionTriggered`
 subscriber already implements the same actions. Synced functions support scalar
-assignments to receiver fields and variable elements, comparisons, and linked
-sections. The Console identifies a function that uses an unsupported operation.
+assignments to receiver fields and variable elements, numeric Add on receiver fields,
+comparisons, and linked sections. The Console identifies a function that uses an
+unsupported operation.
+
+### Play the bed's dialog and count the interaction
+
+1. On the template's public **OnInteract** function, set **Default play dialog** to
+   **From Self field** and select **dialogue**. On each bed, assign its own dialog
+   to that field. The object's **OnInteract > Actions** shows the default dialog.
+   Add an action there only when that object needs a different dialog.
+2. Link **Interaction count +1** under **Execute logic sections**. Give it the
+   consequence **Self → interactionCount → Add → 1**. With the condition
+   **Self → interacted → Is true**, it counts only when that field is true at dialog
+   completion. Leave the condition empty to count every completed interaction.
+3. In Unity, refresh the bed's Object Link in **Connected Snapshot** mode and save
+   the scene. Add a **Grimoire Dialog Player** if the scene needs one. Bind the
+   bed's interaction event to **GrimoireObjectLink.OnInteract**, or use **Copy call**
+   in its Functions list. Use one binding per interaction.
+
+In Play Mode, watch **interactionCount** on the Object Link. It increments once
+after the dialog completes and the condition passes. Cancelling the dialog skips
+the increment.
 
 ### Linking a GameObject
 

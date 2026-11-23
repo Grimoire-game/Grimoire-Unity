@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 using UnityEditor;
 using UnityEngine;
 
@@ -107,11 +108,17 @@ namespace Grimoire.PluginV2.Editor
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     EditorGUILayout.SelectableLabel(fn.name, GUILayout.Height(EditorGUIUtility.singleLineHeight));
-                    if (GUILayout.Button("Copy name", EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
-                        EditorGUIUtility.systemCopyBuffer = fn.name;
+                    if (GUILayout.Button("Copy call", EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
+                        EditorGUIUtility.systemCopyBuffer = FunctionCallCode(fn.name);
                 }
                 if (!string.IsNullOrEmpty(fn.error)) EditorGUILayout.HelpBox(fn.error, MessageType.Warning);
             }
+        }
+
+        internal static string FunctionCallCode(string functionName)
+        {
+            var nameLiteral = JsonConvert.ToString(functionName);
+            return $"GetComponent<Grimoire.PluginV2.GrimoireObjectLink>().TriggerFunction({nameLiteral});";
         }
 
         private void DrawDataSourceSection(GrimoireObjectLink link)

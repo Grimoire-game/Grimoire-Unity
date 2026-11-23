@@ -5,6 +5,14 @@ namespace Grimoire.PluginV2.Tests
 {
     public class GrimoireContentLibraryTests
     {
+        [TestCase("OnInteract", "\"OnInteract\"")]
+        [TestCase("Ask \"Élodie\"\\trade\nagain", "\"Ask \\\"Élodie\\\"\\\\trade\\nagain\"")]
+        public void FunctionCallCodeCopiesTheCallWithTheExactFunctionName(string name, string literal)
+        {
+            Assert.AreEqual($"GetComponent<Grimoire.PluginV2.GrimoireObjectLink>().TriggerFunction({literal});",
+                GrimoireObjectLinkEditor.FunctionCallCode(name));
+        }
+
         [TestCase("Objects", "Characters/Heroes", "Objects/Characters/Heroes")]
         [TestCase("Dialogs", "Dialogs\\Quest\\Intro", "Dialogs/Quest/Intro")]
         [TestCase("Variables", "", "Variables/Unfiled")]

@@ -92,6 +92,60 @@ namespace Grimoire.PluginV2.Tests
         }
 
         [UnityTest]
+        public System.Collections.IEnumerator BedCountsCompletedInteractionsWhenItsConditionPasses()
+        {
+            yield return new EnterPlayMode();
+            _asset = ScriptableObject.CreateInstance<GrimoireDialogAsset>();
+            _asset.SetImportedData("rest", "rest", "Rest", "", "game", "", "none", "hello",
+                new List<GrimoireDialogVariable>(), new List<GrimoireDialogNode>
+                {
+                    new GrimoireDialogNode { identifier = "hello", text = "Rest here?" }
+                });
+            _gameObject = new GameObject("Bed");
+            var player = _gameObject.AddComponent<GrimoireDialogPlayer>();
+            var link = _gameObject.AddComponent<GrimoireObjectLink>();
+            link.DataSource = GrimoireObjectLinkSource.ConnectedSnapshot;
+            var snapshot = new GrimoireObjectSnapshot { ObjectId = "bed" };
+            snapshot.Fields.Add(new GrimoireCachedField { FieldId = "dialogue", FieldType = "dialog", Value = "rest" });
+            snapshot.Fields.Add(new GrimoireCachedField { FieldId = "interacted", Kind = "boolean", Value = "false" });
+            snapshot.Fields.Add(new GrimoireCachedField { FieldId = "count", Kind = "number", Value = "3" });
+            snapshot.LogicDialogs.Add(_asset);
+            snapshot.Logic = JsonUtility.FromJson<GrimoireObjectLogic>(@"{
+                ""version"":1, ""functions"":[{""name"":""OnInteract"",""steps"":[
+                  {""depth"":0,""dialogs"":[{""field"":""dialogue""}]},
+                  {""depth"":1,""conditions"":[{""terms"":[{
+                    ""left"":{""kind"":""field"",""value"":""interacted""},""op"":""equal"",
+                    ""right"":{""kind"":""boolean"",""value"":""true""}}]}],
+                   ""sets"":[{""left"":{""kind"":""field"",""value"":""count""},""op"":""add"",
+                    ""right"":{""kind"":""number"",""value"":""1""}}]}]}]}");
+            link.ReplaceSnapshot(snapshot);
+
+            link.OnInteract();
+            Assert.AreSame(_asset, player.CurrentDialog);
+            player.Next();
+            Assert.IsTrue(link.TryGetNumber("count", out var count));
+            Assert.AreEqual(3, count, "A false condition skips the increment.");
+
+            link.OnInteract();
+            link.SetFieldValue("interacted", true);
+            Assert.IsTrue(link.TryGetNumber("count", out count));
+            Assert.AreEqual(3, count, "The count stays unchanged during playback.");
+            player.Next();
+            Assert.IsTrue(link.TryGetNumber("count", out count));
+            Assert.AreEqual(4, count, "Read the condition after the dialog completes.");
+
+            link.OnInteract();
+            player.Stop();
+            Assert.IsTrue(link.TryGetNumber("count", out count));
+            Assert.AreEqual(4, count, "Cancelling skips the increment.");
+            link.OnInteract();
+            player.Next();
+            Assert.IsTrue(link.TryGetNumber("count", out count));
+            Assert.AreEqual(5, count, "Each completed interaction adds to the current count.");
+            yield return new ExitPlayMode();
+        }
+
+        [UnityTest]
         public System.Collections.IEnumerator UnityEventInvokesTheNamedConnectedFunction()
         {
             yield return new EnterPlayMode();
