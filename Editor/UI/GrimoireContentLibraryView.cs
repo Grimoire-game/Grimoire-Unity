@@ -1279,7 +1279,7 @@ namespace Grimoire.PluginV2.Editor
                 Info("Function data is unavailable from the connected API.");
                 return;
             }
-            if (logic.version != 1)
+            if (!logic.IsSupported)
             {
                 Info($"Update the plugin to read logic version {logic.version}.");
                 return;

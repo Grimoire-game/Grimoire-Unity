@@ -28,6 +28,9 @@ namespace Grimoire.PluginV2
         private static readonly Dictionary<string, GrimoireObjectSnapshot> ByKey =
             new Dictionary<string, GrimoireObjectSnapshot>(StringComparer.OrdinalIgnoreCase);
 
+        private static readonly Dictionary<string, string> PreviousKeys =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         private static readonly Dictionary<string, Task<GrimoireObjectSnapshot>> InFlight =
             new Dictionary<string, Task<GrimoireObjectSnapshot>>(StringComparer.OrdinalIgnoreCase);
 
@@ -63,6 +66,7 @@ namespace Grimoire.PluginV2
         {
             ById.Clear();
             ByKey.Clear();
+            PreviousKeys.Clear();
             InFlight.Clear();
         }
 
@@ -108,6 +112,13 @@ namespace Grimoire.PluginV2
             }
         }
 
+        /// <summary>Resolve references in older inventories after an object's key changes.</summary>
+        public static void RegisterPreviousKey(string key, string objectId)
+        {
+            if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(objectId))
+                PreviousKeys[key] = objectId;
+        }
+
         public static bool TryGet(string idOrKey, out GrimoireObjectSnapshot snapshot)
         {
             snapshot = null;
@@ -117,7 +128,8 @@ namespace Grimoire.PluginV2
             }
 
             return ById.TryGetValue(idOrKey, out snapshot)
-                   || ByKey.TryGetValue(idOrKey, out snapshot);
+                   || ByKey.TryGetValue(idOrKey, out snapshot)
+                   || (PreviousKeys.TryGetValue(idOrKey, out var id) && ById.TryGetValue(id, out snapshot));
         }
 
         public static bool TryGet(GrimoireObjectRef stub, out GrimoireObjectSnapshot snapshot)
@@ -128,12 +140,12 @@ namespace Grimoire.PluginV2
                 return false;
             }
 
-            if (stub.HasId && ById.TryGetValue(stub.Id, out snapshot))
+            if (stub.HasId && TryGet(stub.Id, out snapshot))
             {
                 return true;
             }
 
-            return stub.HasKey && ByKey.TryGetValue(stub.CodeId, out snapshot);
+            return stub.HasKey && TryGet(stub.CodeId, out snapshot);
         }
 
         /// <summary>

@@ -91,7 +91,7 @@ namespace Grimoire.PluginV2.Editor
                 EditorGUILayout.HelpBox("Refresh from Grimoire to load this object's functions.", MessageType.Info);
                 return;
             }
-            if (logic.version != 1)
+            if (!logic.IsSupported)
             {
                 EditorGUILayout.HelpBox($"Update the plugin to read logic version {logic.version}.", MessageType.Warning);
                 return;

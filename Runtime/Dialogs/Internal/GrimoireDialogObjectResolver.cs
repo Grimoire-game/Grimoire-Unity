@@ -96,6 +96,30 @@ namespace Grimoire.PluginV2.Internal
             return false;
         }
 
+        // Prefer the receiver's scene when additive scenes have instances of the same object.
+        internal static bool TryFindLogicTarget(GrimoireObjectLink receiver, string id,
+            out GrimoireObjectLink link, out GrimoireObjectSnapshot snapshot)
+        {
+            link = null;
+            snapshot = null;
+            bool ambiguous = false;
+            foreach (var candidate in SceneLinks())
+            {
+                if (!candidate || candidate.ActiveSource != GrimoireObjectDataSource.ConnectedSnapshot ||
+                    !LinkMatches(candidate, null, id)) continue;
+                bool local = candidate.gameObject.scene == receiver.gameObject.scene;
+                bool previousLocal = link && link.gameObject.scene == receiver.gameObject.scene;
+                if (link && previousLocal == local) { ambiguous = true; continue; }
+                if (previousLocal) continue;
+                link = candidate;
+                ambiguous = false;
+            }
+            if (ambiguous) return false;
+            if (!link) return GrimoireObjectCache.TryGet(id, out snapshot);
+            snapshot = link.ApiSnapshot;
+            return snapshot != null;
+        }
+
         /// <summary>Reads the field value from the scene. False when the object or field is not in the scene.</summary>
         public static bool TryRead(GrimoireDialogValueRef reference, out object value)
         {
@@ -122,6 +146,11 @@ namespace Grimoire.PluginV2.Internal
             }
 
             var text = ToText(field, value);
+            return WriteField(link, field, text, source);
+        }
+
+        internal static bool WriteField(GrimoireObjectLink link, GrimoireCachedField field, string text, string source)
+        {
             if (link != null)
             {
                 return link.SetFieldValue(field.FieldId, text, source);

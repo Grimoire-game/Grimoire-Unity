@@ -182,5 +182,44 @@ namespace Grimoire.PluginV2.Tests
                 "GrimoireDialogPlayer.Main.StartDialog(dialogAsset, \"part\\\"two\\\\end\");",
                 GrimoireDialogStartCode.ForNode("part\"two\\end"));
         }
+
+        [Test]
+        public void ConnectedFunctionUpdatesAnotherObjectAndRemovesOnlyTheChosenReference()
+        {
+            _gameObject = new GameObject("Item");
+            var item = _gameObject.AddComponent<GrimoireObjectLink>();
+            item.DataSource = GrimoireObjectLinkSource.ConnectedSnapshot;
+            var itemData = new GrimoireObjectSnapshot { ObjectId = "tonic-id", ObjectKey = "items/tonic" };
+            itemData.Logic = JsonUtility.FromJson<GrimoireObjectLogic>(@"{
+              ""version"":2,""functions"":[{""name"":""Apply"",""steps"":[{
+                ""conditions"":[{""terms"":[{""left"":{""kind"":""objectField"",""objectId"":""actor-id"",""value"":""pace""},
+                  ""op"":""less_than"",""right"":{""kind"":""number"",""value"":""7""}}]}],
+                ""sets"":[{""left"":{""kind"":""objectField"",""objectId"":""actor-id"",""value"":""pace""},
+                  ""op"":""equal"",""right"":{""kind"":""number"",""value"":""7""}},
+                {""left"":{""kind"":""objectField"",""objectId"":""actor-id"",""value"":""pouch""},
+                  ""op"":""subtract"",""right"":{""kind"":""string"",""value"":""tonic-id""}}]}]}]}");
+            item.ReplaceSnapshot(itemData);
+            var actor = new GrimoireObjectSnapshot { ObjectId = "actor-id" };
+            actor.Fields.Add(new GrimoireCachedField { FieldId = "pace", Kind = "number", Value = "2" });
+            GrimoireObjectCache.Register(actor);
+            try
+            {
+                LogAssert.Expect(LogType.Warning, "[Grimoire Logic] .Apply: Missing field 'pouch' on 'actor-id'.");
+                item.TriggerFunction("Apply");
+                Assert.AreEqual("2", actor.Fields[0].Value);
+                var pouch = new GrimoireCachedField { FieldId = "pouch", FieldType = "glossaryItem",
+                    Multiple = true, Value = "key,items/tonic,map" };
+                actor.Fields.Add(pouch);
+                Assert.IsTrue(item.TriggerFunction("Apply"));
+                Assert.AreEqual("7", actor.Fields[0].Value);
+                CollectionAssert.AreEqual(new[] { "key", "map" }, pouch.ReferencedIds());
+                pouch.Value = "tonic-id";
+                pouch.References.Clear();
+                pouch.Values.Clear();
+                Assert.IsTrue(item.TriggerFunction("Apply"));
+                CollectionAssert.AreEqual(new[] { "tonic-id" }, pouch.ReferencedIds());
+            }
+            finally { GrimoireObjectCache.Clear(); }
+        }
     }
 }
