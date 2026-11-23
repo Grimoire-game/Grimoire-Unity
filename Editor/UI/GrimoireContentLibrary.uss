@@ -23,6 +23,9 @@
 .grimoire-library .sync-heading { flex-direction: row; align-items: center; }
 .grimoire-library .sync-text { flex-grow: 1; min-width: 0; }
 .grimoire-library .sync-title { -unity-font-style: bold; margin-bottom: 3px; }
+.grimoire-library .sync-text .muted { white-space: normal; }
+.grimoire-library.compact .sync-heading { flex-wrap: wrap; }
+.grimoire-library.compact .sync-text { width: 100%; margin-bottom: 5px; }
 .grimoire-library .sync-progress { margin-top: 8px; }
 .grimoire-library .sync-section .unity-button { margin-left: 9px; min-width: 112px; }
 .grimoire-library .title { font-size: 19px; -unity-font-style: bold; }

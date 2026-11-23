@@ -56,20 +56,27 @@ namespace Grimoire.PluginV2.Editor
         /// Import (or update) <paramref name="dialogId"/> and every dialog it links to.
         /// Returns the asset for <paramref name="dialogId"/>.
         /// </summary>
-        public static async Task<ApiResult<GrimoireDialogAsset>> ImportAsync(
+        public static Task<ApiResult<GrimoireDialogAsset>> ImportAsync(
             string gameId,
             string dialogId,
             Action<string> progress = null,
             GrimoireTranslationCatalog catalog = null,
             bool syncVariables = true,
             bool saveAssets = true,
-            IDictionary<string, DialogResource> resourceCache = null)
+            IDictionary<string, DialogResource> resourceCache = null) =>
+            ImportAsync(gameId, dialogId, progress, catalog, syncVariables, saveAssets, resourceCache, null);
+
+        internal static async Task<ApiResult<GrimoireDialogAsset>> ImportAsync(
+            string gameId, string dialogId, Action<string> progress, GrimoireTranslationCatalog catalog,
+            bool syncVariables, bool saveAssets, IDictionary<string, DialogResource> resourceCache,
+            Dictionary<string, GrimoireLocalizedObjectLoader.LoadedObject> sharedViews)
         {
             if (string.IsNullOrEmpty(gameId) || string.IsNullOrEmpty(dialogId))
             {
                 return ApiResult<GrimoireDialogAsset>.Fail("Choose a game and a dialog first.");
             }
 
+            var context = GrimoireContentSync.CurrentContext();
             if (!await GrimoireAuthSession.EnsureFreshTokenAsync())
             {
                 return ApiResult<GrimoireDialogAsset>.Fail("Your Grimoire session has expired. Sign in again.");
@@ -176,9 +183,11 @@ namespace Grimoire.PluginV2.Editor
                 gameId,
                 builtNodes.Values.SelectMany(n => n),
                 progress,
-                catalog);
+                catalog, sharedViews: sharedViews);
 
             progress?.Invoke("Writing assets...");
+            if (GrimoireContentSync.CurrentContext() != context || GrimoireContentSync.ItemPullInterrupted)
+                return ApiResult<GrimoireDialogAsset>.Fail("The workspace or editor mode changed during import.");
             EnsureFolder();
 
             var existing = FindAllImported();
@@ -226,7 +235,7 @@ namespace Grimoire.PluginV2.Editor
 
             if (saveAssets)
             {
-                AssetDatabase.SaveAssets();
+                foreach (var asset in assets.Values) AssetDatabase.SaveAssetIfDirty(asset);
             }
 
             var root = assets[dialogId];
@@ -752,7 +761,8 @@ namespace Grimoire.PluginV2.Editor
             IEnumerable<GrimoireDialogNode> nodes,
             Action<string> progress,
             GrimoireTranslationCatalog catalog,
-            Func<string, Task<ApiResult<GrimoireLocalizedObjectLoader.LoadedObject>>> objectLoader = null)
+            Func<string, Task<ApiResult<GrimoireLocalizedObjectLoader.LoadedObject>>> objectLoader = null,
+            Dictionary<string, GrimoireLocalizedObjectLoader.LoadedObject> sharedViews = null)
         {
             var nodeList = nodes.ToList();
             var refs = nodeList.SelectMany(AllRefs)
@@ -775,11 +785,13 @@ namespace Grimoire.PluginV2.Editor
             var withoutKey = new HashSet<string>(StringComparer.Ordinal);
             foreach (var reference in refs)
             {
-                if (!views.TryGetValue(reference.objectId, out var loaded))
+                if (!views.TryGetValue(reference.objectId, out var loaded) &&
+                    !(sharedViews != null && sharedViews.TryGetValue(reference.objectId, out loaded)))
                 {
                     var result = await objectLoader(reference.objectId);
                     loaded = result.Success ? result.Data : null;
                     views[reference.objectId] = loaded;
+                    if (loaded != null && sharedViews != null) sharedViews[reference.objectId] = loaded;
                     if (!result.Success)
                     {
                         var detail = result.Error ?? "Unknown error";

@@ -39,6 +39,7 @@ namespace Grimoire.PluginV2.Editor
                 return ApiResult<GrimoireVariableLibrary>.Fail("Choose a game first.");
             }
 
+            var context = GrimoireContentSync.CurrentContext();
             if (!await GrimoireAuthSession.EnsureFreshTokenAsync())
             {
                 return ApiResult<GrimoireVariableLibrary>.Fail("Your Grimoire session has expired. Sign in again.");
@@ -76,6 +77,42 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
+            if (GrimoireContentSync.CurrentContext() != context || GrimoireContentSync.ItemPullInterrupted)
+                return ApiResult<GrimoireVariableLibrary>.Fail("The workspace or editor mode changed during sync.");
+            var library = GetOrCreateLibrary();
+            library.SetSyncedData(gameId, resources.Select(r => ToVariable(r, catalog)).ToList());
+            return Save(library, saveAssets);
+        }
+
+        internal static async Task<ApiResult<VariableResource>> SyncOneAsync(string gameId, string variableId)
+        {
+            var context = GrimoireContentSync.CurrentContext();
+            if (!await GrimoireAuthSession.EnsureFreshTokenAsync())
+                return ApiResult<VariableResource>.Fail("Your Grimoire session has expired. Sign in again.");
+            var result = await GrimoireApiClient.GetVariableAsync(gameId, variableId);
+            if (!result.Success) return result;
+
+            GrimoireTranslationCatalog catalog = null;
+            if (result.Data.elements?.Any(e => !string.IsNullOrEmpty(e?.string_id)) == true)
+            {
+                var translations = await GrimoireTranslationCatalog.LoadAsync(gameId);
+                if (!translations.Success)
+                    return ApiResult<VariableResource>.Fail(translations.Error, translations.Code, translations.HttpStatus);
+                catalog = translations.Data;
+            }
+
+            if (!GrimoireContentSync.CanApply(context))
+                return ApiResult<VariableResource>.Fail("The workspace or editor mode changed during sync.");
+            var library = GetOrCreateLibrary();
+            if (!string.IsNullOrEmpty(library.GameId) && library.GameId != gameId)
+                return ApiResult<VariableResource>.Fail("The variable library belongs to another game. Sync the game's variable library first.");
+            library.SetSyncedVariable(gameId, ToVariable(result.Data, catalog));
+            Save(library, true);
+            return result;
+        }
+
+        private static GrimoireVariableLibrary GetOrCreateLibrary()
+        {
             var library = FindLibrary();
             if (library == null)
             {
@@ -84,11 +121,15 @@ namespace Grimoire.PluginV2.Editor
                 AssetDatabase.CreateAsset(library, AssetPath);
             }
 
-            library.SetSyncedData(gameId, resources.Select(r => ToVariable(r, catalog)).ToList());
+            return library;
+        }
+
+        private static ApiResult<GrimoireVariableLibrary> Save(GrimoireVariableLibrary library, bool saveAssets)
+        {
             EditorUtility.SetDirty(library);
             if (saveAssets)
             {
-                AssetDatabase.SaveAssets();
+                AssetDatabase.SaveAssetIfDirty(library);
             }
 
             GrimoireVariables.Reload();

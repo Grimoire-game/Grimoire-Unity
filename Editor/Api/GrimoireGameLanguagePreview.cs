@@ -34,14 +34,16 @@ namespace Grimoire.PluginV2.Editor
         {
             if (!_loading && !IsLoaded && GrimoireSettings.IsConfigured &&
                 _attemptedGameId != GrimoireSettings.GameId)
-                Refresh();
+                StartRefresh(refreshSceneLinks: false);
         }
 
-        public static void Refresh()
+        public static void Refresh() => StartRefresh(refreshSceneLinks: true);
+
+        private static void StartRefresh(bool refreshSceneLinks)
         {
             if (!GrimoireSettings.IsConfigured) return;
             _attemptedGameId = GrimoireSettings.GameId;
-            RefreshAsync(GrimoireSettings.GameId, ++_generation);
+            RefreshAsync(GrimoireSettings.GameId, ++_generation, refreshSceneLinks);
         }
 
         public static string DisplayText(string stringId, string sourceText)
@@ -66,7 +68,7 @@ namespace Grimoire.PluginV2.Editor
             EditorApplication.delayCall += EnsureLoaded;
         }
 
-        private static async void RefreshAsync(string gameId, int generation)
+        private static async void RefreshAsync(string gameId, int generation, bool refreshSceneLinks)
         {
             _loading = true;
             _error = null;
@@ -94,7 +96,7 @@ namespace Grimoire.PluginV2.Editor
                     GrimoireStringKeyResolver.Remember(gameId, resource);
                 Changed?.Invoke();
 
-                if (!EditorApplication.isPlayingOrWillChangePlaymode)
+                if (refreshSceneLinks && !EditorApplication.isPlayingOrWillChangePlaymode)
                     await RefreshSceneLinks(generation, gameId);
 
                 Finish(generation, gameId, null);

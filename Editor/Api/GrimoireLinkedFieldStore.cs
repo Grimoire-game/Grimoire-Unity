@@ -84,6 +84,8 @@ namespace Grimoire.PluginV2.Editor
             Undo.RecordObject(link, "Update Grimoire linked fields");
             link.ReplaceLinkedFields(next);
             var snapshot = localizedSnapshot ?? GrimoireObjectSnapshotMapper.FromDocument(document);
+            if (localizedSnapshot == null && snapshot.ObjectId == link.ApiSnapshot?.ObjectId)
+                snapshot.SyncedSourceRevision = link.ApiSnapshot.SyncedSourceRevision;
             // Display-only reads also update editable fields. Preserve the last full sync.
             if (localizedSnapshot == null && document.logic == null &&
                 snapshot.ObjectId == link.ApiSnapshot?.ObjectId)

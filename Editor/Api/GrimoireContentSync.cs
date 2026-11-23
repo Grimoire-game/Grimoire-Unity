@@ -10,13 +10,18 @@ namespace Grimoire.PluginV2.Editor
     {
         private static string SessionKey =>
             $"GrimoireV2_{PlayerSettings.productGUID}_InitialContentSync";
+        private static string LastFullPullKey => SessionKey + "_CompletedContext";
 
         private static string _runningContext;
+        private static string _itemContext;
 
         public static event Action Changed;
         public static event Action Completed;
 
         public static bool IsRunning { get; private set; }
+        internal static bool IsSyncingItem => _itemContext != null;
+        internal static bool CanPull => GrimoireSettings.IsConfigured && !IsRunning && !IsSyncingItem &&
+            !EditorApplication.isPlayingOrWillChangePlaymode;
         public static float Progress { get; private set; }
         public static string Message { get; private set; }
         public static string Error { get; private set; }
@@ -34,8 +39,7 @@ namespace Grimoire.PluginV2.Editor
 
         public static void PullNow()
         {
-            if (IsRunning || !GrimoireSettings.IsConfigured ||
-                EditorApplication.isPlayingOrWillChangePlaymode) return;
+            if (!CanPull) return;
             var context = CurrentContext();
             SessionState.SetString(SessionKey, context);
             StartSync(context);
@@ -56,15 +60,36 @@ namespace Grimoire.PluginV2.Editor
 
         private static void CheckInitialSync()
         {
-            if (!GrimoireSettings.IsConfigured || EditorApplication.isPlayingOrWillChangePlaymode) return;
+            if (!CanPull) return;
             var context = CurrentContext();
-            if (IsRunning || SessionState.GetString(SessionKey, "") == context &&
+            if ((SessionState.GetString(SessionKey, "") == context || EditorPrefs.GetString(LastFullPullKey) == context) &&
                 GrimoireStringSync.HasLibraryFor(GrimoireSettings.GameId)) return;
             SessionState.SetString(SessionKey, context);
             StartSync(context);
         }
 
-        private static string CurrentContext() =>
+        internal static bool BeginItemSync()
+        {
+            if (!CanPull) return false;
+            _itemContext = CurrentContext();
+            Changed?.Invoke();
+            return true;
+        }
+
+        internal static void EndItemSync()
+        {
+            var switchedWorkspace = _itemContext != CurrentContext();
+            _itemContext = null;
+            Changed?.Invoke();
+            if (switchedWorkspace) OnContextChanged();
+        }
+
+        internal static bool ItemPullInterrupted => IsSyncingItem && !CanApply(_itemContext);
+
+        internal static bool CanApply(string context) => GrimoireSettings.IsConfigured &&
+            !EditorApplication.isPlayingOrWillChangePlaymode && CurrentContext() == context;
+
+        internal static string CurrentContext() =>
             GrimoireSettings.ApiBaseUrl + "|" + GrimoireAuthSession.UserId + "|" +
             GrimoireSettings.CompanyId + "|" + GrimoireSettings.GameId;
 
@@ -103,6 +128,8 @@ namespace Grimoire.PluginV2.Editor
                 else
                 {
                     Summary = result.Data.ToString();
+                    if (result.Data.Errors.Count == 0 && CurrentContext() == context)
+                        EditorPrefs.SetString(LastFullPullKey, context);
                     if (result.Data.Errors.Count > 0)
                         Error = string.Join("\n", result.Data.Errors);
                     if (result.Data.Warnings.Count > 0)
