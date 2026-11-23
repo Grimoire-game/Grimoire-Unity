@@ -10,6 +10,7 @@ namespace Grimoire.PluginV2
     public sealed class GrimoireObjectLogic
     {
         public int version;
+        public bool IsSupported => version == 1 || version == 2;
         public Function[] functions;
 
         [Serializable] public sealed class Function
@@ -45,6 +46,7 @@ namespace Grimoire.PluginV2
         {
             public string kind;
             public string value;
+            public string objectId;
         }
 
         [Serializable] public sealed class Dialog
@@ -56,7 +58,7 @@ namespace Grimoire.PluginV2
 
         internal bool Trigger(GrimoireObjectLink link, string name)
         {
-            if (version != 1)
+            if (!IsSupported)
             {
                 if (version != 0) Debug.LogWarning($"[Grimoire Logic] Unsupported logic version {version} on '{link.ObjectKey}'.", link);
                 return false;
@@ -102,7 +104,11 @@ namespace Grimoire.PluginV2
                         }
                         _entered = true;
                         if (_dialog < (step.dialogs?.Length ?? 0)) return Play(step.dialogs[_dialog++]);
-                        foreach (var set in step.sets ?? Array.Empty<Expression>()) Set(set);
+                        var sets = step.sets ?? Array.Empty<Expression>();
+                        // An unloaded target must not leave an earlier assignment in this step applied.
+                        if (_snapshot.Logic.version == 2)
+                            foreach (var set in sets) ValidateAssignment(set);
+                        foreach (var set in sets) Set(set);
                         _step++;
                         _dialog = 0;
                         _entered = false;
@@ -120,7 +126,8 @@ namespace Grimoire.PluginV2
                 var id = action.id;
                 if (!string.IsNullOrEmpty(action.field))
                 {
-                    var field = Field(action.field);
+                    if (!_snapshot.TryGetField(action.field, out var field))
+                        throw new InvalidOperationException($"Missing dialog field '{action.field}'.");
                     var ids = field.ReferencedIds();
                     if (ids.Count == 0)
                         return Fail($"Choose a dialog for '{field.DisplayLabel}' in Grimoire and refresh the Object Link.");
@@ -140,10 +147,15 @@ namespace Grimoire.PluginV2
                 return true;
             }
 
-            private GrimoireCachedField Field(string id)
+            private GrimoireCachedField Field(Operand operand, out GrimoireObjectLink owner)
             {
-                if (_link.ApiSnapshot.TryGetField(id, out var field)) return field;
-                throw new InvalidOperationException($"Missing field '{id}'.");
+                owner = _link;
+                var snapshot = _snapshot;
+                if (operand.kind == "objectField" && (string.IsNullOrEmpty(operand.objectId) ||
+                    !GrimoireDialogObjectResolver.TryFindLogicTarget(_link, operand.objectId, out owner, out snapshot)))
+                    throw new InvalidOperationException($"Unavailable target object '{operand.objectId}'.");
+                if (snapshot.TryGetField(operand.value, out var field)) return field;
+                throw new InvalidOperationException($"Missing field '{operand.value}' on '{snapshot.ObjectId}'.");
             }
 
             private object Read(Operand operand)
@@ -154,7 +166,8 @@ namespace Grimoire.PluginV2
                     case "number": return double.Parse(operand.value, CultureInfo.InvariantCulture);
                     case "string": return operand.value ?? "";
                     case "field":
-                        var field = Field(operand.value);
+                    case "objectField":
+                        var field = Field(operand, out _);
                         if (!field.IsReferenceField) return GrimoireDialogObjectResolver.ToValue(field);
                         var ids = field.ReferencedIds();
                         return ids.Count == 1 ? (object)ids[0] : ids;
@@ -166,33 +179,71 @@ namespace Grimoire.PluginV2
                 }
             }
 
+            private void ValidateAssignment(Expression set)
+            {
+                if (set.op != "equal" && set.op != "add" && set.op != "subtract")
+                    throw new InvalidOperationException($"Unsupported assignment '{set.op}'.");
+                if (set.left.kind == "variable" && set.op == "equal")
+                {
+                    Read(set.left);
+                }
+                else
+                {
+                    if (set.left.kind != "field" && set.left.kind != "objectField")
+                        throw new InvalidOperationException("Assignment requires a field.");
+                    var field = Field(set.left, out _);
+                    if (set.op == "subtract" && !(field.Multiple &&
+                        (field.FieldType == "glossaryItem" || field.FieldType == "objectList")))
+                        throw new InvalidOperationException($"Subtract requires an object list on '{field.DisplayLabel}'.");
+                }
+                Read(set.right);
+            }
+
             private void Set(Expression set)
             {
-                if (set.op != "equal" && set.op != "add")
-                    throw new InvalidOperationException($"Unsupported assignment '{set.op}'.");
                 var value = Read(set.right);
-                if (set.op == "add") value = AddToField(set.left, value);
-                if (set.left.kind == "variable")
+                if (set.left.kind == "variable" && set.op == "equal")
                 {
                     if (!GrimoireVariables.TryGetElement(set.left.value, out _))
                         throw new InvalidOperationException($"Missing variable element '{set.left.value}'.");
                     GrimoireVariables.SetValue(set.left.value, value);
                     return;
                 }
-                if (set.left.kind != "field" || !_link.SetFieldValue(set.left.value,
-                    GrimoireDialogConditions.AsString(value), _function.name))
+                if (set.left.kind != "field" && set.left.kind != "objectField")
+                    throw new InvalidOperationException("Assignment requires a field.");
+                var field = Field(set.left, out var owner);
+                switch (set.op)
+                {
+                    case "equal": break;
+                    case "add": value = AddToField(field, value); break;
+                    case "subtract":
+                        if (!(value is string id) || string.IsNullOrWhiteSpace(id)) return;
+                        var ids = field.ReferencedIds();
+                        if (ids.RemoveAll(entry => SameObject(entry, id)) == 0) return;
+                        value = ids;
+                        break;
+                    default: throw new InvalidOperationException($"Unsupported assignment '{set.op}'.");
+                }
+                if (!GrimoireDialogObjectResolver.WriteField(owner, field, GrimoireDialogConditions.AsString(value), _function.name))
                     throw new InvalidOperationException($"Unavailable assignment target '{set.left.value}'.");
             }
 
-            private double AddToField(Operand target, object amount)
+            private static bool SameObject(string entry, string id)
             {
-                if (target.kind != "field") throw new InvalidOperationException("Add requires a numeric field.");
-                var field = Field(target.value);
+                if (string.Equals(entry, id, StringComparison.OrdinalIgnoreCase)) return true;
+                if (!GrimoireObjectCache.TryGet(entry, out var item)) return false;
+                return item.MatchesIdOrKey(id) || (GrimoireObjectCache.TryGet(id, out var other) &&
+                    item.MatchesIdOrKey(other.ObjectId));
+            }
+
+            private static double AddToField(GrimoireCachedField field, object amount)
+            {
                 if (field.Kind != "number" || field.Multiple || !GrimoireDialogConditions.IsNumberLike(amount))
                     throw new InvalidOperationException($"Add on '{field.DisplayLabel}' requires a single numeric field and amount.");
 
                 var current = 0d;
-                if (!string.IsNullOrEmpty(field.Value) && !_link.TryGetNumber(target.value, out current))
+                if (!string.IsNullOrEmpty(field.Value) &&
+                    !double.TryParse(field.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out current))
                     throw new InvalidOperationException($"'{field.DisplayLabel}' does not contain a number.");
                 var sum = current + GrimoireDialogConditions.ToNumber(amount);
                 if (double.IsNaN(sum) || double.IsInfinity(sum))

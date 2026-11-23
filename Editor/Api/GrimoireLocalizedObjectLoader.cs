@@ -83,7 +83,7 @@ namespace Grimoire.PluginV2.Editor
                 }
             }
 
-            if (includeLogic && snapshot.Logic?.version == 1)
+            if (includeLogic && snapshot.Logic?.IsSupported == true)
             {
                 var dependencies = await GrimoireLogicDependencies.LoadAsync(
                     gameId, snapshot, catalog, progress, syncedDialogs);
