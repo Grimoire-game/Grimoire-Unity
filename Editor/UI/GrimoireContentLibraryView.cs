@@ -1190,7 +1190,8 @@ namespace Grimoire.PluginV2.Editor
                 var name = new Label(fn.name) { enableRichText = false, tooltip = fn.name };
                 name.AddToClassList("value-label");
                 row.Add(name);
-                row.Add(new Button(() => EditorGUIUtility.systemCopyBuffer = fn.name) { text = "Copy name" });
+                var call = GrimoireObjectLinkEditor.FunctionCallCode(fn.name);
+                row.Add(new Button(() => EditorGUIUtility.systemCopyBuffer = call) { text = "Copy call", tooltip = call });
                 _detailContent.Add(row);
                 if (!string.IsNullOrEmpty(fn.error)) Info(fn.error);
             }

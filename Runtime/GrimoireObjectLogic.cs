@@ -120,8 +120,11 @@ namespace Grimoire.PluginV2
                 var id = action.id;
                 if (!string.IsNullOrEmpty(action.field))
                 {
-                    var ids = Field(action.field).ReferencedIds();
-                    id = ids.Count > 0 ? ids[0] : null;
+                    var field = Field(action.field);
+                    var ids = field.ReferencedIds();
+                    if (ids.Count == 0)
+                        return Fail($"Choose a dialog for '{field.DisplayLabel}' in Grimoire and refresh the Object Link.");
+                    id = ids[0];
                 }
                 var asset = _snapshot.LogicDialogs?.Find(d => d && (d.DialogId == id || d.DialogKey == id));
                 if (!asset) return Fail($"Dialog '{id}' is unavailable. Refresh the Object Link.");
@@ -165,8 +168,10 @@ namespace Grimoire.PluginV2
 
             private void Set(Expression set)
             {
-                if (set.op != "equal") throw new InvalidOperationException($"Unsupported assignment '{set.op}'.");
+                if (set.op != "equal" && set.op != "add")
+                    throw new InvalidOperationException($"Unsupported assignment '{set.op}'.");
                 var value = Read(set.right);
+                if (set.op == "add") value = AddToField(set.left, value);
                 if (set.left.kind == "variable")
                 {
                     if (!GrimoireVariables.TryGetElement(set.left.value, out _))
@@ -177,6 +182,22 @@ namespace Grimoire.PluginV2
                 if (set.left.kind != "field" || !_link.SetFieldValue(set.left.value,
                     GrimoireDialogConditions.AsString(value), _function.name))
                     throw new InvalidOperationException($"Unavailable assignment target '{set.left.value}'.");
+            }
+
+            private double AddToField(Operand target, object amount)
+            {
+                if (target.kind != "field") throw new InvalidOperationException("Add requires a numeric field.");
+                var field = Field(target.value);
+                if (field.Kind != "number" || field.Multiple || !GrimoireDialogConditions.IsNumberLike(amount))
+                    throw new InvalidOperationException($"Add on '{field.DisplayLabel}' requires a single numeric field and amount.");
+
+                var current = 0d;
+                if (!string.IsNullOrEmpty(field.Value) && !_link.TryGetNumber(target.value, out current))
+                    throw new InvalidOperationException($"'{field.DisplayLabel}' does not contain a number.");
+                var sum = current + GrimoireDialogConditions.ToNumber(amount);
+                if (double.IsNaN(sum) || double.IsInfinity(sum))
+                    throw new InvalidOperationException($"Add on '{field.DisplayLabel}' exceeds the numeric range.");
+                return sum;
             }
 
             private bool Passes(Step step) => Evaluate(step.conditions, step.joins,
