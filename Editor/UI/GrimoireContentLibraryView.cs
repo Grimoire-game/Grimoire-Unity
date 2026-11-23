@@ -18,6 +18,7 @@ namespace Grimoire.PluginV2.Editor
     internal sealed class GrimoireContentLibraryView
     {
         private enum Kind { Object, Dialog, Variable, DialogVariable }
+        internal enum Revision { Untracked, Missing, Unknown, Changed, Current }
 
         private sealed class Item
         {
@@ -29,6 +30,7 @@ namespace Grimoire.PluginV2.Editor
             public string Source;
             public string Summary;
             public Kind Type;
+            public Revision Revision;
             public ObjectSummary Object;
             public DialogSummary Dialog;
             public VariableResource Variable;
@@ -66,7 +68,9 @@ namespace Grimoire.PluginV2.Editor
         private bool _variablesLoading;
         private bool _foldersLoading;
         private bool _detailLoading;
-        private bool _busy;
+        private readonly List<GrimoireObjectLink> _sceneLinks = new List<GrimoireObjectLink>();
+        private bool _updatesOnly;
+        private bool _canPullItem;
         private bool _binding;
         private string _objectError;
         private string _dialogError;
@@ -105,6 +109,7 @@ namespace Grimoire.PluginV2.Editor
         private Label _notice;
         private VisualElement _syncSection;
         private Button _syncButton;
+        private Button _checkUpdates;
         private ProgressBar _syncProgress;
         private Label _syncMessage;
         private TextField _searchField;
@@ -154,6 +159,9 @@ namespace Grimoire.PluginV2.Editor
             GrimoireContentSync.Changed += OnSyncChanged;
             GrimoireContentSync.Completed += OnSyncCompleted;
             EditorApplication.projectChanged += OnProjectChanged;
+            EditorApplication.hierarchyChanged += QueueLocalRefresh;
+            GrimoireLinkedFieldStore.Changed += QueueLocalRefresh;
+            _canPullItem = GrimoireContentSync.CanPull;
             EditorApplication.playModeStateChanged += OnPlayModeChanged;
             Selection.selectionChanged += OnSceneSelectionChanged;
             _folder = EditorPrefs.GetString(PrefKey("Folder"), AllFolder);
@@ -174,6 +182,9 @@ namespace Grimoire.PluginV2.Editor
             GrimoireContentSync.Changed -= OnSyncChanged;
             GrimoireContentSync.Completed -= OnSyncCompleted;
             EditorApplication.projectChanged -= OnProjectChanged;
+            EditorApplication.hierarchyChanged -= QueueLocalRefresh;
+            GrimoireLinkedFieldStore.Changed -= QueueLocalRefresh;
+            EditorApplication.delayCall -= OnProjectChanged;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
             Selection.selectionChanged -= OnSceneSelectionChanged;
         }
@@ -209,8 +220,16 @@ namespace Grimoire.PluginV2.Editor
 
         private void OnProjectChanged()
         {
+            if (!_active || GrimoireContentSync.IsRunning) return;
             ReadLocalAssets();
             BuildItems();
+        }
+
+        private void QueueLocalRefresh()
+        {
+            if (IsPicker || GrimoireContentSync.IsRunning) return;
+            EditorApplication.delayCall -= OnProjectChanged;
+            EditorApplication.delayCall += OnProjectChanged;
         }
 
         private void OnPlayModeChanged(PlayModeStateChange _) => RenderDetail();
@@ -286,10 +305,13 @@ namespace Grimoire.PluginV2.Editor
                 var heading = new Label("Pull from Grimoire");
                 heading.AddToClassList("sync-title");
                 syncText.Add(heading);
-                var description = new Label("Update translations, variables, all game dialogs and linked scene content.");
+                var description = new Label("Check source revisions for dialogs, variables and objects linked in open scenes.");
                 description.AddToClassList("muted");
                 syncText.Add(description);
                 syncHeading.Add(syncText);
+                _checkUpdates = new Button(ToggleUpdates) { text = _updatesOnly ? "Show all content" : "Check for updates" };
+                _checkUpdates.tooltip = "Show new, changed and unverified items. Translation and dependency changes require a pull.";
+                syncHeading.Add(_checkUpdates);
                 _syncButton = new Button(GrimoireContentSync.PullNow) { text = "Sync everything" };
                 _syncButton.AddToClassList("primary");
                 syncHeading.Add(_syncButton);
@@ -367,9 +389,14 @@ namespace Grimoire.PluginV2.Editor
 
         private void OnSyncChanged()
         {
+            if (_canPullItem != GrimoireContentSync.CanPull)
+            {
+                _canPullItem = GrimoireContentSync.CanPull;
+                RenderDetail();
+            }
             if (_syncSection == null) return;
-            _syncButton.SetEnabled(GrimoireSettings.IsConfigured && !GrimoireContentSync.IsRunning &&
-                !EditorApplication.isPlayingOrWillChangePlaymode);
+            _checkUpdates.SetEnabled(GrimoireSettings.IsConfigured);
+            _syncButton.SetEnabled(GrimoireContentSync.CanPull);
             _syncButton.text = GrimoireContentSync.IsRunning ? "Syncing…" : "Sync everything";
             _syncProgress.style.display = GrimoireContentSync.IsRunning ? DisplayStyle.Flex : DisplayStyle.None;
             _syncProgress.value = GrimoireContentSync.Progress * 100f;
@@ -390,6 +417,24 @@ namespace Grimoire.PluginV2.Editor
         private void OnSyncCompleted()
         {
             if (_active && _root != null) RefreshAll();
+        }
+
+        private void ToggleUpdates()
+        {
+            _updatesOnly = !_updatesOnly;
+            _checkUpdates.text = _updatesOnly ? "Show all content" : "Check for updates";
+            if (!_updatesOnly)
+            {
+                RenderItems();
+                return;
+            }
+            _folder = AllFolder;
+            _typeFilters.Clear();
+            _search = "";
+            _searchField.SetValueWithoutNotify("");
+            _selectedId = null;
+            if (_objectsLoading || _dialogsLoading || _variablesLoading) RenderItems();
+            else RefreshAll();
         }
 
         private static VisualElement Row(string className)
@@ -434,6 +479,7 @@ namespace Grimoire.PluginV2.Editor
 
             var generation = ++_refreshGeneration;
             ++_detailGeneration;
+            _detailLoading = false;
             _objects.Clear();
             _dialogs.Clear();
             _variables.Clear();
@@ -690,6 +736,7 @@ namespace Grimoire.PluginV2.Editor
 
         private void ReadLocalAssets()
         {
+            if (!IsPicker) GrimoireGameEngineDirtyTracker.CollectSceneLinks(_sceneLinks);
             _imported = GrimoireDialogImporter.FindAllImported();
             _cachedVariables = GrimoireVariableSync.FindLibrary();
             if (_cachedVariables != null &&
@@ -704,16 +751,23 @@ namespace Grimoire.PluginV2.Editor
             _items.Clear();
             var gameId = GrimoireSettings.GameId;
             var dialogIds = new HashSet<string>(StringComparer.Ordinal);
+            var linksByTarget = _sceneLinks.Where(link => link != null).ToLookup(link =>
+                !string.IsNullOrEmpty(link.CachedObjectId) ? "id:" + link.CachedObjectId : "key:" + link.ObjectKey,
+                StringComparer.OrdinalIgnoreCase);
 
             foreach (var summary in _objects.GroupBy(item => item.id).Select(group => group.Last()))
             {
+                var links = linksByTarget["id:" + summary.id].AsEnumerable();
+                if (!string.IsNullOrEmpty(summary.code_id)) links = links.Concat(linksByTarget["key:" + summary.code_id]);
+                var revision = ObjectRevision(summary, links);
                 _items.Add(new Item
                 {
                     Id = "object:" + summary.id,
                     Name = Display(summary.name, summary.code_id, summary.id),
                     Key = Display(summary.code_id, summary.id),
                     Folder = ResolveFolder("Objects", summary.folder),
-                    Status = Display(summary.status, "Grimoire"),
+                    Revision = revision,
+                    Status = RevisionLabel(revision, Display(summary.status, "Grimoire")),
                     Source = "Grimoire API",
                     Summary = Display(summary.template?.name, summary.type, "Object"),
                     Type = Kind.Object,
@@ -726,13 +780,15 @@ namespace Grimoire.PluginV2.Editor
                 dialogIds.Add(summary.id);
                 _imported.TryGetValue(summary.id, out var asset);
                 if (asset != null && asset.GameId != gameId) asset = null;
+                var revision = CompareRevision(asset != null, asset?.UpdatedAt, summary.updated_at);
                 _items.Add(new Item
                 {
                     Id = "dialog:" + summary.id,
                     Name = Display(summary.name, summary.dialog_key, summary.id),
                     Key = Display(summary.dialog_key, summary.id),
                     Folder = ResolveFolder("Dialogs", summary.folder),
-                    Status = DialogStatus(summary, asset),
+                    Revision = revision,
+                    Status = RevisionLabel(revision, "Imported"),
                     Source = asset != null ? "Grimoire + local asset" : "Grimoire API",
                     Summary = asset != null ? $"{asset.Nodes.Count} nodes" : "Dialog",
                     Type = Kind.Dialog,
@@ -784,6 +840,8 @@ namespace Grimoire.PluginV2.Editor
             {
                 foreach (var variable in _variables.GroupBy(item => item.id).Select(group => group.Last()))
                 {
+                    var cached = _cachedVariables?.FindVariable(variable.id);
+                    var revision = CompareRevision(cached != null, cached?.UpdatedAt, variable.updated_at);
                     _items.Add(new Item
                     {
                         Id = "variable:" + variable.id,
@@ -791,12 +849,13 @@ namespace Grimoire.PluginV2.Editor
                         Key = Display(variable.name, variable.id),
                         Folder = ResolveFolder("Variables", !string.IsNullOrWhiteSpace(variable.folder)
                             ? variable.folder : variable.group),
-                        Status = Display(variable.status, "Grimoire"),
+                        Revision = revision,
+                        Status = RevisionLabel(revision, "Synced"),
                         Source = "Grimoire API",
                         Summary = $"{variable.elements?.Length ?? 0} elements · {variable.element_type}",
                         Type = Kind.Variable,
                         Variable = variable,
-                        CachedVariable = _cachedVariables?.FindVariable(variable.id),
+                        CachedVariable = cached,
                     });
                 }
             }
@@ -832,12 +891,39 @@ namespace Grimoire.PluginV2.Editor
         private static int CategoryOrder(Kind kind) =>
             kind == Kind.Object ? 0 : kind == Kind.Dialog ? 1 : 2;
 
-        private static string DialogStatus(DialogSummary summary, GrimoireDialogAsset asset)
+        internal static Revision CompareRevision(bool present, string local, string remote)
         {
-            if (asset == null) return "Not imported";
-            return string.Equals(asset.UpdatedAt, summary.updated_at ?? "", StringComparison.Ordinal)
-                ? "Imported"
-                : "Update available";
+            if (!present) return Revision.Missing;
+            if (!DateTimeOffset.TryParse(local, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var saved) ||
+                !DateTimeOffset.TryParse(remote, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var listed))
+                return Revision.Unknown;
+            return saved == listed ? Revision.Current : Revision.Changed;
+        }
+
+        internal static Revision ObjectRevision(ObjectSummary item, IEnumerable<GrimoireObjectLink> links)
+        {
+            var status = Revision.Untracked;
+            foreach (var link in links)
+            {
+                var snapshot = link.ApiSnapshot;
+                var matches = string.Equals(snapshot?.ObjectId, item.id, StringComparison.OrdinalIgnoreCase);
+                var revision = CompareRevision(matches, snapshot?.SyncedSourceRevision, item.updated_at);
+                if (revision == Revision.Missing || revision == Revision.Changed) return revision;
+                if (status != Revision.Unknown) status = revision;
+            }
+            return status;
+        }
+
+        private static string RevisionLabel(Revision revision, string fallback)
+        {
+            switch (revision)
+            {
+                case Revision.Missing: return "Needs first sync";
+                case Revision.Unknown: return "Revision unknown";
+                case Revision.Changed: return "Update available";
+                case Revision.Current: return "Source revision matches";
+                default: return fallback;
+            }
         }
 
         private static string Display(params string[] values) =>
@@ -939,8 +1025,12 @@ namespace Grimoire.PluginV2.Editor
             menu.ShowAsContext();
         }
 
+        private static bool NeedsSync(Item item) =>
+            item.Revision != Revision.Untracked && item.Revision != Revision.Current;
+
         private bool Allowed(Item item)
         {
+            if (_updatesOnly && !NeedsSync(item)) return false;
             if (_pickerKind == Kind.Object && item.Type != Kind.Object) return false;
             if (_pickerKind == Kind.Dialog && item.Type != Kind.Dialog) return false;
             if (_pickerKind == Kind.Variable && item.Type != Kind.Variable && item.Type != Kind.DialogVariable) return false;
@@ -972,6 +1062,7 @@ namespace Grimoire.PluginV2.Editor
             _suppressSelection = true;
             _resultList.Rebuild();
             var selectedIndex = _visible.FindIndex(item => item.Id == _selectedId);
+            if (_updatesOnly && selectedIndex < 0) _selectedId = null;
             if (selectedIndex >= 0) _resultList.SetSelectionWithoutNotify(new[] { selectedIndex });
             else _resultList.ClearSelection();
             _suppressSelection = false;
@@ -981,7 +1072,7 @@ namespace Grimoire.PluginV2.Editor
             _subtitle.text = "Objects, dialogs and variables for " +
                 (string.IsNullOrEmpty(GrimoireSettings.GameId) ? "your selected game" : GrimoireSettings.GameId);
             _folderPopup.text = _folder + " ▾";
-            _resultsHeading.text = _folder + "  ·  " + _visible.Count;
+            _resultsHeading.text = (_updatesOnly ? "Items to sync" : _folder) + "  ·  " + _visible.Count;
             _footer.text = $"{_items.Count} items · {_objects.Count} objects · {_dialogs.Count} dialogs · " +
                 $"{(_remoteVariablesLoaded ? _variables.Count : _cachedVariables?.Variables.Count ?? 0)} game variables" +
                 (_objectsLoading || _dialogsLoading || _variablesLoading || _foldersLoading ? " · Loading…" : "");
@@ -1008,7 +1099,8 @@ namespace Grimoire.PluginV2.Editor
                 if (_pickerKind == Kind.Dialog && path != AllFolder && !path.StartsWith("Dialogs", StringComparison.Ordinal)) continue;
                 if (_pickerKind == Kind.Variable && path != AllFolder && !path.StartsWith("Variables", StringComparison.Ordinal)) continue;
                 var current = path;
-                var count = _items.Count(item => (path == AllFolder || item.Folder == path ||
+                var count = _items.Count(item => (!_updatesOnly || NeedsSync(item)) &&
+                    (path == AllFolder || item.Folder == path ||
                     item.Folder.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase)) &&
                     (!_pickerKind.HasValue || _pickerKind == Kind.Object && item.Type == Kind.Object ||
                      _pickerKind == Kind.Dialog && item.Type == Kind.Dialog ||
@@ -1087,16 +1179,18 @@ namespace Grimoire.PluginV2.Editor
         private void RenderDetail()
         {
             if (_detailContent == null) return;
-            GrimoireGameLanguagePreview.EnsureLoaded();
             _detailContent.Clear();
             var item = SelectedItem();
             if (item == null)
             {
-                Info(_items.Count == 0 && (_objectsLoading || _dialogsLoading || _variablesLoading)
-                    ? "Loading content…" : "Select an item to inspect its values and copy its key.");
+                var loading = _objectsLoading || _dialogsLoading || _variablesLoading;
+                Info(_updatesOnly && _visible.Count == 0
+                    ? loading ? "Checking source revisions…" : "No items match this update view."
+                    : _items.Count == 0 && loading ? "Loading content…" : "Select an item to inspect its values and copy its key.");
                 return;
             }
 
+            GrimoireGameLanguagePreview.EnsureLoaded();
             var kind = item.Type == Kind.DialogVariable ? "DIALOG VARIABLE" : item.Type.ToString().ToUpperInvariant();
             DetailLabel(kind, "detail-kind");
             DetailLabel(item.Type == Kind.Object && item.Object != null &&
@@ -1117,6 +1211,12 @@ namespace Grimoire.PluginV2.Editor
             {
                 actions.Add(new Button(() => EditorGUIUtility.PingObject(item.Asset)) { text = "Ping asset" });
             }
+            if (!IsPicker && item.Object != null && item.Revision != Revision.Untracked)
+            {
+                var sync = new Button(() => SyncItem(item)) { text = "Sync object in open scenes" };
+                sync.SetEnabled(GrimoireContentSync.CanPull);
+                actions.Add(sync);
+            }
             if (actions.childCount > 0) _detailContent.Add(actions);
             if (item.Type == Kind.Object && !IsPicker) RenderSceneBinding(item);
             Section("Overview");
@@ -1128,6 +1228,9 @@ namespace Grimoire.PluginV2.Editor
                 ValueRow("Folder ID", folderId);
             ValueRow("Source", item.Source);
             ValueRow("Status", item.Status);
+            var workflowStatus = item.Object?.status ?? item.Variable?.status;
+            if (!string.IsNullOrEmpty(workflowStatus) && workflowStatus != item.Status)
+                ValueRow("Grimoire status", workflowStatus);
 
             if (_detailLoading) Info("Loading values…");
             if (!string.IsNullOrEmpty(_detailError)) Info(_detailError);
@@ -1293,12 +1396,12 @@ namespace Grimoire.PluginV2.Editor
         {
             if (item.Dialog != null && GrimoireSettings.IsConfigured)
             {
-                var import = new Button(() => ImportDialog(item))
+                var import = new Button(() => SyncItem(item))
                 {
                     text = item.Asset == null ? "Import dialog into project" : "Update imported dialog"
                 };
                 import.AddToClassList("primary");
-                import.SetEnabled(!_busy);
+                import.SetEnabled(GrimoireContentSync.CanPull);
                 _detailContent.Add(import);
             }
             var asset = item.Asset;
@@ -1417,8 +1520,9 @@ namespace Grimoire.PluginV2.Editor
             }
             if (resource != null && GrimoireSettings.IsConfigured && !IsPicker)
             {
-                _detailContent.Add(new Button(SyncVariables) { text = _cachedVariables == null
-                    ? "Sync variables into Unity project" : "Update synced variables" });
+                var sync = new Button(() => SyncItem(item)) { text = "Sync this variable" };
+                sync.SetEnabled(GrimoireContentSync.CanPull);
+                _detailContent.Add(sync);
                 _detailContent.Add(new Button(GrimoireConnectWindow.OpenVariables) { text = "Variable sync options" });
             }
         }
@@ -1566,63 +1670,59 @@ namespace Grimoire.PluginV2.Editor
             _closePicker?.Invoke();
         }
 
-        private async void ImportDialog(Item item)
+        private async void SyncItem(Item item)
         {
-            if (_busy || item.Dialog == null) return;
-            _busy = true;
-            _message = "Importing " + item.Name + "…";
-            RenderItems();
+            if (!GrimoireContentSync.BeginItemSync()) return;
             var gameId = GrimoireSettings.GameId;
+            var context = GrimoireContentSync.CurrentContext();
             try
             {
-                var result = await GrimoireDialogImporter.ImportAsync(gameId, item.Dialog.id);
-                if (!_active || gameId != GrimoireSettings.GameId) return;
-                _message = result.Success ? "Imported " + item.Name + " into the project." :
-                    DescribeError("Dialog import", result.Error, result.HttpStatus);
-                ReadLocalAssets();
-                BuildItems();
+                _message = "Syncing " + item.Name + "…";
+                RenderItems();
+                string notes = null;
+                switch (item.Type)
+                {
+                    case Kind.Dialog:
+                        var dialog = await GrimoireDialogImporter.ImportAsync(gameId, item.Dialog.id,
+                            syncVariables: IsPicker);
+                        if (!dialog.Success) throw new InvalidOperationException(DescribeError("Dialog", dialog.Error, dialog.HttpStatus));
+                        item.Dialog.updated_at = dialog.Data.UpdatedAt;
+                        notes = string.Join("\n", GrimoireDialogImporter.LastImportNotes);
+                        break;
+                    case Kind.Variable:
+                        var variable = await GrimoireVariableSync.SyncOneAsync(gameId, item.Variable.id);
+                        if (!variable.Success) throw new InvalidOperationException(DescribeError("Variable", variable.Error, variable.HttpStatus));
+                        var index = _variables.IndexOf(item.Variable);
+                        if (index >= 0) _variables[index] = variable.Data;
+                        break;
+                    case Kind.Object:
+                        var obj = await GrimoireSyncEverything.SyncSceneObjectAsync(gameId, item.Object);
+                        if (!obj.Success) throw new InvalidOperationException(DescribeError("Object", obj.Error, obj.HttpStatus));
+                        item.Object.updated_at = obj.Data.@object.updated_at;
+                        if (context == GrimoireContentSync.CurrentContext())
+                        {
+                            if (_selectedId == item.Id)
+                            {
+                                _detailGeneration++;
+                                _detailLoading = false;
+                                _detailError = _detailFailedId = null;
+                            }
+                            if (string.IsNullOrEmpty(GrimoireSettings.Locale)) _objectDetails[item.Object.id] = obj.Data;
+                            else _objectDetails.Remove(item.Object.id);
+                        }
+                        break;
+                }
+                if (_active && context == GrimoireContentSync.CurrentContext())
+                    _message = "Synced " + item.Name + "." + (string.IsNullOrEmpty(notes) ? "" : "\n" + notes);
             }
             catch (Exception ex)
             {
-                if (_active) _message = "Dialog import: " + ex.Message;
+                if (_active && context == GrimoireContentSync.CurrentContext()) _message = ex.Message;
             }
             finally
             {
-                if (_active)
-                {
-                    _busy = false;
-                    RenderItems();
-                }
-            }
-        }
-
-        private async void SyncVariables()
-        {
-            if (_busy || !GrimoireSettings.IsConfigured) return;
-            _busy = true;
-            _message = "Syncing variables into the project…";
-            RenderItems();
-            var gameId = GrimoireSettings.GameId;
-            try
-            {
-                var result = await GrimoireVariableSync.SyncAsync(gameId);
-                if (!_active || gameId != GrimoireSettings.GameId) return;
-                _message = result.Success ? "Variables synced into the project." :
-                    DescribeError("Variable sync", result.Error, result.HttpStatus);
-                ReadLocalAssets();
-                BuildItems();
-            }
-            catch (Exception ex)
-            {
-                if (_active) _message = "Variable sync: " + ex.Message;
-            }
-            finally
-            {
-                if (_active)
-                {
-                    _busy = false;
-                    RenderItems();
-                }
+                GrimoireContentSync.EndItemSync();
+                if (_active) OnProjectChanged();
             }
         }
     }

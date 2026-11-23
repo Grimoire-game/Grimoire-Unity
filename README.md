@@ -211,6 +211,17 @@ appear when there are object changes; translation actions stay with text links.
 The first time you sign in and select a game, Grimoire automatically pulls its
 content and shows progress above the workspace and in **Content Library**.
 Use **Content Library > Pull from Grimoire > Sync everything** to run it again.
+Unity remembers a successful full pull for the selected workspace across editor restarts.
+
+Choose **Check for updates** to compare source revisions for dialogs, variables,
+and object links in open scenes. Select a row to pull that item. A first sync
+establishes the revision for older object snapshots. A variable pull preserves
+the other variables. An object pull updates matching links in open scenes and
+preserves local field edits. A dialog pull includes its linked dialogs and uses
+the project's synced variables. Translation-only edits and changes to referenced
+content can require a pull even when the source revision matches. Use the full
+pull to update closed scenes, prefabs, and the complete translation catalog.
+
 The pull downloads the game's language and string catalogs
 once, then updates the runtime string and variable libraries, all game dialogs,
 scene/prefab text links, object links, and cached nested objects. Every configured
@@ -485,7 +496,7 @@ no branch matches also logs a warning, because the dialog ends there.
 
 Grimoire stores a `types` field as an element id, so a setter like
 `Bofur: Mood → Angry` writes `d8797c69-…`, not "Angry". Sync the game's variables
-on the **Variables** tab (see below; importing a dialog syncs them too). Then turn
+on the **Variables** tab (see below), or sync the variable in **Content Library**. Then turn
 ids into names anywhere:
 
 ```csharp

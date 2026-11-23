@@ -232,6 +232,17 @@ namespace Grimoire.PluginV2
             _elementIndex = null;
         }
 
+        internal void SetSyncedVariable(string gameId, GrimoireVariable variable)
+        {
+            if (!string.IsNullOrEmpty(_gameId) && _gameId != gameId)
+                throw new InvalidOperationException("This variable library belongs to another game.");
+            _gameId = gameId;
+            var index = _variables.FindIndex(existing => existing?.Id == variable.Id);
+            if (index < 0) _variables.Add(variable);
+            else _variables[index] = variable;
+            _elementIndex = null;
+        }
+
         private void EnsureIndex()
         {
             if (_elementIndex != null)

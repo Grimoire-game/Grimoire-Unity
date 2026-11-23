@@ -170,6 +170,7 @@ namespace Grimoire.PluginV2.Editor
             }
 
             var dialogCache = new Dictionary<string, DialogResource>(StringComparer.Ordinal);
+            var dialogObjectViews = new Dictionary<string, GrimoireLocalizedObjectLoader.LoadedObject>(StringComparer.Ordinal);
             var syncedDialogs = new Dictionary<string, GrimoireDialogAsset>(StringComparer.Ordinal);
             for (var i = 0; i < dialogs.Count; i++)
             {
@@ -192,7 +193,8 @@ namespace Grimoire.PluginV2.Editor
                     catalog,
                     syncVariables: false,
                     saveAssets: false,
-                    resourceCache: dialogCache);
+                    resourceCache: dialogCache,
+                    sharedViews: dialogObjectViews);
                 if (imported.Success)
                 {
                     syncedDialogs[dialog.id] = imported.Data;
@@ -365,6 +367,46 @@ namespace Grimoire.PluginV2.Editor
             }
 
             return loaded;
+        }
+
+        internal static bool MatchesObject(GrimoireObjectLink link, ObjectSummary item)
+        {
+            if (link == null || item == null || string.IsNullOrEmpty(item.id)) return false;
+            return !string.IsNullOrEmpty(link.CachedObjectId)
+                ? string.Equals(link.CachedObjectId, item.id, StringComparison.OrdinalIgnoreCase)
+                : link.HasKey && string.Equals(link.ObjectKey, item.code_id, StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static async Task<ApiResult<ObjectViewDocument>> SyncSceneObjectAsync(string gameId, ObjectSummary item)
+        {
+            var context = GrimoireContentSync.CurrentContext();
+            if (!await GrimoireAuthSession.EnsureFreshTokenAsync())
+                return ApiResult<ObjectViewDocument>.Fail("Your Grimoire session has expired. Sign in again.");
+            var links = new List<GrimoireObjectLink>();
+            GrimoireGameEngineDirtyTracker.CollectSceneLinks(links);
+            var targets = links.Where(link => MatchesObject(link, item)).ToList();
+            if (targets.Count == 0) return ApiResult<ObjectViewDocument>.Fail("No matching links in open scenes.");
+
+            var loaded = await GrimoireLocalizedObjectLoader.LoadAsync(gameId, item.id, includeLogic: true);
+            if (!loaded.Success)
+                return ApiResult<ObjectViewDocument>.Fail(loaded.Error, loaded.Code, loaded.HttpStatus);
+            if (!GrimoireContentSync.CanApply(context))
+                return ApiResult<ObjectViewDocument>.Fail("The workspace or editor mode changed during sync.");
+            targets.RemoveAll(link => !MatchesObject(link, item) || !link.gameObject.scene.isLoaded);
+            if (targets.Count == 0) return ApiResult<ObjectViewDocument>.Fail("The scene links changed during sync.");
+
+            foreach (var link in targets)
+            {
+                Undo.RecordObject(link, "Sync Grimoire object");
+                link.CachedObjectId = item.id;
+                GrimoireLinkedFieldStore.ApplyFromDocument(link, loaded.Data.Source,
+                    preserveLocalEdits: true, localizedSnapshot: CloneSnapshot(loaded.Data.Snapshot));
+                PrefabUtility.RecordPrefabInstancePropertyModifications(link);
+                GrimoireObjectCache.Register(link);
+            }
+            GrimoireObjectCache.NotifyUpdated();
+            GrimoireObjectKeyResolver.RememberSummary(gameId, loaded.Data.Source.@object);
+            return ApiResult<ObjectViewDocument>.Ok(loaded.Data.Source);
         }
 
         private static GrimoireObjectSnapshot CloneSnapshot(

@@ -473,6 +473,12 @@ namespace Grimoire.PluginV2
     public class GrimoireObjectSnapshot
     {
         public GrimoireObjectLogic Logic;
+        [SerializeField] private string _syncedSourceRevision = "";
+        public string SyncedSourceRevision
+        {
+            get => _syncedSourceRevision;
+            internal set => _syncedSourceRevision = value ?? "";
+        }
         public List<GrimoireDialogAsset> LogicDialogs = new List<GrimoireDialogAsset>();
 
         [SerializeField]

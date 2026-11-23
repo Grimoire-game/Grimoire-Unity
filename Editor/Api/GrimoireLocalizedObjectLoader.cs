@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Grimoire.PluginV2.Editor
@@ -28,6 +29,9 @@ namespace Grimoire.PluginV2.Editor
                 return ApiResult<LoadedObject>.Fail(
                     source.Error, source.Code, source.HttpStatus);
             }
+            if (source.Data?.@object == null ||
+                !string.Equals(source.Data.@object.id, objectId, StringComparison.OrdinalIgnoreCase))
+                return ApiResult<LoadedObject>.Fail("The server returned an unexpected object.", "malformed_response");
 
             IReadOnlyList<string> languages;
             string sourceLanguage;
@@ -57,31 +61,26 @@ namespace Grimoire.PluginV2.Editor
             }
 
             var snapshot = GrimoireObjectSnapshotMapper.FromDocument(source.Data);
-            foreach (var language in languages)
+            if (includeLogic) snapshot.SyncedSourceRevision = source.Data?.@object?.updated_at;
+            var locales = languages.Where(language => !string.IsNullOrWhiteSpace(language) &&
+                !string.Equals(language, sourceLanguage, StringComparison.OrdinalIgnoreCase)).ToArray();
+            const int maxConcurrentLocales = 3;
+            for (var start = 0; start < locales.Length; start += maxConcurrentLocales)
             {
-                if (string.IsNullOrWhiteSpace(language) ||
-                    string.Equals(language, sourceLanguage, StringComparison.OrdinalIgnoreCase))
+                var batch = locales.Skip(start).Take(maxConcurrentLocales).ToArray();
+                progress?.Invoke($"Downloading object ({string.Join(", ", batch)})...");
+                var results = await Task.WhenAll(batch.Select(language =>
+                    GrimoireApiClient.GetObjectViewAsync(gameId, objectId, language)));
+                for (var i = 0; i < results.Length; i++)
                 {
-                    continue;
+                    var localized = results[i];
+                    if (!localized.Success)
+                        return ApiResult<LoadedObject>.Fail(
+                            $"Could not download object locale '{batch[i]}': {localized.Error}",
+                            localized.Code, localized.HttpStatus);
+                    if (!string.IsNullOrWhiteSpace(localized.Data?.locale?.resolved))
+                        GrimoireObjectSnapshotMapper.MergeLocalizedDocument(snapshot, localized.Data, batch[i]);
                 }
-
-                progress?.Invoke($"Downloading object ({language})...");
-                var localized = await GrimoireApiClient.GetObjectViewAsync(gameId, objectId, language);
-                if (!localized.Success)
-                {
-                    return ApiResult<LoadedObject>.Fail(
-                        $"Could not download object locale '{language}': {localized.Error}",
-                        localized.Code,
-                        localized.HttpStatus);
-                }
-
-                if (string.IsNullOrWhiteSpace(localized.Data?.locale?.resolved))
-                {
-                    continue;
-                }
-
-                GrimoireObjectSnapshotMapper.MergeLocalizedDocument(
-                    snapshot, localized.Data, language);
             }
 
             if (includeLogic && snapshot.Logic?.version == 1)

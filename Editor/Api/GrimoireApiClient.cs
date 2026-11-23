@@ -112,6 +112,20 @@ namespace Grimoire.PluginV2.Editor
                 : ApiResult<VariableResource[]>.Fail(result.Error, result.Code, result.HttpStatus);
         }
 
+        /// <summary>GET /api/v1/variables/{id} — one variable and its elements.</summary>
+        public static async Task<ApiResult<VariableResource>> GetVariableAsync(string gameId, string variableId)
+        {
+            var url = BuildUrl($"/api/v1/variables/{UnityWebRequest.EscapeURL(variableId)}",
+                new Dictionary<string, string> { ["game_id"] = gameId });
+            var result = await SendAsync<SingleEnvelope<VariableResource>>("GET", url, null, ApiAuth.Bearer);
+            if (!result.Success)
+                return ApiResult<VariableResource>.Fail(result.Error, result.Code, result.HttpStatus);
+            var variable = result.Data.data;
+            if (variable == null || variable.id != variableId || variable.game_id != gameId)
+                return ApiResult<VariableResource>.Fail("The server returned an unexpected variable.");
+            return ApiResult<VariableResource>.Ok(variable);
+        }
+
         /// <summary>GET /api/v1/dialogs/{id} — dialog metadata plus its node graph.</summary>
         public static async Task<ApiResult<DialogResource>> GetDialogAsync(string gameId, string dialogId)
         {

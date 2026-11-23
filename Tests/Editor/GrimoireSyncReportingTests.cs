@@ -59,6 +59,31 @@ namespace Grimoire.PluginV2.Tests
         }
 
         [Test]
+        public async Task FullPullReusesSuccessfulObjectReadsAcrossSeparateDialogImports()
+        {
+            var shared = new System.Collections.Generic.Dictionary<string, GrimoireLocalizedObjectLoader.LoadedObject>();
+            var calls = 0;
+            for (var dialog = 0; dialog < 3; dialog++)
+            {
+                var reference = Reference("field");
+                await GrimoireDialogImporter.ResolveObjectFieldsAsync(GameId, new[]
+                {
+                    new GrimoireDialogNode { conditionSubjectRef = reference }
+                }, null, null, id =>
+                {
+                    calls++;
+                    return Task.FromResult(ApiResult<GrimoireLocalizedObjectLoader.LoadedObject>.Ok(
+                        new GrimoireLocalizedObjectLoader.LoadedObject
+                        {
+                            Source = new ObjectViewDocument { @object = new ObjectSummary { id = id, code_id = "bed" } }
+                        }));
+                }, shared);
+                Assert.AreEqual("bed", reference.objectKey);
+            }
+            Assert.AreEqual(1, calls);
+        }
+
+        [Test]
         public async Task FailedLookupKeepsKnownKeyWithoutAddingAMissingCodeIdWarning()
         {
             var reference = Reference("field");
